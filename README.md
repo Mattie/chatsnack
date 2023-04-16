@@ -17,8 +17,8 @@ pip install chatsnack
 
 Add your OpenAI API key to your .env file. If you don't have a .env file, the library will create a new one for you. You can use env.template.cataclysm as an example.
 
-### Learn
-Read more below, watch the [video](https://youtu.be/5ZQYQZ0ZQ0o) or check out the [Getting Started notebook](notebooks/).
+### Learn More!
+Read more below, watch the [video](https://youtu.be/ZK8fUuQDgZ4) or check out the [Getting Started notebook](notebooks/).
 
 ## Usage
 
@@ -185,6 +185,10 @@ is the same as:
 print(Chat("Respond hungrily").ask("Tell me about cookies"))
 ```
 Basically, we assume if you're making a `Chat()` you'll need a system message, and if you're sending an `ask()` or `chat()` you'll need a user message. So you can omit those if you want (or use `system=` and `user=` keywords if you want to be explicit).
+
+##### Quick Assistants
+
+Also, `.asst()` is an alias shortcut for `.assistant()` if you want you code to align cleanly with other 4-letter `.user()` and `.chat()` calls.
 
 ##### Binge-chaining
 
