@@ -15,7 +15,7 @@ pip install chatsnack
 
 ### Got keys?
 
-Add your OpenAI API key to your .env file. If you don't have a .env file, the library will create a new one for you. You can use env.template.cataclysm as an example.
+Add your OpenAI API key to your .env file. If you don't have a .env file, the library will create a new one for you in the local directory.
 
 ### Learn More!
 Read more below, watch the [video](https://youtu.be/ZK8fUuQDgZ4) or check out the [Getting Started notebook](notebooks/).
