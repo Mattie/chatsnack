@@ -1,0 +1,21 @@
+.*
+__pycache__/
+*.pyc
+datafiles/plunkylib/*/*.*
+samples*/*
+dist/**
+build/**
+logs/**
+*.db
+_*.yml
+
+# ignore the log files when generated
+*.log
+__pycache__
+
+# don't ignore the .gitignore or the env template
+!.gitignore
+
+# we don't want completions even if they are samples
+datafiles/plunkylib/completions/**
+tests/test_datafiles/**

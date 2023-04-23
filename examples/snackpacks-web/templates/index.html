@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Chatsnack Demo</title>
+    <link rel="stylesheet" href="/static/styles.css">
+
+</head>
+<body>
+    <div class="container">
+        <h1 class="page-title">Snackchat Demo</h1>
+        <div clas="bot-selector"><label>Chatting with:</label>
+            <select id="bot-choice">
+                <option value="emoji">Emoji Bot</option>
+                <option value="help">Help Bot</option>
+                <option value="jolly">Jolly Bot</option>
+                <option value="jane">Jane Bot</option>
+                <option value="data">Data Bot</option>
+                <option value="confectioner">Confectioner Bot</option>
+                <option value="chester">Chester Bot</option>                
+            </select>
+            <span id="selected-bot"></span>
+        </div>
+        <div id="messages" style="overflow-y: scroll;"></div>
+        <div>
+            <input type="text" id="user-input" placeholder="Type your message here...">
+            <div id="start-conversation" style="display: none;">
+                <form action="/start_new" method="post">
+                    <input type="submit" value="New Topic" class="new-conversation-btn">
+                </form>
+            </div>
+            <div id="submitbutton" style="display: block;margin: 10px auto;float: right;">
+                <button class="new-conversation-btn" id="submit-btn">Send</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const userInput = document.getElementById("user-input");
+        const messages = document.getElementById("messages");
+        const botChoice = document.getElementById("bot-choice");
+        const submitBtn = document.getElementById("submit-btn");
+
+        function handleInput() {
+            if (userInput.value.trim() !== "") {
+                const userMessage = userInput.value.trim();
+                messages.innerHTML += `<div class="chat-bubble user"><strong>You:</strong> ${userMessage}</div>`;
+                scrollToBottom();
+                userInput.value = "";
+
+                const formData = new FormData();
+                formData.append("user_input", userMessage);
+                formData.append("bot_choice", botChoice.value);
+
+                fetch("/chat", {
+                method: "POST",
+                body: formData,
+                })
+                .then((response) => response.json())
+                .then((data) => {
+                const botResponse = data.response;
+                const botName = botChoice.options[botChoice.selectedIndex].text;
+                messages.innerHTML += `<div class="chat-bubble bot">
+                    <div class="avatar bot-avatar"></div>
+                    <div class="text"><span class="username">${botName}</span>: <br/> ${botResponse}</div>`;
+                messages.scrollTop = messages.scrollHeight;
+                document.getElementById("start-conversation").style.display = "block";
+                });
+                // hide the bot-selector and updated #selected-bot with bot-choice
+                document.getElementById("bot-choice").style.display = "none";
+                document.getElementById("selected-bot").innerHTML = botChoice.options[botChoice.selectedIndex].text;
+            }
+        }
+
+        submitBtn.addEventListener("click", handleInput);
+
+        userInput.addEventListener("keydown", (e) => {
+        if (e.key === "Enter") {
+            handleInput();
+        }
+        });
+
+    </script>
+    <script>
+        function scrollToBottom() {
+          const messages = document.getElementById('messages');
+          messages.scrollTop = messages.scrollHeight;
+        }
+      
+        scrollToBottom();
+      </script>
+      
+</body>
+</html>

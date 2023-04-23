@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Text Generation Contest</title>
+    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+    <style>
+        /* Other styles if any */
+
+        /* Styles for resultsCounter */
+        html, body {
+            height: 90%;
+            margin: 10px;
+            position: relative;
+            font-family:Verdana;
+        }
+
+        #resultsCounter {
+            position: absolute;
+            top: 0;
+            right: 0;
+            width: 200px;
+            background-color: #f9f9f9;
+            padding: 10px;
+            text-align: center;
+            font-size: 16px;
+            border: 1px solid #ccc;
+        }
+        .responseText {
+            font-family: monospace;
+            font-size: 13px;
+            white-space: pre-wrap;
+            /* inset border */
+            border: 2px inset #ccc;
+            padding: 10px;
+            background: #EEE;
+        }
+        .swiper {
+            margin: 10px;
+            padding: 10px;
+            font-size: 16px;
+            border: 1px solid #ccc;
+            border-radius: 5px;
+            background-color: #f9f9f9;
+            cursor: pointer;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        }
+        #swipeLeft {
+            color: darkred;
+        }
+        #swipeRight {
+            color: darkgreen;
+        }
+        #submit {
+            margin: 10px;
+            padding: 10px;
+            font-size: 16px;
+            border: 1px solid #ccc;
+            border-radius: 5px;
+            background-color: #f9f9f9;
+            cursor: pointer;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        }
+    </style>
+
+</head>
+<body>
+    <h1>Text Generation Contest</h1>
+    <form id="testForm">
+        <label for="num_tests">Enter the number of tests:</label>
+        <input type="number" id="num_tests" name="num_tests" min="1" step="1">
+        <button id="submit" type="submit">Start</button>
+    </form>
+    <div id="loadingMessage" style="display:none;">
+        <p>Generating more responses... Please wait.</p>
+    </div>
+    <div id="responseContainer" style="display:none;">
+        <h3>Do you like this generation?</h3>
+        <pre id="responseText" class="responseText"></pre>
+        <button id="swipeLeft" class="swiper">⬅️ Swipe left</button>
+        <button id="swipeRight" class="swiper">Swipe right ➡️</button>
+    </div>
+    <div id="resultsContainer" style="display:none;">
+        <h2><span id="resultsTitle">Winner:</span> <span id="winner"></span></h2>
+        <p>Margin of victory: <span id="margin"></span></p>
+        <div id="detailedResults"></div>
+    </div>
+    <div id="resultsCounter">Generations ready: 0</div>
+    
+    
+    <script src="{{ url_for('static', filename='main.js') }}"></script>
+</body>
+</html>
