@@ -134,7 +134,7 @@ For rapid reuse, you can give your chats a name so you can save/load as needed (
 
 #### Adjusting Cooking Temperatures
 
-By default, `gpt-3.5-turbo` is the default chat API with a default temperature of `0.5`. If you prefer, you can change OpenAI parameters for each chat, such as the engine and temperature:
+By default, `gpt-3.5-turbo` is the default chat API with a default temperature of `0.7`. If you prefer, you can change OpenAI parameters for each chat, such as the engine and temperature:
 
 ```python
 from chatsnack import Chat
@@ -193,7 +193,7 @@ Also, `.asst()` is an alias shortcut for `.assistant()` if you want you code to 
 
 ##### Binge-chaining
 
-If you're feeling wild, you can actually call any chat (like a function) and it'll submit the chat and continue, just like `.chat()`. This allows even more terse chaining. This can come in handy when you're looking for 
+If you're feeling wild, you can actually call any chat (like a function) and it'll submit the chat and continue, just like `.chat()`. This allows even more terse chaining. This can come in handy when you're looking for chain-of-thought prompting or prewriting priming.
 
 ```python
 popcorn = (
