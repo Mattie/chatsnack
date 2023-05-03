@@ -71,7 +71,8 @@ def _process_function(func, cls=None):
     output = []
 
     signature = inspect.signature(func)
-    params = ', '.join(f"{name}{': ' + param.annotation.__name__ if param.annotation is not inspect.Parameter.empty else ''}" for name, param in signature.parameters.items())
+    params = ', '.join(f"{name}{': ' + param.annotation.__name__ if (param.annotation is not inspect.Parameter.empty and hasattr(param.annotation, '__name__')) else ''}" for name, param in signature.parameters.items())
+
 
     func_name = f"{cls.__name__}.{func.__name__}" if cls else func.__name__
 
