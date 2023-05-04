@@ -2,17 +2,19 @@ import asyncio
 import json
 import uuid
 from datetime import datetime
+from typing import Dict, List, Optional
 
 from loguru import logger
+from datafiles import datafile
 
 from ..asynchelpers import aformatter
 from ..aiwrapper import cleaned_chat_completion
 from ..fillings import filling_machine
 
 from .mixin_messages import ChatMessagesMixin
+from .mixin_params import ChatParamsMixin
 
-
-class ChatQueryMixin(ChatMessagesMixin):
+class ChatQueryMixin(ChatMessagesMixin, ChatParamsMixin):
     # async method that gathers will execute an async format method on every message in the chat prompt and gather the results into a final json string
     async def _gather_format(self, format_coro, **kwargs) -> str:
         new_messages = self.get_messages()
@@ -59,6 +61,18 @@ class ChatQueryMixin(ChatMessagesMixin):
             pparams = prompter.params._get_non_none_params()
             return prompt, await cleaned_chat_completion(prompt, **pparams)
 
+    @property
+    def response(self) -> str:
+        """ Returns the value of the last assistant message in the chat prompt ⭐"""
+        last_assistant_message = None
+        for _message in self.messages:
+            message = self._msg_dict(_message)
+            if "assistant" in message:
+                last_assistant_message = message["assistant"]
+        # filter the response if we have a pattern
+        last_assistant_message = self.filter_by_pattern(last_assistant_message)
+        return last_assistant_message
+
     def __call__(self, usermsg=None, **additional_vars) -> object:
         """ Executes the query as-is and returns a Chat object with the response, shortcut for Chat.chat()"""
         if usermsg is not None:
@@ -86,6 +100,8 @@ class ChatQueryMixin(ChatMessagesMixin):
         if usermsg is not None:
             additional_vars["__user"] = usermsg
         _, response = await self._submit_for_response_and_prompt(**additional_vars)
+        # filter the response if we have a pattern
+        response = self.filter_by_pattern(response)
         return response
     async def chat_a(self, usermsg=None, **additional_vars) -> object:
         """ Executes the query as-is, and returns a ChatPrompt object that contains the response. Async version of chat()"""

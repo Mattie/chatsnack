@@ -95,16 +95,6 @@ class ChatMessagesMixin:
             return None
 
     @property
-    def response(self) -> str:
-        """ Returns the value of the last assistant message in the chat prompt ⭐"""
-        last_assistant_message = None
-        for _message in self.messages:
-            message = self._msg_dict(_message)
-            if "assistant" in message:
-                last_assistant_message = message["assistant"]
-        return last_assistant_message
-
-    @property
     def system_message(self) -> str:
         """ Returns the first system message, if any """
         # get the first message that has a key of "system"
@@ -157,4 +147,3 @@ class ChatMessagesMixin:
                 else:
                     new_messages.append({"role": role, "content": content})
         return new_messages
-

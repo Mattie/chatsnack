@@ -28,7 +28,7 @@ class Text(DatafileMixin):
 
 
 @datafile(CHATSNACK_BASE_DIR + "/{self.name}.yml", manual=True, init=False)
-class Chat(ChatParamsMixin, ChatQueryMixin, ChatSerializationMixin):
+class Chat(ChatQueryMixin, ChatSerializationMixin):
     """ A chat prompt that can be expanded into a chat ⭐"""
     # title should be just like above but with a GUID at the end
     name: str = field(default_factory=lambda: f"_ChatPrompt-{datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}-{uuid.uuid4()}")
