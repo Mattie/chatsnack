@@ -81,6 +81,7 @@ def test_text_save2():
     assert os.path.exists(text.datafile.path)
 
 
+@pytest.mark.skipif(os.environ.get("OPENAI_API_KEY") is None, reason="OPENAI_API_KEY is not set in environment or .env")
 def test_text_expansion():
     # we need a text object saved to disk
     text = Text(name="test_text_expansion", content="Respond only with 'YES' regardless of what is said.")
@@ -94,6 +95,7 @@ def test_text_expansion():
     # new chat object should have the text expanded in the system message
     assert output.system_message == "Respond only with 'YES' regardless of what is said."
 
+@pytest.mark.skipif(os.environ.get("OPENAI_API_KEY") is None, reason="OPENAI_API_KEY is not set in environment or .env")
 def test_text_nested_expansion():
     # we need a text object saved to disk
     text = Text(name="test_text_expansion", content="Respond only with '{text.test_text_expansion2}' regardless of what is said.")
@@ -112,6 +114,7 @@ def test_text_nested_expansion():
     # new chat object should have the text expanded in the system message
     assert output.system_message == "Respond only with 'NO' regardless of what is said."
 
+@pytest.mark.skipif(os.environ.get("OPENAI_API_KEY") is None, reason="OPENAI_API_KEY is not set in environment or .env")
 def test_text_chat_expansion():
     chat = Chat(name="test_text_chat_expansion")
     chat.system("Respond only with 'DUCK!' regardless of what is said.")

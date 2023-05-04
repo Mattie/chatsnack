@@ -1,3 +1,4 @@
+import os
 import pytest
 from chatsnack import Chat
 
@@ -53,7 +54,7 @@ def test_message_order(empty_prompt):
 # def test_invalid_role(empty_prompt):
 #     with pytest.raises(Exception):
 #         empty_prompt.add_message("invalid_role", "Test content")
-
+@pytest.mark.skipif(os.environ.get("OPENAI_API_KEY") is None, reason="OPENAI_API_KEY is not set in environment or .env")
 def test_chaining_methods_execution(populated_prompt):
     new_prompt = populated_prompt().user("How's the weather?")
     assert new_prompt.last == "How's the weather?"
