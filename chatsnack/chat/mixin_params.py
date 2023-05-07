@@ -95,7 +95,7 @@ class ChatParamsMixin:
             return text
         return ChatParamsMixin._search_pattern(self.pattern, text)
     def _search_pattern(pattern: str, text: str) -> Optional[str]:
-        matches = re.finditer(pattern, text)
+        matches = re.finditer(pattern, text, re.DOTALL)
 
         try:
             first_match = next(matches)
