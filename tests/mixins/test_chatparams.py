@@ -21,3 +21,17 @@ def test_engine_set(chat_params_mixin):
 def test_temperature(chat_params_mixin, temp, expected):
     chat_params_mixin.temperature = temp
     assert chat_params_mixin.temperature == expected
+
+def test_stream_default(chat_params_mixin):
+    assert chat_params_mixin.stream == False
+
+def test_stream_set(chat_params_mixin):
+    chat_params_mixin.stream = True
+    assert chat_params_mixin.stream == True
+
+def test_stream_change(chat_params_mixin):
+    chat_params_mixin.stream = True
+    assert chat_params_mixin.stream == True
+    chat_params_mixin.stream = False
+    assert chat_params_mixin.stream == False
+

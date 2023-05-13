@@ -69,6 +69,18 @@ class ChatParamsMixin:
         if self.params is None:
             self.params = ChatParams()
         self.params.response_pattern = value
+    # same thing for streaming
+    @property
+    def stream(self):
+        if self.params is None:
+            return False # default to False
+        else:
+            return self.params.stream
+    @stream.setter
+    def stream(self, value: bool):
+        if self.params is None:
+            self.params = ChatParams()
+        self.params.stream = value
     def set_response_filter(self, prefix: Optional[str] = None, suffix: Optional[str] = None, pattern: Optional[str] = None):
         """ Filters the response given prefix and suffix or pattern. If suffix is None, it is set to the same as prefix. 
          Note that this overwrites any existing regex pattern. ⭐ """
