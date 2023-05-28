@@ -8,6 +8,16 @@ from functools import wraps
 
 openai.api_key = os.getenv("OPENAI_API_KEY")
 
+if os.getenv("OPENAI_API_BASE") is not None:
+    openai.api_base = os.getenv("OPENAI_API_BASE")
+
+if os.getenv("OPENAI_API_VERSION") is not None:
+    openai.api_version = os.getenv("OPENAI_API_VERSION")
+
+if os.getenv("OPENAI_API_TYPE") is not None:
+    # e.g. 'azure'
+    openai.api_type = os.getenv("OPENAI_API_TYPE")
+
 async def set_api_key(api_key):
     openai.api_key = api_key
 
@@ -68,7 +78,7 @@ def retryAPI(exception, tries=4, delay=3, backoff=2):
 
 # openai
 @retryAPI_a(openai.error.RateLimitError, tries=3, delay=2, backoff=2)
-async def _chatcompletion(prompt, engine="gpt-3.5-turbo", max_tokens=None, temperature=0.7, top_p=1, stop=None, presence_penalty=0, frequency_penalty=0, n=1, stream=False, user=None):
+async def _chatcompletion(prompt, engine="gpt-3.5-turbo", max_tokens=None, temperature=0.7, top_p=1, stop=None, presence_penalty=0, frequency_penalty=0, n=1, stream=False, user=None, deployment=None, api_type=None, api_base=None, api_version=None, api_key_env=None):
     if user is None:
         user = "_not_set"
     # prompt will be in JSON format, let us translate it to a python list
@@ -81,6 +91,15 @@ async def _chatcompletion(prompt, engine="gpt-3.5-turbo", max_tokens=None, tempe
     Prompt: {0}
     Model: {2}, Max Tokens: {3}, Stop: {5}, Temperature: {1}, Top-P: {4}, Presence Penalty {6}, Frequency Penalty: {7}, N: {8}, Stream: {9}, User: {10}
     """,prompt, temperature, engine, max_tokens, top_p, stop, presence_penalty, frequency_penalty, n, stream, user)
+
+    additional_args = {}
+    if deployment is not None:
+        additional_args["deployment_id"] = deployment
+    if api_key_env is not None:
+        additional_args["api_key"] = os.getenv(api_key_env)           
+    if stream is None:
+        stream = False
+
     response = await openai.ChatCompletion.acreate(model=engine,
                                             messages=messages,
                                             max_tokens=max_tokens,
@@ -91,12 +110,17 @@ async def _chatcompletion(prompt, engine="gpt-3.5-turbo", max_tokens=None, tempe
                                             stop=stop,
                                             n=n,
                                             stream=stream,
-                                            user=user)
+                                            user=user,
+                                            # NOTE: It's not documented, but the openai library allows you 
+                                            #       to pass these api_ parameters rather than depending on
+                                            #       the environment variables
+                                            api_type=api_type, api_base=api_base, api_version=api_version, 
+                                            **additional_args)
     logger.trace("OpenAI Completion Result: {0}".format(response))
     return response
 
 @retryAPI(openai.error.RateLimitError, tries=3, delay=2, backoff=2)
-def _chatcompletion_s(prompt, engine="gpt-3.5-turbo", max_tokens=None, temperature=0.7, top_p=1, stop=None, presence_penalty=0, frequency_penalty=0, n=1, stream=False, user=None):
+def _chatcompletion_s(prompt, engine="gpt-3.5-turbo", max_tokens=None, temperature=0.7, top_p=1, stop=None, presence_penalty=0, frequency_penalty=0, n=1, stream=False, user=None, deployment=None, api_type=None, api_base=None, api_version=None, api_key_env=None):
     if user is None:
         user = "_not_set"
     # prompt will be in JSON format, let us translate it to a python list
@@ -105,10 +129,17 @@ def _chatcompletion_s(prompt, engine="gpt-3.5-turbo", max_tokens=None, temperatu
         messages = prompt
     else:
         messages = json.loads(prompt)
-    logger.trace("""Chat Query:
+    logger.debug("""Chat Query:
     Prompt: {0}
     Model: {2}, Max Tokens: {3}, Stop: {5}, Temperature: {1}, Top-P: {4}, Presence Penalty {6}, Frequency Penalty: {7}, N: {8}, Stream: {9}, User: {10}
     """,prompt, temperature, engine, max_tokens, top_p, stop, presence_penalty, frequency_penalty, n, stream, user)
+    additional_args = {}
+    if deployment is not None:
+        additional_args["deployment_id"] = deployment
+    if api_key_env is not None:
+        additional_args["api_key"] = os.getenv(api_key_env)   
+    if stream is None:
+        stream = False
     response = openai.ChatCompletion.create(model=engine,
                                             messages=messages,
                                             max_tokens=max_tokens,
@@ -119,7 +150,13 @@ def _chatcompletion_s(prompt, engine="gpt-3.5-turbo", max_tokens=None, temperatu
                                             stop=stop,
                                             n=n,
                                             stream=stream,
-                                            user=user)
+                                            user=user, 
+                                            # NOTE: It's not documented, but the openai library allows you 
+                                            #       to pass these api_ parameters rather than depending on
+                                            #       the environment variables
+                                            api_type=api_type, api_base=api_base, api_version=api_version, 
+                                            **additional_args)
+    # revert them back to what they were
     logger.trace("OpenAI Completion Result: {0}".format(response))
     return response
 
@@ -134,10 +171,12 @@ def _trimmed_fetch_chat_response(resp, n):
         return texts
 
 # ChatGPT
-async def cleaned_chat_completion(prompt, engine="gpt-3.5-turbo", max_tokens=None, temperature=0.7, top_p=1, stop=None, presence_penalty=0, frequency_penalty=0, n=1, stream=False, user=None, **ignored):
+async def cleaned_chat_completion(prompt, engine="gpt-3.5-turbo", max_tokens=None, temperature=0.7, top_p=1, stop=None, presence_penalty=0, frequency_penalty=0, n=1, stream=False, user=None, **additional_args):
     '''
     Wrapper for OpenAI API chat completion. Returns whitespace trimmed result from ChatGPT.
     '''
+    # ignore any additional_args which are None
+    additional_args = {k: v for k, v in additional_args.items() if v is not None}
     resp = await _chatcompletion(prompt,
                             engine=engine,
                             max_tokens=max_tokens,
@@ -148,7 +187,7 @@ async def cleaned_chat_completion(prompt, engine="gpt-3.5-turbo", max_tokens=Non
                             stop=stop,
                             n=n,
                             stream=stream,
-                            user=user)
+                            user=user, **additional_args)
 
     return _trimmed_fetch_chat_response(resp, n)
 

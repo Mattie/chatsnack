@@ -19,15 +19,26 @@ class ChatParams:
     max_tokens: Optional[int] = None  #: Maximum number of tokens allowed in a generated response.
     presence_penalty: Optional[float] = None  #: Penalty applied to tokens based on presence in the input.
     frequency_penalty: Optional[float] = None  #: Penalty applied to tokens based on their frequency in the response.
+
+    # Azure-specific parameters
+    deployment: Optional[str] = None  #: The deployment ID to use for this request (e.g. for Azure)
+    api_type: Optional[str] = None  #: The API type to use for this request (e.g. 'azure' or 'azure_ad')
+    api_base: Optional[str] = None  #: The base URL to use for this request (e.g. for Azure)
+    api_version: Optional[str] = None  #: The API version to use for this request (e.g. for Azure)
+    api_key_env: Optional[str] = None  #: The environment variable name to use for the API key (e.g. for Azure)
+    
     response_pattern: Optional[str] = None # regex pattern to capture subset of response to return (ignore the rest)
 
     def _get_non_none_params(self):
-        """ Returns a dictionary of non-None parameters """
+        """ Returns a dictionary of non-None parameters for the OpenAI API"""
         # get a list of dataclass fields
         fields = [field.name for field in self.__dataclass_fields__.values()]
         out = {field: getattr(self, field) for field in fields if getattr(self, field) is not None}
         if "engine" not in out or len(out["engine"]) < 2:
             out["engine"] = "gpt-3.5-turbo"
+        # TODO response_pattern maybe should live elsewhere but for now just exclude it for the API
+        if "response_pattern" in out:
+            del out["response_pattern"]
         return out
 
 
