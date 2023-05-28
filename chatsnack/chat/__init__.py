@@ -47,6 +47,7 @@ class Chat(ChatQueryMixin, ChatSerializationMixin):
         :param params: the engine parameters (optional, defaults to None)
         :param messages: the messages (optional, defaults to [])
         :param system: the initial system message (optional, defaults to None)
+        :param engine: the engine name (optional, defaults to None, will overwrite params if specified)
         """
 
         # get name from kwargs, if it's there
@@ -72,6 +73,9 @@ class Chat(ChatQueryMixin, ChatSerializationMixin):
             # get the default from the dataclass fields and use that
             self.messages = self.__dataclass_fields__["messages"].default_factory()
 
+        if "engine" in kwargs:
+            self.engine = kwargs["engine"]
+            
         if "system" in kwargs:
             self.system_message = kwargs["system"]
         else:
