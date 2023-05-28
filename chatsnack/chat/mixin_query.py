@@ -150,6 +150,13 @@ class ChatQueryMixin(ChatMessagesMixin, ChatParamsMixin):
             last_assistant_message = self._response_so_far
         return last_assistant_message
 
+    def __str__(self):
+        """ Returns the most recent response from the chat prompt ⭐"""
+        if self.response is None:
+            return ""
+        else:
+            return self.response
+
     def __call__(self, usermsg=None, **additional_vars) -> object:
         """ Executes the query as-is and returns a Chat object with the response, shortcut for Chat.chat()"""
         if usermsg is not None:
