@@ -90,7 +90,6 @@ class Chat(ChatQueryMixin, ChatSerializationMixin):
         self._initial_params = copy.copy(self.params)
         self._initial_messages = copy.copy(self.messages)
         self._initial_system_message = self.system_message
-        self._ready = True
    
     def reset(self) -> object:
         """ Resets the chat prompt to its initial state, returns itself """
@@ -99,5 +98,4 @@ class Chat(ChatQueryMixin, ChatSerializationMixin):
         self.messages = self._initial_messages
         if self._initial_system_message is not None:
             self.system_message = self._initial_system_message
-        self._ready = True
         return self

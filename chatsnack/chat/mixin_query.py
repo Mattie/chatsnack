@@ -102,13 +102,8 @@ class ChatQueryMixin(ChatMessagesMixin, ChatParamsMixin):
         # format the prompt text with the passed-in variables as well as doing internal expansion
         prompt = await self._gather_format(aformatter.async_format, **filling_machine(promptvars))
         return prompt
-    def _update_after_stream(self, response):
-        self.assistant(response)
-        self._ready = True
     async def _submit_for_response_and_prompt(self, **additional_vars):
         """ Executes the query as-is and returns a tuple of the final prompt and the response"""
-        if not self.ready:
-            raise Exception("Chat is not ready for a response")
         prompter = self
         # if the user in additional_vars, we're going to instead deepcopy this prompt into a new prompt and add the .user() to it
         if "__user" in additional_vars:
@@ -123,7 +118,6 @@ class ChatQueryMixin(ChatMessagesMixin, ChatParamsMixin):
         else:
             pparams = prompter.params._get_non_none_params()
             if self.params.stream:
-                self._ready = False
                 # we're streaming so we need to use the wrapper object
                 listener = ChatStreamListener(prompt, **self.params._get_non_none_params())
                 return prompt, listener
@@ -131,23 +125,15 @@ class ChatQueryMixin(ChatMessagesMixin, ChatParamsMixin):
                 return prompt, await cleaned_chat_completion(prompt, **pparams)
 
     @property
-    def ready(self) -> bool:
-        """ Returns True if the chat is done, False otherwise ⭐"""
-        return self._ready
-    
-    @property
     def response(self) -> str:
         """ Returns the value of the last assistant message in the chat prompt ⭐"""
         last_assistant_message = None
-        if self.ready:
-            for _message in self.messages:
-                message = self._msg_dict(_message)
-                if "assistant" in message:
-                    last_assistant_message = message["assistant"]
-            # filter the response if we have a pattern
-            last_assistant_message = self.filter_by_pattern(last_assistant_message)
-        else:
-            last_assistant_message = self._response_so_far
+        for _message in self.messages:
+            message = self._msg_dict(_message)
+            if "assistant" in message:
+                last_assistant_message = message["assistant"]
+        # filter the response if we have a pattern
+        last_assistant_message = self.filter_by_pattern(last_assistant_message)
         return last_assistant_message
 
     def __str__(self):
@@ -189,7 +175,7 @@ class ChatQueryMixin(ChatMessagesMixin, ChatParamsMixin):
         if usermsg is not None:
             additional_vars["__user"] = usermsg
         _, response = asyncio.run(self._submit_for_response_and_prompt(**additional_vars))
-        if not self.ready:
+        if self.params.stream:
             # response is a ChatStreamListener so lets start it
             response.start()
         return response
@@ -200,7 +186,7 @@ class ChatQueryMixin(ChatMessagesMixin, ChatParamsMixin):
         if usermsg is not None:
             additional_vars["__user"] = usermsg
         _, response = await self._submit_for_response_and_prompt(**additional_vars)
-        if not self.ready:
+        if self.params.stream:
             # response is a ChatStreamListener so lets start it
             await response.start_a()
         return response
@@ -211,7 +197,7 @@ class ChatQueryMixin(ChatMessagesMixin, ChatParamsMixin):
         """
         if usermsg is not None:
             additional_vars["__user"] = usermsg
-        return asyncio.run(self.chat_a(**additional_vars))    
+        return asyncio.run(self.chat_a(**additional_vars))
     async def chat_a(self, usermsg=None, **additional_vars) -> object:
         """ Executes the query as-is, and returns a ChatPrompt object that contains the response. Async version of chat()"""
         if usermsg is not None:
@@ -225,7 +211,7 @@ class ChatQueryMixin(ChatMessagesMixin, ChatParamsMixin):
         logger.trace("Expanded prompt: " + prompt)
         new_chatprompt.add_messages_json(prompt)
         # append the recent message
-        new_chatprompt.assistant(response)
+        new_chatprompt.add_or_update_last_assistant_message(response)
         return new_chatprompt
     
     # clone function to create a new chatprompt with the same name and data
@@ -235,7 +221,16 @@ class ChatQueryMixin(ChatMessagesMixin, ChatParamsMixin):
         if name is not None:
             new_chat = self.__class__(name=name)
         else:
-            new_chat = self.__class__(name=self.name + f"_{datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}-{uuid.uuid4()}")
+            # if the existing name ends with _{datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}-{uuid.uuid4()}" then we need to trim that off and add a new one
+            # use a regex to match at the end of the name
+            import re
+            match = re.search(r"_(\d{4}-\d{2}-\d{2}_\d{2}-\d{2}-\d{2})-([a-f0-9]{8}-([a-f0-9]{4}-){3}[a-f0-9]{12})", self.name)
+            if match is not None:
+                # trim off the end
+                name = self.name[:match.start()]
+            else:
+                name = self.name
+            new_chat = self.__class__(name=name + f"_{datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}-{uuid.uuid4()}")
         new_chat.params = copy.copy(self.params)
         if expand_fillings:
             if not expand_includes:
