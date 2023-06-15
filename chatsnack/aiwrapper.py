@@ -2,9 +2,11 @@ import asyncio
 import openai
 import os
 import json
+import random
 import time
 from loguru import logger
 from functools import wraps
+from openai.error import *
 
 openai.api_key = os.getenv("OPENAI_API_KEY")
 
@@ -21,15 +23,16 @@ if os.getenv("OPENAI_API_TYPE") is not None:
 async def set_api_key(api_key):
     openai.api_key = api_key
 
-# decorator to retry API calls
-def retryAPI_a(exception, tries=4, delay=3, backoff=2):
+openai_exceptions_for_retry=(RateLimitError,Timeout,ServiceUnavailableError,TryAgain,APIError)
+
+def retryAPI_a(exceptions, tries=4, delay=3, backoff=2):
     """Retry calling the decorated function using an exponential backoff.
-    :param Exception exception: the exception to check. may be a tuple of
+    :param Exception exceptions: the exceptions to check. may be a tuple of
         exceptions to check
     :param int tries: number of times to try (not retry) before giving up
     :param int delay: initial delay between retries in seconds
     :param int backoff: backoff multiplier e.g. value of 2 will double the
-        delay each retry
+        delay each retry (but with a random factor that is 0.5x to 1.5x)
     :raises Exception: the last exception raised
     """
     def deco_retry(f):
@@ -39,45 +42,45 @@ def retryAPI_a(exception, tries=4, delay=3, backoff=2):
             while mtries > 1:
                 try:
                     return await f(*args, **kwargs)
-                except exception as e:
+                except exceptions as e:
                     msg = "%s, Retrying in %d seconds..." % (str(e), mdelay)
                     logger.debug(msg)
                     await asyncio.sleep(mdelay)
                     mtries -= 1
-                    mdelay *= backoff
+                    mdelay *= (backoff * random.uniform(0.75, 1.25))
             return await f(*args, **kwargs)
-        return f_retry  # true decorator
+        return f_retry
     return deco_retry
 
-def retryAPI(exception, tries=4, delay=3, backoff=2):
+def retryAPI(exceptions, tries=4, delay=3, backoff=2):
     """Retry calling the decorated function using an exponential backoff.
-    :param Exception exception: the exception to check. may be a tuple of
+    :param Exception exceptions: the exceptions to check. may be a tuple of
         exceptions to check
     :param int tries: number of times to try (not retry) before giving up
     :param int delay: initial delay between retries in seconds
     :param int backoff: backoff multiplier e.g. value of 2 will double the
-        delay each retry
+        delay each retry (but with a random factor that is 0.5x to 1.5x)
     :raises Exception: the last exception raised
     """
     def deco_retry(f):
         @wraps(f)
         def f_retry(*args, **kwargs):
-            mtries, mdelay = tries, delay
+            mtries = tries
             while mtries > 1:
                 try:
                     return f(*args, **kwargs)
-                except exception as e:
-                    msg = "%s, Retrying in %d seconds..." % (str(e), mdelay)
+                except exceptions as e:
+                    msg = "%s, Retrying in %d seconds..." % (str(e), delay)
                     logger.debug(msg)
-                    time.sleep(mdelay)
+                    time.sleep(delay)
                     mtries -= 1
-                    mdelay *= backoff
+                    delay *= (backoff * random.uniform(0.75, 1.25))
             return f(*args, **kwargs)
         return f_retry  # true decorator
     return deco_retry
 
 # openai
-@retryAPI_a(openai.error.RateLimitError, tries=3, delay=2, backoff=2)
+@retryAPI_a(exceptions=openai_exceptions_for_retry, tries=8, delay=2, backoff=2)
 async def _chatcompletion(prompt, engine="gpt-3.5-turbo", max_tokens=None, temperature=0.7, top_p=1, stop=None, presence_penalty=0, frequency_penalty=0, n=1, stream=False, user=None, deployment=None, api_type=None, api_base=None, api_version=None, api_key_env=None):
     if user is None:
         user = "_not_set"
@@ -119,7 +122,7 @@ async def _chatcompletion(prompt, engine="gpt-3.5-turbo", max_tokens=None, tempe
     logger.trace("OpenAI Completion Result: {0}".format(response))
     return response
 
-@retryAPI(openai.error.RateLimitError, tries=3, delay=2, backoff=2)
+@retryAPI(exceptions=openai_exceptions_for_retry, tries=8, delay=2, backoff=2)
 def _chatcompletion_s(prompt, engine="gpt-3.5-turbo", max_tokens=None, temperature=0.7, top_p=1, stop=None, presence_penalty=0, frequency_penalty=0, n=1, stream=False, user=None, deployment=None, api_type=None, api_base=None, api_version=None, api_key_env=None):
     if user is None:
         user = "_not_set"
@@ -129,7 +132,7 @@ def _chatcompletion_s(prompt, engine="gpt-3.5-turbo", max_tokens=None, temperatu
         messages = prompt
     else:
         messages = json.loads(prompt)
-    logger.debug("""Chat Query:
+    logger.trace("""Chat Query:
     Prompt: {0}
     Model: {2}, Max Tokens: {3}, Stop: {5}, Temperature: {1}, Top-P: {4}, Presence Penalty {6}, Frequency Penalty: {7}, N: {8}, Stream: {9}, User: {10}
     """,prompt, temperature, engine, max_tokens, top_p, stop, presence_penalty, frequency_penalty, n, stream, user)
