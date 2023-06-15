@@ -82,6 +82,23 @@ class ChatMessagesMixin:
                 self.add_message(message["role"], message["content"])
             else:
                 raise ValueError("Invalid message format, a 'role' or 'content' key was missing")
+    def add_or_update_last_assistant_message(self, content: str):
+        """
+        Adds a final assistant message (or appends to the end of the last assistant message)
+        """
+        # get the last message in the list
+        last_message = self.messages[-1]
+        # get the dict version
+        last_message = self._msg_dict(last_message)
+
+        # if it's an assistant message, append to it
+        if "assistant" in last_message:
+            last_message["assistant"] += content
+            # replace the last message with the updated one
+            self.messages[-1] = last_message
+        else:
+            # otherwise add a new assistant message
+            self.assistant(content)
 
     # define a read-only attribute "last" that returns the last message in the list
     @property
