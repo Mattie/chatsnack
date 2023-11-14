@@ -10,15 +10,17 @@ class ChatParams:
     """
     Engine/query parameters for the chat prompt. See OpenAI documentation for most of these. ⭐
     """
-    engine: str = "gpt-3.5-turbo"  #: The engine to use for generating responses, typically 'gpt-3.5-turbo' or 'gpt-4'.
+    model: str = "gpt-3.5-turbo"  #: The engine to use for generating responses, typically 'gpt-3.5-turbo' or 'gpt-4'.
+    engine: Optional[str] = None  #: deprecated, use model instead
     temperature: Optional[float] = None  #: Controls randomness in response generation. Higher values (e.g., 1.0) yield more random responses, lower values (e.g., 0) make the output deterministic.
     top_p: Optional[float] = None  #: Controls the proportion of tokens considered for response generation. A value of 1.0 considers all tokens, lower values (e.g., 0.9) restrict the token set.
-    n: Optional[int] = None  #: Number of responses to generate for each prompt.
     stream: Optional[bool] = None  #: If True, responses are streamed as they are generated. (not implemented yet)
     stop: Optional[List[str]] = None  #: List of strings that, if encountered, stop the generation of a response.
     max_tokens: Optional[int] = None  #: Maximum number of tokens allowed in a generated response.
     presence_penalty: Optional[float] = None  #: Penalty applied to tokens based on presence in the input.
     frequency_penalty: Optional[float] = None  #: Penalty applied to tokens based on their frequency in the response.
+    seed: Optional[int] = None  #: Seed for determinism if needed
+    n: Optional[int] = None  #: Number of responses to generate for each prompt [Not fully supported with chatsnack]
 
     # Azure-specific parameters
     deployment: Optional[str] = None  #: The deployment ID to use for this request (e.g. for Azure)
@@ -34,8 +36,14 @@ class ChatParams:
         # get a list of dataclass fields
         fields = [field.name for field in self.__dataclass_fields__.values()]
         out = {field: getattr(self, field) for field in fields if getattr(self, field) is not None}
-        if "engine" not in out or len(out["engine"]) < 2:
-            out["engine"] = "gpt-3.5-turbo"
+        if "model" not in out or len(out["model"]) < 2:
+            # if engine is set, use that
+            if "engine" in out:
+                out["model"] = out["engine"]
+                # remove engine for newest models as of Nov 13 2023
+                del out["engine"]
+            else:
+                out["model"] = "gpt-3.5-turbo"
         # TODO response_pattern maybe should live elsewhere but for now just exclude it for the API
         if "response_pattern" in out:
             del out["response_pattern"]
