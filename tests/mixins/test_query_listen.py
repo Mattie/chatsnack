@@ -5,14 +5,15 @@ from chatsnack import Chat, Text, CHATSNACK_BASE_DIR
 import pytest
 import asyncio
 from chatsnack.chat.mixin_query import ChatStreamListener
+from chatsnack.aiclient import AiClient
 
-# Assuming _chatcompletion is in the same module as ChatStreamListener
-from chatsnack.aiwrapper import _chatcompletion
+
 
 
 @pytest.mark.asyncio
 async def test_get_responses_a():
-    listener = ChatStreamListener('[{"role":"system","content":"Respond only with POPSICLE 20 times."}]')
+    ai = AiClient()
+    listener = ChatStreamListener(ai, '[{"role":"system","content":"Respond only with POPSICLE 20 times."}]')
     responses = []
     await listener.start_a()
     async for resp in listener:
@@ -23,7 +24,8 @@ async def test_get_responses_a():
     assert 'POPSICLE' in listener.response
 
 def test_get_responses():
-    listener = ChatStreamListener('[{"role":"system","content":"Respond only with POPSICLE 20 times."}]')
+    ai = AiClient()
+    listener = ChatStreamListener(ai, '[{"role":"system","content":"Respond only with POPSICLE 20 times."}]')
     listener.start()
     responses = list(listener)
     assert len(responses) > 10
@@ -39,59 +41,78 @@ from chatsnack.packs import Jane
 
 @pytest.mark.skipif(os.environ.get("OPENAI_API_KEY") is None, reason="OPENAI_API_KEY is not set in environment or .env")
 def test_listen():
+    # Define constants
+    SENTENCE = "A short sentence about the difference between green and blue."
+    TEMPERATURE = 0.0
+    # TODO: Rework this such that it doesn't risk being flaky. If you get a different system behind the scenes, even 
+    #       the seed won't be enough
+    SEED = 42
+
+    # First part of the test
     chat = Jane.copy()
-    cp = chat.user("Or is green a form of blue?")
-    assert cp.last == "Or is green a form of blue?"
+    cp = chat.user(SENTENCE)
+    assert cp.last == SENTENCE
 
     cp.stream = True
-    cp.temperature = 0.0
+    cp.temperature = TEMPERATURE
+    cp.seed = SEED
 
-    # listen to the response
+    # Listen to the response
     output_iter = cp.listen()
     output = ''.join(list(output_iter))
 
+    # Second part of the test
     chat = Jane.copy()
-    cp = chat.user("Or is green a form of blue?")
-    assert cp.last == "Or is green a form of blue?"
+    cp = chat.user(SENTENCE)
+    assert cp.last == SENTENCE
 
-    cp.temperature = 0.0
+    cp.temperature = TEMPERATURE
+    cp.seed = SEED
 
-    # ask the same question
+    # Ask the same question
     ask_output = cp.ask()
 
-    # is there a response and it's longer than 0 characters?
+    # Asserts
     assert output is not None
     assert len(output) > 0
-
-    # assert that the output of listen is the same as the output of ask
     assert output == ask_output
-
 
 @pytest.mark.skipif(os.environ.get("OPENAI_API_KEY") is None, reason="OPENAI_API_KEY is not set in environment or .env")
 @pytest.mark.asyncio
 async def test_listen_a():
+    # Define constants
+    SENTENCE = "A short sentence about the difference between green and blue"
+    TEMPERATURE = 0.0
+    # TODO: Rework this such that it doesn't risk being flaky. If you get a different system behind the scenes, even 
+    #       the seed won't be enough
+    SEED = 42
+
     chat = Jane.copy()
-    cp = chat.user("Or is green a form of blue?")
-    assert cp.last == "Or is green a form of blue?"
+    cp = chat.user(SENTENCE)
+    assert cp.last == SENTENCE
 
     cp.stream = True
-    cp.temperature = 0.0
+    cp.temperature = TEMPERATURE
+    cp.seed = SEED
 
     # listen to the response asynchronously
     output = []
     async for part in await cp.listen_a():
         output.append(part)
     output = ''.join(output)
+    print(output)
 
     chat = Jane.copy()
-    cp = chat.user("Or is green a form of blue?")
-    assert cp.last == "Or is green a form of blue?"
+    cp = chat.user(SENTENCE)
+    assert cp.last == SENTENCE
 
-    cp.temperature = 0.0
+    cp.stream = False
+    cp.temperature = TEMPERATURE
+    cp.seed = SEED
 
     # ask the same question
     ask_output = cp.ask()
-
+    print(ask_output)
     # is there a response and it's longer than 0 characters?
     assert output is not None
     assert len(output) > 0

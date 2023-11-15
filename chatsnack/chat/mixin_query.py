@@ -8,37 +8,67 @@ from loguru import logger
 from datafiles import datafile
 
 from ..asynchelpers import aformatter
-from ..aiwrapper import cleaned_chat_completion, _chatcompletion, _chatcompletion_s
+#from ..aiwrapper import cleaned_chat_completion, _chatcompletion, _chatcompletion_s
+_chatcompletion = None
+_chatcompletion_s = None
+cleaned_chat_completion = None
 from ..fillings import filling_machine
 
 from .mixin_messages import ChatMessagesMixin
 from .mixin_params import ChatParamsMixin
 
 
+# ChatStreamListener
+# Used to only be the response that would be streamed, but now it could include function calls and their parameters, etc.
+# Chatsnack is also expected to
+
+
 class ChatStreamListener:
-    def __init__(self, prompt, **kwargs):
-        self.prompt = prompt
-        self.kwargs = kwargs
+    def __init__(self, ai, prompt, **kwargs):
+        if isinstance(prompt, list):
+            self.prompt = prompt
+        else:
+            self.prompt = json.loads(prompt)
         self._response_gen = None
         self.is_complete = False
         self.current_content = ""
         self.response = ""
-    
+        self.ai = ai
+        out = kwargs.copy()
+        if "model" not in out or len(out["model"]) < 2:
+            # if engine is set, use that
+            if "engine" in out:
+                out["model"] = out["engine"]
+                # remove engine for newest models as of Nov 13 2023
+                del out["engine"]
+            else:
+                out["model"] = "gpt-3.5-turbo"
+        self.kwargs = out
+
+
     async def start_a(self):
         # if stream=True isn't in the kwargs, add it
         if not self.kwargs.get('stream', False):
             self.kwargs['stream'] = True
-        self._response_gen = await _chatcompletion(self.prompt,  **self.kwargs)
+        #self._response_gen = await _chatcompletion(self.prompt,  **self.kwargs)
+        self._response_gen = await self.ai.aclient.chat.completions.create(messages=self.prompt,**self.kwargs)
         return self
 
     async def _get_responses_a(self):
         try:
-            async for resp in self._response_gen:
-                if resp.get('choices', [{}])[0].get('finish_reason') == 'stop':
-                    self.is_complete = True
-                content = resp.get('choices', [{}])[0].get('delta', {}).get('content', '')
-                self.current_content += content
-                yield content
+            async for respo in self._response_gen:
+                # TODO: Sweet summer child, it's no longer just content that we need to check for
+                #       but also slowly filling function call arguments for tool_calls. 
+                #       See: https://community.openai.com/t/functions-calling-with-streaming/305742
+                resp = respo.model_dump()
+                if "choices" in resp:
+                    if resp['choices'][0]['finish_reason'] is not None:
+                        self.is_complete = True
+                    if 'delta' in resp['choices'][0]:
+                        content = resp['choices'][0]['delta']['content']
+                        if content is not None:
+                            self.current_content += content
+                        yield content if content is not None else ""
         finally:
             self.is_complete = True
             self.response = self.current_content
@@ -50,18 +80,26 @@ class ChatStreamListener:
         # if stream=True isn't in the kwargs, add it
         if not self.kwargs.get('stream', False):
             self.kwargs['stream'] = True        
-        self._response_gen = _chatcompletion_s(self.prompt, **self.kwargs)
+        #self._response_gen = _chatcompletion_s(self.prompt, **self.kwargs)
+        self._response_gen = self.ai.client.chat.completions.create(messages=self.prompt,**self.kwargs)
         return self
 
     # non-async method that returns a generator that yields the responses
     def _get_responses(self):
         try:
-            for resp in self._response_gen:
-                if resp.get('choices', [{}])[0].get('finish_reason') == 'stop':
-                    self.is_complete = True
-                content = resp.get('choices', [{}])[0].get('delta', {}).get('content', '')
-                self.current_content += content
-                yield content
+            for respo in self._response_gen:
+                # TODO: Sweet summer child, it's no longer just content that we need to check for
+                #       but also slowly filling function call arguments for tool_calls. 
+                #       See: https://community.openai.com/t/functions-calling-with-streaming/305742
+                resp = respo.model_dump()
+                if "choices" in resp:
+                    if resp['choices'][0]['finish_reason'] is not None:
+                        self.is_complete = True
+                    if 'delta' in resp['choices'][0]:
+                        content = resp['choices'][0]['delta']['content']
+                        if content is not None:
+                            self.current_content += content
+                        yield content if content is not None else ""
         finally:
             self.is_complete = True
             self.response = self.current_content
@@ -76,7 +114,7 @@ class ChatQueryMixin(ChatMessagesMixin, ChatParamsMixin):
     # async method that gathers will execute an async format method on every message in the chat prompt and gather the results into a final json string
     async def _gather_format(self, format_coro, **kwargs) -> str:
         new_messages = self.get_messages()
-
+        # TODO: Allow format messages in the tool calls
         # we now apply the format_coro to the content of each message in each dictionary in the list
         coros = []
         for message in new_messages:
@@ -114,15 +152,36 @@ class ChatQueryMixin(ChatMessagesMixin, ChatParamsMixin):
             del additional_vars["__user"]
         prompt = await prompter._build_final_prompt(additional_vars)
         if self.params is None:
-            return prompt, await cleaned_chat_completion(prompt)
+            return prompt, await self._cleaned_chat_completion(prompt)
         else:
             pparams = prompter.params._get_non_none_params()
             if self.params.stream:
                 # we're streaming so we need to use the wrapper object
-                listener = ChatStreamListener(prompt, **self.params._get_non_none_params())
+                listener = ChatStreamListener(self.ai, prompt, **self.params._get_non_none_params())
                 return prompt, listener
             else:
-                return prompt, await cleaned_chat_completion(prompt, **pparams)
+                return prompt, await self._cleaned_chat_completion(prompt, **pparams)
+
+    async def _cleaned_chat_completion(self, prompt, **kwargs):
+        # if there's no model specified, use the default
+        if "model" not in kwargs:
+            # if there's an engine in the kwargs, use that as the model
+            if "engine" in kwargs:
+                kwargs["model"] = kwargs["engine"]
+                # remove engine from kwargs
+                del kwargs["engine"]
+            else:
+                kwargs["model"] = "gpt-3.5-turbo"
+        if isinstance(prompt, list):
+            messages = prompt
+        else:
+            messages = json.loads(prompt)            
+
+        response = await self.ai.aclient.chat.completions.create(
+            messages=messages,
+            **kwargs
+        )
+        return response.choices[0].message.content
 
     @property
     def response(self) -> str:

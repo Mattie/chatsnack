@@ -1,20 +1,8 @@
 import json
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Union, Any
 
 from datafiles import datafile
 
-@datafile
-class ChatMessage:
-    system: Optional[str] = None
-    user: Optional[str] = None
-    assistant: Optional[str] = None
-    include: Optional[str] = None
-
-    @property
-    def message(self) -> Dict[str, str]:
-        """ Returns the message in the form of a dictionary """
-        # use the format {'role': 'content'} from among its datafields
-        return {field.name: getattr(self, field.name) for field in self.__dataclass_fields__.values() if getattr(self, field.name) is not None}
 
 
 # Define the Message Management mixin
@@ -38,7 +26,7 @@ class ChatMessagesMixin:
         chat and returns a new Chat object that includes the message and response
         """
         return self.add_message("user", content, chat)
-    def assistant(self, content: str, chat = False) -> object:
+    def assistant(self, content: Union[str, List], chat = False) -> object:
         """
         Message added to the chat from the assistant ⭐
         Returns: If chat is False returns this object for chaining. If chat is True, submits the 
@@ -47,7 +35,14 @@ class ChatMessagesMixin:
         return self.add_message("assistant", content, chat)
     # easy aliases
     asst = assistant
-
+    def tool(self, content: str, chat = False) -> object:
+        """
+        Message added to the chat which is a tool response ⭐
+        Returns: If chat is False returns this object for chaining. If chat is True, submits the 
+        chat and returns a new Chat object that includes the message and response
+        """
+        return self.add_message("tool", content, chat)
+    
     def include(self, chatprompt_name: str = None, chat = False) -> object:
         """
         Message added to the chat that is a reference to another ChatPrompt where the messages will be inserted in this spot right before formatting ⭐
@@ -55,7 +50,7 @@ class ChatMessagesMixin:
         chat and returns a new Chat object that includes the message and response
         """        
         return self.add_message("include", chatprompt_name, chat)
-    def add_message(self, role: str, content: str, chat: bool = False) -> object:
+    def add_message(self, role: str, content: Union[str, List], chat: bool = False) -> object:
         """
         Add a message to the chat, as role ('user', 'assistant', 'system' or 'include') with the content
         Returns: If chat is False returns this object for chaining. If chat is True, submits the 
@@ -63,25 +58,57 @@ class ChatMessagesMixin:
         """
         # fully trim the role and left-trim the content
         role = role.strip()
-        content = content.lstrip()
+        if isinstance(content, str):
+            content = content.lstrip()
         self.messages.append({role: content})
         if not chat:
             return self
         else:
             return self.chat()
+        
     def add_messages_json(self, json_messages: str, escape: bool = True):
-        """ Adds messages from an OpenAI json string to the chat prompt """
         incoming_messages = json.loads(json_messages)
         for message in incoming_messages:
-            # convert from the OpenAI format to the format we use
-            if "role" in message and "content" in message:
-                if escape:
-                    # escape the { and } characters
-                    message["content"] = message["content"].replace("{", "{{").replace("}", "}}")
-                    message["role"] = message["role"].replace("{", "{{").replace("}", "}}")
-                self.add_message(message["role"], message["content"])
+            if "role" in message:
+                role = message["role"]
+                content = message.get("content")
+
+                if role == "assistant" and "tool_calls" in message:
+                    # Handle the assistant with tool calls
+                    content = self.process_tool_calls(message["tool_calls"], escape)
+
+                elif isinstance(content, list):
+                    # Process list content by removing 'type' key and keeping the value
+                    content = self.process_list_content(content, escape)
+
+                elif escape:
+                    content = content.replace("{", "{{").replace("}", "}}")
+
+                self.messages.append({role: content})
             else:
-                raise ValueError("Invalid message format, a 'role' or 'content' key was missing")
+                raise ValueError("Invalid message format, 'role' key is missing")
+
+    @staticmethod
+    def process_tool_calls(tool_calls, escape):
+        processed_calls = []
+        for call in tool_calls:
+            function = call.get("function", {})
+            call_data = {function.get("name"): function.get("arguments")}
+            if escape:
+                call_data = {k: v.replace("{", "{{").replace("}", "}}") for k, v in call_data.items()}
+            processed_calls.append(call_data)
+        return processed_calls
+
+    @staticmethod
+    def process_list_content(content_list, escape):
+        processed_content = []
+        for item in content_list:
+            item_data = {k: v for k, v in item.items() if k != 'type'}
+            if escape:
+                item_data = {k: v.replace("{", "{{").replace("}", "}}") for k, v in item_data.items()}
+            processed_content.append(item_data)
+        return processed_content
+            
     def add_or_update_last_assistant_message(self, content: str):
         """
         Adds a final assistant message (or appends to the end of the last assistant message)
@@ -137,6 +164,14 @@ class ChatMessagesMixin:
             # system message always goes first
             self.messages.insert(0, {"system": value})
 
+
+    @staticmethod
+    def _escape_tool_calls(tool_calls: List[Dict[str, str]]) -> List[Dict[str, str]]:
+        escaped_calls = []
+        for call in tool_calls:
+            escaped_call = {k: v.replace("{", "{{").replace("}", "}}") for k, v in call.items()}
+            escaped_calls.append(escaped_call)
+        return escaped_calls
 
     def _msg_dict(self, msg: object) -> dict:
         """ Returns a message as a dictionary """

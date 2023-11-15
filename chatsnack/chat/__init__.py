@@ -2,15 +2,16 @@ import copy
 import uuid
 from dataclasses import field
 from datetime import datetime
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Union
 
 from datafiles import datafile
 
+from ..aiclient import AiClient
 from ..defaults import CHATSNACK_BASE_DIR
-from .mixin_messages import ChatMessage
 from .mixin_query import ChatQueryMixin
 from .mixin_params import ChatParams, ChatParamsMixin
 from .mixin_serialization import DatafileMixin, ChatSerializationMixin
+
 
 
 
@@ -33,8 +34,7 @@ class Chat(ChatQueryMixin, ChatSerializationMixin):
     # title should be just like above but with a GUID at the end
     name: str = field(default_factory=lambda: f"_ChatPrompt-{datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}-{uuid.uuid4()}")
     params: Optional[ChatParams] = None
-    # ChatMessage is more of a hack class to avoid datafiles schema reference issues for dict serialization
-    messages: List[ChatMessage] = field(default_factory=lambda: [])
+    messages: List[Dict[str,Union[str,List[Dict[str,str]]]]] = field(default_factory=lambda: [])
 
     def __init__(self, *args, **kwargs):
         """ 
@@ -90,6 +90,8 @@ class Chat(ChatQueryMixin, ChatSerializationMixin):
         self._initial_params = copy.copy(self.params)
         self._initial_messages = copy.copy(self.messages)
         self._initial_system_message = self.system_message
+
+        self.ai = AiClient()
    
     def reset(self) -> object:
         """ Resets the chat prompt to its initial state, returns itself """

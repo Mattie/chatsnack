@@ -11,11 +11,11 @@ def chat_params_mixin(chat_params):
     return Chat()
 
 def test_engine_default(chat_params):
-    assert chat_params.engine == "gpt-3.5-turbo"
+    assert chat_params.model == "gpt-3.5-turbo"
 
 def test_engine_set(chat_params_mixin):
-    chat_params_mixin.engine = "gpt-4"
-    assert chat_params_mixin.engine == "gpt-4"
+    chat_params_mixin.model = "gpt-4"
+    assert chat_params_mixin.model == "gpt-4"
 
 @pytest.mark.parametrize("temp, expected", [(0.5, 0.5), (0.8, 0.8)]) 
 def test_temperature(chat_params_mixin, temp, expected):
