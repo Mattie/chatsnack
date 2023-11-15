@@ -40,13 +40,16 @@ class ChatParams:
             # if engine is set, use that
             if "engine" in out:
                 out["model"] = out["engine"]
-                # remove engine for newest models as of Nov 13 2023
-                del out["engine"]
             else:
                 out["model"] = "gpt-3.5-turbo"
         # TODO response_pattern maybe should live elsewhere but for now just exclude it for the API
         if "response_pattern" in out:
             del out["response_pattern"]
+
+        # remove engine for newest models as of Nov 13 2023
+        if "engine" in out:
+            del out["engine"]
+
         return out
 
 
@@ -57,7 +60,7 @@ class ChatParamsMixin:
     def engine(self):
         """
         Returns the engine for this chat prompt, typically 'gpt-3.5-turbo'
-         or 'gpt-4'. ⭐
+         or 'gpt-4'. (deprecated, use model instead)
         """
         if self.params is None:
             self.params = ChatParams()
@@ -67,6 +70,22 @@ class ChatParamsMixin:
         if self.params is None:
             self.params = ChatParams()
         self.params.engine = value
+        if self.model != value:
+            self.model = value
+    @property
+    def model(self):
+        """
+        Returns the model for this chat prompt, typically 'gpt-3.5-turbo'
+         or 'gpt-4'. ⭐
+        """
+        if self.params is None:
+            self.params = ChatParams()
+        return self.params.model
+    @model.setter
+    def model(self, value):
+        if self.params is None:
+            self.params = ChatParams()
+        self.params.model = value        
     @property
     def temperature(self):
         if self.params is None:

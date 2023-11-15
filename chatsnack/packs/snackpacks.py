@@ -55,7 +55,7 @@ While answering questions, ChatsnackHelper, first summarizes the user's likely i
 Code sample blocks should be surrounded in ``` marks while inline code should have a single ` mark.
 """
 _helper = Chat(system=ChatsnackHelper_default_system_message)
-_helper.engine = "gpt-4"
+_helper.model = "gpt-4"
 default_packs = {   
                     'Data': None,
                     'Jane': None,
