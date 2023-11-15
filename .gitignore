@@ -19,3 +19,5 @@ __pycache__
 # we don't want completions even if they are samples
 datafiles/plunkylib/completions/**
 tests/test_datafiles/**
+examples/snackswipe-web/flask_session/**
+notebooks/audio/**

@@ -13,6 +13,10 @@ from .mixin_params import ChatParams, ChatParamsMixin
 from .mixin_serialization import DatafileMixin, ChatSerializationMixin
 
 
+# WORKAROUND: Disable the datafiles warnings about Schema type enforcement which our users are less concerned about
+import log
+log.init(level=log.WARNING)
+log.silence('datafiles', allow_warning=False)
 
 
 ########################################################################################################################
