@@ -8,10 +8,6 @@ from loguru import logger
 from datafiles import datafile
 
 from ..asynchelpers import aformatter
-#from ..aiwrapper import cleaned_chat_completion, _chatcompletion, _chatcompletion_s
-_chatcompletion = None
-_chatcompletion_s = None
-cleaned_chat_completion = None
 from ..fillings import filling_machine
 
 from .mixin_messages import ChatMessagesMixin
@@ -80,7 +76,6 @@ class ChatStreamListener:
         # if stream=True isn't in the kwargs, add it
         if not self.kwargs.get('stream', False):
             self.kwargs['stream'] = True        
-        #self._response_gen = _chatcompletion_s(self.prompt, **self.kwargs)
         self._response_gen = self.ai.client.chat.completions.create(messages=self.prompt,**self.kwargs)
         return self
 
