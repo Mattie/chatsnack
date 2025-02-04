@@ -14,11 +14,6 @@ from .mixin_messages import ChatMessagesMixin
 from .mixin_params import ChatParamsMixin
 
 
-# ChatStreamListener
-# Used to only be the response that would be streamed, but now it could include function calls and their parameters, etc.
-# Chatsnack is also expected to
-
-
 class ChatStreamListener:
     def __init__(self, ai, prompt, **kwargs):
         if isinstance(prompt, list):
@@ -38,7 +33,7 @@ class ChatStreamListener:
                 # remove engine for newest models as of Nov 13 2023
                 del out["engine"]
             else:
-                out["model"] = "gpt-3.5-turbo"
+                out["model"] = "chatgpt-4o-latest"
         self.kwargs = out
 
 
@@ -126,6 +121,17 @@ class ChatQueryMixin(ChatMessagesMixin, ChatParamsMixin):
         # gather the results
         await asyncio.gather(*coros)
         logger.trace(new_messages)
+        
+        # if the current model is a reasoning model, we need the role of "system" to become "developer" in the json dump messages
+        if self.params is not None and not self.params._supports_system_messages():
+            for message in new_messages:
+                if message["role"] == "system":
+                    if self.params._supports_developer_messages():
+                        message["role"] = "developer"
+                    else:
+                        # thanks OpenAI for having a model that doesn't support system or developer messages (i.e. o1-mini and o1-preview)
+                        message["role"] = "user"
+
         # return the json version of the expanded messages
         return json.dumps(new_messages)
      
