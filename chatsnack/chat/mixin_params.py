@@ -1,7 +1,247 @@
 import re
-from typing import Optional, List
+import json
+from typing import Optional, List, Dict, Any, Union, Literal
+from dataclasses import dataclass, field
 from datafiles import datafile
 
+@datafile
+class ParameterProperty:
+    """Represents a property in the parameters schema"""
+    type: str
+    description: Optional[str] = None
+    enum: Optional[List[str]] = None
+
+@datafile
+class ParameterSchema:
+    """Represents a parameter schema in JSON Schema format"""
+    type: str
+    description: Optional[str] = None
+    enum: Optional[List[str]] = None
+    # Add other common JSON Schema fields as needed
+    format: Optional[str] = None
+    default: Optional[Union[str, int, float, bool]] = None
+    minimum: Optional[float] = None
+    maximum: Optional[float] = None
+    minLength: Optional[int] = None
+    maxLength: Optional[int] = None
+    pattern: Optional[str] = None
+    
+    # JSON strings to store complex nested structures
+    properties_json: Optional[str] = None  # Store properties as JSON string
+    items_json: Optional[str] = None  # Store array items schema as JSON string
+    additional_properties_json: Optional[str] = None  # Store additionalProperties as JSON string
+    required_json: Optional[str] = None  # Store required fields list as JSON string
+    
+    def to_dict(self) -> Dict:
+        """Convert to the dictionary format expected by the API"""
+        result = {"type": self.type}
+        
+        # Add optional fields if present
+        if self.description:
+            result["description"] = self.description
+            
+        if self.enum:
+            result["enum"] = self.enum
+            
+        # Add other fields conditionally
+        for attr in ["format", "default", "minimum", "maximum", "minLength", "maxLength", "pattern"]:
+            value = getattr(self, attr, None)
+            if value is not None:
+                result[attr] = value
+        
+        # Handle nested properties from JSON string
+        if self.properties_json:
+            try:
+                result["properties"] = json.loads(self.properties_json)
+            except (json.JSONDecodeError, TypeError):
+                pass
+        
+        # Handle items from JSON string
+        if self.items_json:
+            try:
+                result["items"] = json.loads(self.items_json)
+            except (json.JSONDecodeError, TypeError):
+                pass
+                
+        # Handle additionalProperties from JSON string
+        if self.additional_properties_json:
+            try:
+                result["additionalProperties"] = json.loads(self.additional_properties_json)
+            except (json.JSONDecodeError, TypeError):
+                pass
+                
+        # Handle required fields from JSON string
+        if self.required_json:
+            try:
+                result["required"] = json.loads(self.required_json)
+            except (json.JSONDecodeError, TypeError):
+                pass
+                
+        return result
+    
+    @classmethod
+    def from_dict(cls, data: Dict) -> 'ParameterSchema':
+        """Create a ParameterSchema from an API-format dictionary"""
+        schema = cls(
+            type=data.get("type", "string"),
+            description=data.get("description"),
+            enum=data.get("enum"),
+            format=data.get("format"),
+            default=data.get("default"),
+            minimum=data.get("minimum"),
+            maximum=data.get("maximum"),
+            minLength=data.get("minLength"),
+            maxLength=data.get("maxLength"),
+            pattern=data.get("pattern")
+        )
+        
+        # Handle properties (object fields)
+        if "properties" in data and data["properties"]:
+            schema.properties_json = json.dumps(data["properties"])
+            
+        # Handle items (array items schema)
+        if "items" in data and data["items"]:
+            schema.items_json = json.dumps(data["items"])
+            
+        # Handle additionalProperties (for object schemas)
+        if "additionalProperties" in data:
+            schema.additional_properties_json = json.dumps(data["additionalProperties"])
+            
+        # Handle required fields
+        if "required" in data and data["required"]:
+            schema.required_json = json.dumps(data["required"])
+            
+        return schema
+
+@datafile
+class FunctionDefinition:
+    """Represents a function definition within a tool"""
+    name: str
+    description: Optional[str] = None
+    parameters: Dict[str, ParameterSchema] = field(default_factory=dict)
+    required: List[str] = field(default_factory=list)
+    strict: Optional[bool] = None
+    
+    # For storing complex parameter schema
+    parameters_json: Optional[str] = None
+    
+    def to_dict(self) -> Dict:
+        """Convert to the dictionary format expected by the API"""
+        result = {
+            "name": self.name
+        }
+        
+        if self.description:
+            result["description"] = self.description
+        
+        # Handle parameters - use JSON if available, otherwise build from individual parameters
+        if self.parameters_json:
+            try:
+                result["parameters"] = json.loads(self.parameters_json)
+            except (json.JSONDecodeError, TypeError):
+                # Fall back to building from individual parameters
+                self._build_parameters_from_dict(result)
+        else:
+            self._build_parameters_from_dict(result)
+            
+        if self.strict is not None:
+            result["strict"] = self.strict
+            
+        return result
+    
+    def _build_parameters_from_dict(self, result):
+        """Helper to build parameters structure from individual parameters"""
+        if self.parameters:
+            # Create JSON Schema style parameters object
+            param_properties = {
+                param_name: param_schema.to_dict() 
+                for param_name, param_schema in self.parameters.items()
+            }
+            
+            params_obj = {
+                "type": "object",
+                "properties": param_properties
+            }
+            
+            # Add required array if present
+            if self.required:
+                params_obj["required"] = self.required
+                
+            result["parameters"] = params_obj
+    
+    @classmethod
+    def from_dict(cls, data: Dict) -> 'FunctionDefinition':
+        """Create from an API-format dictionary, preserving complex parameter schemas"""
+        function_def = cls(
+            name=data.get("name", ""),
+            description=data.get("description")
+        )
+        
+        # Extract parameters
+        params = data.get("parameters", {})
+        if params:
+            # Store the complete parameters schema as JSON
+            function_def.parameters_json = json.dumps(params)
+            
+            # Also extract individual parameters for backward compatibility
+            properties = params.get("properties", {})
+            function_def.parameters = {
+                param_name: ParameterSchema.from_dict(param_props)
+                for param_name, param_props in properties.items()
+            }
+            
+            # Extract required fields
+            function_def.required = params.get("required", [])
+        
+        # Extract strict flag
+        if "strict" in data:
+            function_def.strict = data["strict"]
+        
+        return function_def
+
+@datafile
+class ToolDefinition:
+    """Represents a tool that can be called by the model"""
+    type: str = "function"  # Currently only "function" is supported
+    function: FunctionDefinition = field(default_factory=FunctionDefinition)
+    
+    def to_dict(self) -> Dict:
+        """Convert to the dictionary format expected by the API"""
+        return {
+            "type": self.type,
+            "function": self.function.to_dict()
+        }
+    
+    @classmethod
+    def from_dict(cls, data: Dict) -> 'ToolDefinition':
+        """Create a ToolDefinition from an API-format dictionary"""
+        tool_type = data.get("type", "function")
+        
+        # Create the function definition
+        function_data = data.get("function", {})
+        function_def = FunctionDefinition(
+            name=function_data.get("name", ""),
+            description=function_data.get("description")
+        )
+        
+        # Extract parameters
+        params = function_data.get("parameters", {})
+        properties = params.get("properties", {})
+        
+        # Store the original parameters dictionary structure
+        function_def.parameters = {
+            param_name: ParameterSchema.from_dict(param_props)
+            for param_name, param_props in properties.items()
+        }
+        
+        # Extract required fields
+        function_def.required = params.get("required", [])
+        
+        # Extract strict flag
+        if "strict" in function_data:
+            function_def.strict = function_data["strict"]
+        
+        return cls(type=tool_type, function=function_def)
 
 @datafile
 class ChatParams:
@@ -19,6 +259,11 @@ class ChatParams:
     frequency_penalty: Optional[float] = None
     seed: Optional[int] = None
     n: Optional[int] = None
+    
+    # Tool-related parameters with proper dataclass typing
+    tools: Optional[List[ToolDefinition]] = None
+    tool_choice: Optional[str] = None
+    auto_execute: Optional[bool] = None  
 
     # Azure-specific parameters
     deployment: Optional[str] = None
@@ -91,7 +336,6 @@ class ChatParams:
             out["max_completion_tokens"] = out["max_tokens"]
             del out["max_tokens"]
 
-
         # If model supports temperatures, remove it to avoid breakage
         if not self._supports_temperature():
             if "temperature" in out:
@@ -101,12 +345,43 @@ class ChatParams:
             # For older GPT-3.5 or GPT-4, we keep max_tokens as-is 
             pass
 
+        # Remove tools and tool_choice as they are handled by the utensil_params
+        if "tools" in out:
+            del out["tools"]
+        if "tool_choice" in out:
+            del out["tool_choice"]
+        if "auto_execute" in out:
+            del out["auto_execute"]
+
         # response_pattern is for internal usage only; remove it
         if "response_pattern" in out:
             del out["response_pattern"]
 
+        # Convert tool definitions to API format
+        if "tools" in out and out["tools"]:
+            out["tools"] = [tool.to_dict() for tool in out["tools"]]
+
         return out
 
+    # Helper method to add a tool from a dictionary
+    def add_tool_from_dict(self, tool_dict: Dict) -> None:
+        """Add a tool definition from an API-format dictionary"""
+        tool = ToolDefinition.from_dict(tool_dict)
+        if not self.tools:
+            self.tools = []
+        self.tools.append(tool)
+
+    # Add this method
+    def set_tools(self, tools_list: List[Dict]) -> None:
+        """Set the tools list from API-format dictionaries"""
+        self.tools = [ToolDefinition.from_dict(tool_dict) for tool_dict in tools_list]
+
+    # Add this method near the set_tools method
+    def get_tools(self) -> List[Dict]:
+        """Get the tools list in API-format dictionaries"""
+        if not self.tools:
+            return []
+        return [tool.to_dict() for tool in self.tools]
 
 class ChatParamsMixin:
     params: Optional[ChatParams] = None
@@ -173,6 +448,39 @@ class ChatParamsMixin:
         if not self.params:
             self.params = ChatParams()
         self.params.stream = value
+
+    @property
+    def auto_execute(self) -> Optional[bool]:
+        if self.params is None:
+            return None
+        return self.params.auto_execute
+
+    @auto_execute.setter
+    def auto_execute(self, value: bool):
+        if self.params is None and value is not None:
+            self.params = ChatParams()
+        if self.params is not None:
+            self.params.auto_execute = value
+
+    @property
+    def tool_choice(self) -> Optional[str]:
+        if self.params is None:
+            return None
+        return self.params.tool_choice
+
+    @tool_choice.setter
+    def tool_choice(self, value: str):
+        if self.params is None and value is not None:
+            self.params = ChatParams()
+        if self.params is not None:
+            self.params.tool_choice = value
+
+    def set_tools(self, tools_list):
+        """Set the tools list from API-format dictionaries"""
+        if tools_list:
+            if self.params is None:
+                self.params = ChatParams()
+            self.params.set_tools(tools_list)
 
     def set_response_filter(
         self,

@@ -52,6 +52,24 @@ Recommend the best single snack and dip combo above.\""")
 snackout = snackfull.chat()
 print(snackout.yaml)
 
+# Example 6: Using Utensils (Tool Functions)
+from chatsnack import utensil
+
+@utensil
+def get_weather(location: str, unit: str = "celsius"):
+    '''Get the current weather for a location.
+    
+    Args:
+        location: City and state/country (e.g., "Boston, MA")
+        unit: Temperature unit ("celsius" or "fahrenheit")
+    '''
+    # Implementation details...
+    return {"temperature": 72, "condition": "sunny"}
+
+# Create a chat that can use the weather utensil
+weather_chat = Chat("WeatherChat", "You can check the weather.", utensils=[get_weather])
+response = weather_chat.user("What's the weather like in Boston?").chat()
+print(response)
 """
 import os
 from pathlib import Path
@@ -75,6 +93,7 @@ from .chat import Chat, Text, ChatParams
 from .txtformat import register_txt_datafiles
 from .yamlformat import register_yaml_datafiles
 from . import packs
+from .utensil import utensil, get_all_utensils, get_openai_tools, UtensilGroup
 
 from .fillings import snack_catalog, filling_machine
 

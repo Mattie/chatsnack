@@ -1,3 +1,4 @@
+import yaml
 import json
 from pathlib import Path
 
@@ -33,7 +34,42 @@ class ChatSerializationMixin(DatafileMixin):
     def yaml(self) -> str:
         """ Returns the chat prompt as a yaml string ⭐"""
         return self.datafile.text
-
+    
+    # def _messages_to_yaml(self, messages, expand_includes=True):
+    #     """Converts messages to a list for YAML serialization"""
+    #     result = []
+        
+    #     for message in messages:
+    #         # Each message is a dict with a single key (the role)
+    #         for role, content in message.items():
+    #             if role == "include" and expand_includes:
+    #                 # This is a reference to another named file, we need to load it
+    #                 include_chat = self.objects.get_or_none(content)
+    #                 if include_chat is None:
+    #                     # Can't expand, just add as is
+    #                     result.append({role: content})
+    #                 else:
+    #                     # We got a chat object, add all its messages
+    #                     result.extend(include_chat._messages_to_yaml(include_chat.messages))
+    #             elif role == "assistant" and isinstance(content, dict) and "tool_calls" in content:
+    #                 # Format tool calls for YAML serialization
+    #                 result.append({
+    #                     role: {
+    #                         "tool_calls": [
+    #                             {
+    #                                 "name": tool_call.get("name", ""),
+    #                                 "arguments": tool_call.get("arguments", {})
+    #                             }
+    #                             for tool_call in content["tool_calls"]
+    #                         ]
+    #                     }
+    #                 })
+    #             else:
+    #                 # Add the message as is
+    #                 result.append({role: content})
+        
+    #     return result
+    
     def generate_markdown(self, wrap=80) -> str:
         """ Returns the chat prompt as a markdown string ⭐"""
         # TODO convert this to a template file so people can change it

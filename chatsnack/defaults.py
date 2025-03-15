@@ -10,8 +10,8 @@ try:
 except:
     namestr = ""
 
-# if there's no "PLUNKYLIB_DIR" env variable, use that for our default path variable and set it to './datafiles/plunkylib'
-# this is the default directory for all plunkylib datafiles
+# if there's a "CHATSNACK_BASE_DIR" env variable, use that for our default path variable and set it to './datafiles/plunkylib'
+# this is the default directory for all chatsnack datafiles
 if os.getenv("CHATSNACK_BASE_DIR") is None:
     CHATSNACK_BASE_DIR = "./datafiles/chatsnack"
 else:
