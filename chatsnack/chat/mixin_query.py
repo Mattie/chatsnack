@@ -326,7 +326,7 @@ class ChatQueryMixin(ChatMessagesMixin, ChatParamsMixin):
         # Handle different response types (string vs object with tool_calls)
         if isinstance(response, str):
             # Add the response as an assistant message
-            new_chatprompt = new_chatprompt.add_or_update_last_assistant_message(response)
+            new_chatprompt.add_or_update_last_assistant_message(response)
             return new_chatprompt
         else:
             # Handle tool call response
