@@ -71,6 +71,8 @@ weather_chat = Chat("WeatherChat", "You can check the weather.", utensils=[get_w
 response = weather_chat.user("What's the weather like in Boston?").chat()
 print(response)
 """
+from .patches import *
+
 import os
 from pathlib import Path
 
@@ -78,6 +80,8 @@ from typing import Optional
 from loguru import logger
 import nest_asyncio
 nest_asyncio.apply()
+
+
 
 from dotenv import load_dotenv
 # if .env doesn't exist, create it and populate it with the default values
