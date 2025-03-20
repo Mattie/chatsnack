@@ -21,6 +21,9 @@ class ChatUtensilMixin:
         # Note: We don't need to initialize params here as the Chat constructor does that
         if "auto_execute" in kwargs and hasattr(self, 'params'):
             self.params.auto_execute = kwargs.pop("auto_execute")
+        
+        if "auto_feed" in kwargs and hasattr(self, 'params'):
+            self.params.auto_feed = kwargs.pop("auto_feed")
             
         if "tool_choice" in kwargs and hasattr(self, 'params'):
             self.params.tool_choice = kwargs.pop("tool_choice")
@@ -236,27 +239,33 @@ class ChatUtensilMixin:
                     }
                     
                     result = self.execute_tool_call(tool_call_dict)
-                    # result = handle_tool_call(tool_call_dict)
                     
                     # Add the tool response to the messages
                     self.tool_response(result)
                     
-                    # Add the tool result to the API messages for a follow-up
-                    messages.append({
-                        "role": "tool",
-                        "tool_call_id": tool_call.id,
-                        "content": json.dumps(result) if isinstance(result, dict) else str(result)
-                    })
+                    # Check if we should feed tool results back to the model
+                    if self.params.auto_feed is None or self.params.auto_feed:
+                        # Add the tool result to the API messages for a follow-up
+                        messages.append({
+                            "role": "tool",
+                            "tool_call_id": tool_call.id,
+                            "content": json.dumps(result) if isinstance(result, dict) else str(result)
+                        })
                 
-                # Get the AI's response to the tool result
-                follow_up_response = await self.ai.aclient.chat.completions.create(
-                    messages=messages,
-                    **{k: v for k, v in kwargs.items() if k != 'tools' and k != 'tool_choice'}
-                )
+                # Check if we should make a follow-up call with the tool results
+                if self.params.auto_feed is None or self.params.auto_feed:
+                    # Get the AI's response to the tool result
+                    follow_up_response = await self.ai.aclient.chat.completions.create(
+                        messages=messages,
+                        **{k: v for k, v in kwargs.items() if k != 'tools' and k != 'tool_choice'}
+                    )
+                    
+                    # Return the AI's final response
+                    return follow_up_response.choices[0].message.content
+                else:
+                    # No follow-up with tool results if auto_feed is False
+                    return "Tool executed, but results not fed back to model due to auto_feed=False setting."
                 
-                # Return the AI's final response
-                return follow_up_response.choices[0].message.content
-            
             # Return a message about the tool call if not auto-executing
             return f"Tool call requested: {tool_calls[0].function.name}. Execute manually with .tool_response(result)"
             

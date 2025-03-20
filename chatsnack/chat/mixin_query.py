@@ -389,33 +389,39 @@ class ChatQueryMixin(ChatMessagesMixin, ChatParamsMixin):
                         # log all messages in the current_chat
                         logger.debug(f"Current chat messages: {current_chat.get_messages()}")
                     
-                    # Use _submit_for_response_and_prompt for the follow-up call
-                    # Since we want to use the current conversation as context, we create a temporary chat object
-                    temp_chat = current_chat.copy()
-                    new_prompt = json.dumps(temp_chat.get_messages()) 
-                    logger.trace(f"Temp chat messagesx: {temp_chat.get_messages()}")
-                    follow_up = await temp_chat._cleaned_chat_completion(new_prompt)
-                    
-                    
-                    # Check if the follow-up response has tool calls
-                    if isinstance(follow_up, str):
-                        # Text response - no tool calls
-                        current_chat = current_chat.assistant(follow_up)
-                        has_tool_calls = False
-                    else:
-                        # Check for tool calls in the response
-                        has_tool_calls = hasattr(follow_up, "tool_calls") and follow_up.tool_calls
+                    # Check if we should feed tool results back to the model
+                    if self.params.auto_feed is None or self.params.auto_feed:
+                        # Use _submit_for_response_and_prompt for the follow-up call
+                        # Since we want to use the current conversation as context, we create a temporary chat object
+                        temp_chat = current_chat.copy()
+                        new_prompt = json.dumps(temp_chat.get_messages()) 
+                        logger.trace(f"Temp chat messagesx: {temp_chat.get_messages()}")
+                        follow_up = await temp_chat._cleaned_chat_completion(new_prompt)
                         
-                        if has_tool_calls:
-                            # More tool calls - add to chat and continue loop
-                            msg = follow_up.model_dump()
-                            current_chat = current_chat.assistant(msg)
-                            logger.debug(f"Tool calls in follow-up response: {follow_up.tool_calls}")
-                            response = follow_up  # Update for next iteration
+                        # Check if the follow-up response has tool calls
+                        if isinstance(follow_up, str):
+                            # Text response - no tool calls
+                            current_chat = current_chat.assistant(follow_up)
+                            has_tool_calls = False
                         else:
-                            # Final response with content but no more tool calls
-                            content = follow_up.content if hasattr(follow_up, "content") else ""
-                            current_chat = current_chat.assistant(content)
+                            # Check for tool calls in the response
+                            has_tool_calls = hasattr(follow_up, "tool_calls") and follow_up.tool_calls
+                            
+                            if has_tool_calls:
+                                # More tool calls - add to chat and continue loop
+                                msg = follow_up.model_dump()
+                                current_chat = current_chat.assistant(msg)
+                                logger.debug(f"Tool calls in follow-up response: {follow_up.tool_calls}")
+                                response = follow_up  # Update for next iteration
+                            else:
+                                # Final response with content but no more tool calls
+                                content = follow_up.content if hasattr(follow_up, "content") else ""
+                                current_chat = current_chat.assistant(content)
+                    else:
+                        # If auto_feed is False, break the tool call recursion loop
+                        # The assistant's tool calls are recorded but not fed back to the model
+                        has_tool_calls = False
+                        logger.debug("Not feeding tool results back to model due to auto_feed=False")
                 
                 # Log warning if we hit max recursion
                 if current_recursion >= max_tool_recursion and has_tool_calls:

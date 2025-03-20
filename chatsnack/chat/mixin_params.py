@@ -264,6 +264,7 @@ class ChatParams:
     tools: Optional[List[ToolDefinition]] = None
     tool_choice: Optional[str] = None
     auto_execute: Optional[bool] = None  
+    auto_feed: Optional[bool] = True  # Whether to automatically feed tool results back to the model
 
     # Azure-specific parameters
     deployment: Optional[str] = None
@@ -352,6 +353,8 @@ class ChatParams:
             del out["tool_choice"]
         if "auto_execute" in out:
             del out["auto_execute"]
+        if "auto_feed" in out:
+            del out["auto_feed"]
 
         # response_pattern is for internal usage only; remove it
         if "response_pattern" in out:
@@ -474,6 +477,19 @@ class ChatParamsMixin:
             self.params = ChatParams()
         if self.params is not None:
             self.params.tool_choice = value
+
+    @property
+    def auto_feed(self) -> Optional[bool]:
+        if self.params is None:
+            return None
+        return self.params.auto_feed
+
+    @auto_feed.setter
+    def auto_feed(self, value: bool):
+        if self.params is None and value is not None:
+            self.params = ChatParams()
+        if self.params is not None:
+            self.params.auto_feed = value
 
     def set_tools(self, tools_list):
         """Set the tools list from API-format dictionaries"""

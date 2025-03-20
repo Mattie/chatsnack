@@ -55,12 +55,14 @@ class Chat(ChatQueryMixin, ChatSerializationMixin, ChatUtensilMixin):
         :param engine: the engine name (optional, defaults to None, will overwrite params if specified)
         :param utensils: tools available to this chat (optional, defaults to None)
         :param auto_execute: whether to automatically execute tool calls (optional, defaults to True)
+        :param auto_feed: whether to automatically feed tool results back to the model (optional, defaults to True)
         :param tool_choice: how to choose which tool to use (optional, defaults to "auto")
         """
         # Extract utensil-related parameters first
         utensils = kwargs.pop("utensils", None)
         auto_execute = kwargs.pop("auto_execute", None)
         tool_choice = kwargs.pop("tool_choice", None)
+        auto_feed = kwargs.pop("auto_feed", None)
         
         # get name from kwargs, if it's there
         if "name" in kwargs:
@@ -103,6 +105,8 @@ class Chat(ChatQueryMixin, ChatSerializationMixin, ChatUtensilMixin):
             self.auto_execute = auto_execute
         if tool_choice is not None:
             self.tool_choice = tool_choice
+        if auto_feed is not None:
+            self.auto_feed = auto_feed
 
        
         # Register utensils if provided

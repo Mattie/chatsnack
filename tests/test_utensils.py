@@ -330,3 +330,171 @@ def test_engine_tool_calls_local_registry(engine):
         
     except Exception as e:
         pytest.fail(f"Engine {engine} failed with error: {str(e)}")
+
+
+# === Test 6: Utensil auto_feed param (new) ===
+#         :param auto_feed: whether to automatically feed tool calls to the engine (optional, defaults to True)
+# TDD development for this, let us make new tests that start 'red' for the new auto_feed feature that we're going to write soon
+
+# === Test 7: Utensil auto_feed Initialization ===
+def test_auto_feed_initialization():
+    """Test that auto_feed parameter initializes correctly."""
+    # Default behavior: auto_feed should be True if not specified
+    chat_default = Chat(
+        name="auto_feed_default",
+        utensils=[]
+    )
+    # Ensure it actually does not have auto_feed set as a param yet-- it should be missing until set
+    assert chat_default.params is None, "ChatParams should not be auto-created without setting auto_feed"
+    # fail the test if chat.auto_feed is not None
+    assert chat_default.auto_feed is None, "auto_feed should be None when not explicitly set"
+    
+    # Explicitly set auto_feed to False
+    chat_no_feed = Chat(
+        name="auto_feed_false",
+        utensils=[],
+        auto_feed=False
+    )
+    assert chat_no_feed.params.auto_feed is False, "auto_feed should be False when explicitly set"
+
+    # Explicitly set auto_feed to True
+    chat_with_feed = Chat(
+        name="auto_feed_true",
+        utensils=[],
+        auto_feed=True
+    )
+    assert chat_with_feed.params.auto_feed is True, "auto_feed should be True when explicitly set"
+
+# === Test 8: Execution Without Feeding Tool Results ===
+@pytest.mark.parametrize("engine", TOOL_COMPATIBLE_ENGINES[:1])  # Use just the first engine for this test
+@pytest.mark.skipif(os.environ.get("OPENAI_API_KEY") is None, 
+                    reason="OPENAI_API_KEY is not set in environment or .env")
+def test_auto_execute_without_auto_feed(engine):
+    """Test that tools execute but don't feed results back to the engine when auto_execute=True and auto_feed=False."""
+    
+    # Define a test-local utensil that logs when it gets called
+    call_tracker = {"times_called": 0}
+    
+    @utensil(name="trackable_tool", description="A tool that tracks when it's called")
+    def trackable_tool(query: str):
+        """Returns data about a query and tracks it was called."""
+        call_tracker["times_called"] += 1
+        return {
+            "query": query,
+            "result": f"Processed query: {query}",
+            "timestamp": "2025-03-11"
+        }
+    
+    # Create a chat with auto_execute=True but auto_feed=False
+    chat = Chat(
+        system="You are a helpful assistant that must use tools. After using a tool once, you should make your final response.",
+        utensils=[trackable_tool],
+        auto_execute=True,   # Tools will be executed
+        auto_feed=False,     # Tool results won't be fed back to the model
+        tool_choice="required"  # Force tool usage to ensure the test works
+    )
+    
+    chat.model = engine
+    chat.temperature = 0  # Deterministic for testing
+    
+    prompt = "I need information about test data, please use the trackable_tool."
+    
+    try:
+        result = chat.user(prompt).chat()
+        
+        # Check message flow
+        has_tool_calls = False
+        has_tool_execution = False
+        has_tool_being_fed_back = False
+        
+        for idx, message in enumerate(result.messages):
+            if isinstance(message, dict):
+                # Check for assistant making a tool call
+                if "assistant" in message and isinstance(message["assistant"], dict):
+                    asst_msg = message["assistant"]
+                    if "tool_calls" in asst_msg and asst_msg["tool_calls"]:
+                        has_tool_calls = True
+                
+                # Check if tool was executed (should have happened due to auto_execute=True)
+                if "tool" in message:
+                    has_tool_execution = True
+                
+                # Check if there's evidence of a follow-up assistant message that references tool results
+                # This should NOT happen due to auto_feed=False
+                if idx > 0 and "assistant" in message:
+                    if any("tool" in prev_msg for prev_msg in result.messages[idx-1:idx]):
+                        has_tool_being_fed_back = True
+        
+        # Assertions about the behavior
+        assert has_tool_calls, f"Engine {engine} failed to make any tool calls"
+        assert has_tool_execution, f"Tool wasn't executed even though auto_execute=True"
+        assert call_tracker["times_called"] > 0, "Tool function wasn't actually called"
+        assert not has_tool_being_fed_back, "Tool results were fed back to the model despite auto_feed=False"
+        
+        # The final response should be directly after the tool call without seeing tool results
+        final_message = result.last
+        assert final_message is not None, f"No final response from {engine}"
+            
+    except Exception as e:
+        pytest.fail(f"Test failed with error: {str(e)}")
+
+# === Test 9: Comparing Behavior with auto_feed True vs False ===
+@pytest.mark.parametrize("engine", TOOL_COMPATIBLE_ENGINES[:1])  # Use just the first engine to save time
+@pytest.mark.skipif(os.environ.get("OPENAI_API_KEY") is None, 
+                    reason="OPENAI_API_KEY is not set in environment or .env")
+def test_auto_feed_behavior_comparison(engine):
+    """Compare behavior with auto_feed True vs False."""
+    
+    # Define a utensil that returns specific, recognizable information
+    @utensil(name="data_provider", description="A tool that provides specific data")
+    def data_provider():
+        """Returns a specific data pattern that would be recognizable in outputs."""
+        return {
+            "special_code": "X7Z9Q2",
+            "timestamp": "2025-03-11"
+        }
+    
+    prompt = "Use the data_provider tool and then tell me the special code it returned."
+    
+    # Test with auto_feed=True (default)
+    chat_with_feed = Chat(
+        system="You are a helpful assistant.",
+        utensils=[data_provider],
+        auto_execute=True,
+        auto_feed=True,
+        tool_choice="required"
+    )
+    
+    chat_with_feed.model = engine
+    chat_with_feed.temperature = 0
+    
+    # Test with auto_feed=False
+    chat_without_feed = Chat(
+        system="You are a helpful assistant.",
+        utensils=[data_provider],
+        auto_execute=True,
+        auto_feed=False,
+        tool_choice="required"
+    )
+    
+    chat_without_feed.model = engine
+    chat_without_feed.temperature = 0
+    
+    try:
+        # Run both chats
+        result_with_feed = chat_with_feed.user(prompt).chat()
+        result_without_feed = chat_without_feed.user(prompt).chat()
+        
+        # With auto_feed=True, the response should include the special code
+        code_present_with_feed = "X7Z9Q2" in result_with_feed.last
+        
+        # With auto_feed=False, the response should NOT include the special code
+        # because the model never saw the tool results
+        code_present_without_feed = "X7Z9Q2" in result_without_feed.last
+        
+        assert code_present_with_feed, "Model should mention special code when auto_feed=True"
+        assert not code_present_without_feed, "Model should NOT know special code when auto_feed=False"
+            
+    except Exception as e:
+        pytest.fail(f"Test failed with error: {str(e)}")
+
