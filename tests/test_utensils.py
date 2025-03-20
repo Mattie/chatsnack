@@ -332,11 +332,7 @@ def test_engine_tool_calls_local_registry(engine):
         pytest.fail(f"Engine {engine} failed with error: {str(e)}")
 
 
-# === Test 6: Utensil auto_feed param (new) ===
-#         :param auto_feed: whether to automatically feed tool calls to the engine (optional, defaults to True)
-# TDD development for this, let us make new tests that start 'red' for the new auto_feed feature that we're going to write soon
-
-# === Test 7: Utensil auto_feed Initialization ===
+# === Test 6: Utensil auto_feed Initialization ===
 def test_auto_feed_initialization():
     """Test that auto_feed parameter initializes correctly."""
     # Default behavior: auto_feed should be True if not specified
