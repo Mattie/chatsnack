@@ -153,10 +153,14 @@ class FunctionDefinition:
         """Helper to build parameters structure from individual parameters"""
         if self.parameters:
             # Create JSON Schema style parameters object
-            param_properties = {
-                param_name: param_schema.to_dict() 
-                for param_name, param_schema in self.parameters.items()
-            }
+            param_properties = {}
+            for param_name, param_schema in self.parameters.items():
+                # Handle both ParameterSchema objects and dictionaries
+                if hasattr(param_schema, 'to_dict'):
+                    param_properties[param_name] = param_schema.to_dict()
+                else:
+                    # Assume it's a dictionary that's already in the right format
+                    param_properties[param_name] = param_schema
             
             params_obj = {
                 "type": "object",

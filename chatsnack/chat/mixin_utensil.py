@@ -153,6 +153,17 @@ class ChatUtensilMixin:
         # Set default tool_choice if not already set
         if self.params.tool_choice is None:
             self.params.tool_choice = "auto"
+        
+        # add to _local_registry if it exists, but create it if not
+        if not hasattr(self, '_local_registry'):
+            self._local_registry = []
+        # add it
+        self._local_registry.extend(utensils)
+        
+        # debug print the local registry
+        logger.debug(f"Local registry: {self._local_registry}")        
+        
+
     
     async def _submit_for_response_and_prompt(self, **additional_vars):
         """Override to add tools handling to the API calls."""

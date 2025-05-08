@@ -310,7 +310,7 @@ def extract_utensil_functions(utensils=None) -> List[UtensilFunction]:
     Returns:
         List of UtensilFunction objects
     """
-    logger.debug(f"Extracting utensil functions from input")
+    logger.debug(f"Extracting utensil functions from input: {utensils}")
     if utensils is None:
         return _REGISTRY.copy()
     
@@ -326,6 +326,9 @@ def extract_utensil_functions(utensils=None) -> List[UtensilFunction]:
             # Create a utensil on the fly (but don't add to global registry)
             utensil_obj = _create_utensil(u)
             result.append(utensil_obj)
+        else:
+            logger.warning(f"Unknown type {type(u)} in utensils, skipping")
+    logger.debug(f"Extracted {len(result)} utensil functions")
     
     return result
 
@@ -353,6 +356,15 @@ def handle_tool_call(tool_call: Dict[str, Any], local_registry=None) -> Dict[str
     logger.debug(f"Arguments JSON: {arguments_json}")
     logger.debug(f"Call ID: {call_id}")    
 
+    # output the local_registry if it exists
+    if local_registry:
+        logger.debug(f"Local registry: {local_registry}")
+    else:
+        logger.debug("No local registry provided, using global registry")
+    
+    # output the _REGISTRY if it exists
+    logger.debug(f"Global registry: {_REGISTRY}")
+
     # Get the utensils to search through
     utensils_to_search = extract_utensil_functions(local_registry) if local_registry else _REGISTRY
     logger.debug(f"Searching through {len(utensils_to_search)} utensils for '{function_name}'")
@@ -372,7 +384,9 @@ def handle_tool_call(tool_call: Dict[str, Any], local_registry=None) -> Dict[str
                 
                 if call_id:
                     result["tool_call_id"] = call_id
-                    
+                
+                # log the result
+                logger.debug(f"Function '{function_name}' result: \n---\n{result}\n---")
                 return result
             except json.JSONDecodeError:
                 return {"error": f"Invalid JSON arguments: {arguments_json}", "tool_call_id": call_id}

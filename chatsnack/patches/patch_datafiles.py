@@ -10,13 +10,13 @@ TODO: Submit PR to datafiles to fix this issue upstream.
 import os
 from pathlib import Path
 from types import MethodType
-
+from loguru import logger
 
 def patch_datafiles():
     """Apply patches to datafiles module to fix path handling (Windows). Enable with DATAFILES_FIX_PATH_MOUNTS=1"""
     # Check if the patch should be applied based on environment variable
     if os.environ.get('DATAFILES_FIX_PATH_MOUNTS', '').lower() not in ('1', 'true', 'yes', 'on'):
-        print("Datafiles path mount patch is disabled. Set DATAFILES_FIX_PATH_MOUNTS=1 to enable.")
+        logger.debug("Datafiles path mount patch is disabled. Set DATAFILES_FIX_PATH_MOUNTS=1 to enable.")
         return
         
     try:
@@ -37,12 +37,12 @@ def patch_datafiles():
         # Patch the class property with our fixed version
         datafiles.mapper.Mapper.relpath = property(patched_relpath)
         
-        print("Successfully patched datafiles.mapper.Mapper.relpath")
+        logger.debug("Successfully patched datafiles.mapper.Mapper.relpath")
         
     except ImportError:
-        print("Could not patch datafiles: module not found")
+        logger.debug("Could not patch datafiles: module not found")
     except Exception as e:
-        print(f"Failed to apply datafiles patch: {e}")
+        logger.debug(f"Failed to apply datafiles patch: {e}")
 
 
 # Apply the patch immediately when this module is imported

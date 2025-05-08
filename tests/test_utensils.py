@@ -494,3 +494,64 @@ def test_auto_feed_behavior_comparison(engine):
     except Exception as e:
         pytest.fail(f"Test failed with error: {str(e)}")
 
+from chatsnack.utensil import utensil
+from chatsnack.chat import Chat
+from typing import Dict
+from loguru import logger
+import json
+
+def test_utensil_group_in_chat():
+    """Test that tools from a utensil group are properly accessible to the Chat."""
+    
+    # Create a test variable to track if function was called
+    function_called = {"was_called": False, "args": None}
+    
+    # Create a utensil group
+    topic_analysis_tools = utensil.group("Topic Analysis Tools")
+    
+    # Add a function to the group
+    @topic_analysis_tools.add
+    def submit_final_topic_content(topics: Dict[str, str]) -> str:
+        """Submit topics and their detailed content for storage.
+        
+        Args:
+            topics: Object of name/value pairs mapping topic names to detailed descriptions
+        
+        Returns:
+            Confirmation message with number of topics stored
+        """
+        function_called["was_called"] = True
+        # get all the kwargs for this function?
+        import inspect
+        func_args = inspect.getfullargspec(submit_final_topic_content).args
+        # get the kwargs that were passed in
+        func_kwargs = {k: v for k, v in locals().items() if k in func_args}
+        function_called["args"] = func_kwargs
+
+        logger.debug(f"Function called with: {func_kwargs}")
+        return f"Successfully stored {len(topics)} topics"
+    
+    # Create a chat with the tools
+    chat = Chat(name="TestTopicsChat", utensils=[topic_analysis_tools])
+    
+    # Create a simulated tool call that might come from an AI
+    tool_call = {
+        "id": "call_test_123",
+        "type": "function",
+        "function": {
+            "name": "submit_final_topic_content",
+            "arguments": json.dumps({"topics": {"Topic1": "Content1", "Topic2": "Content2"}})
+        }
+    }
+    
+    # Try to execute the tool call
+    result = chat.execute_tool_call(tool_call)['result']
+    
+    # Assert that the function was called
+    assert function_called["was_called"], "Function wasn't called when it should have been"
+    assert "topics" in function_called["args"], "Function called without proper arguments"
+    assert len(function_called["args"]["topics"]) == 2, "Wrong number of topics passed to function"
+    
+    # Check the result
+    assert isinstance(result, str), "Function should return a string"
+    assert "Successfully stored" in result, "Function return value not correctly passed back"
