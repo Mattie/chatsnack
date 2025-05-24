@@ -1,18 +1,23 @@
 import json
 from pathlib import Path
 
+def _safe_del_path(datafile_mapper):
+    """Delete cached path attribute if present."""
+    if hasattr(datafile_mapper, "__dict__") and "path" in datafile_mapper.__dict__:
+        del datafile_mapper.__dict__["path"]
+
 class DatafileMixin:
     def save(self, path: str = None):
         """ Saves the text to disk """
         # path is a cached property so we're going to delete it so it'll get recalculated
-        del self.datafile.path
+        _safe_del_path(self.datafile)
         if path is not None:
             self.datafile.path = Path(path)
         self.datafile.save()
     def load(self, path: str = None):
         """ Loads the chat prompt from a file, can load from a new path but it won't work with snack expansion/vending """
         # path is a cached property so we're going to delete it so it'll get recalculated
-        del self.datafile.path
+        _safe_del_path(self.datafile)
         if path is not None:
             self.datafile.path = Path(path)
         self.datafile.load()
