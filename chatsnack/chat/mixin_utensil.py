@@ -478,7 +478,7 @@ class ChatUtensilMixin:
             return []
         tools = self.params.get_tools() 
         # log the deserialized tools
-        logger.debug(f"Deserialized tools: {tools}")
+        logger.trace(f"Deserialized tools: {tools}")
         # Deserialize from params
         return tools
         
