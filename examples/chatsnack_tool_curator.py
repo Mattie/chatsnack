@@ -64,8 +64,10 @@ class ToolCuratedConversation:
 
         self._ensure_prompt_assets()
 
-        # Start from a YAML-backed prompt template.
-        self.agent_chat = Chat(name=self.template_name)
+        # Load the YAML-backed prompt template that _ensure_prompt_assets() saved.
+        self.agent_chat = Chat.objects.get_or_none(self.template_name)
+        if self.agent_chat is None:
+            raise RuntimeError(f"Failed to load chat template '{self.template_name}' after creation.")
         self.agent_chat.model = self.base_model
 
     @staticmethod
