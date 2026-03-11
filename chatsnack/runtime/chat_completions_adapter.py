@@ -23,17 +23,20 @@ class ChatCompletionsAdapter:
             return obj
         if hasattr(obj, "model_dump"):
             return obj.model_dump()
+        if hasattr(obj, "__dict__"):
+            return vars(obj)
         return dict(obj)
 
     def _normalize_message(self, message: Any) -> NormalizedAssistantMessage:
         message_dict = self._to_dict(message)
         tool_calls = []
         for tc in message_dict.get("tool_calls") or []:
-            function = tc.get("function") or {}
+            tc_dict = self._to_dict(tc)
+            function = self._to_dict(tc_dict.get("function") or {})
             tool_calls.append(
                 NormalizedToolCall(
-                    id=tc.get("id", ""),
-                    type=tc.get("type", "function"),
+                    id=tc_dict.get("id", ""),
+                    type=tc_dict.get("type", "function"),
                     function=NormalizedToolFunction(
                         name=function.get("name", ""),
                         arguments=function.get("arguments", ""),
@@ -48,8 +51,9 @@ class ChatCompletionsAdapter:
 
     def _normalize_completion(self, response: Any) -> NormalizedCompletionResult:
         response_dict = self._to_dict(response)
-        choice = (response_dict.get("choices") or [{}])[0]
-        message = self._normalize_message(choice.get("message", {}))
+        raw_choices = response_dict.get("choices") or [{}]
+        choice = self._to_dict(raw_choices[0]) if raw_choices else {}
+        message = self._normalize_message(choice.get("message") or {})
         return NormalizedCompletionResult(
             message=message,
             finish_reason=choice.get("finish_reason"),
@@ -77,8 +81,9 @@ class ChatCompletionsAdapter:
     def _normalize_chunk_to_events(self, chunk: Any, index: int):
         events = []
         chunk_dict = self._to_dict(chunk)
-        choice = (chunk_dict.get("choices") or [{}])[0]
-        delta = choice.get("delta") or {}
+        raw_choices = chunk_dict.get("choices") or [{}]
+        choice = self._to_dict(raw_choices[0]) if raw_choices else {}
+        delta = self._to_dict(choice.get("delta") or {})
 
         content = delta.get("content")
         if content is not None:
