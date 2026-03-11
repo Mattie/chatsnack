@@ -157,3 +157,140 @@ def test_copy_chatprompt_generated_name_length():
 
 
 
+
+import asyncio
+from types import SimpleNamespace
+
+
+class _FakeMessage:
+    def __init__(self, content="hello", tool_calls=None):
+        self.content = content
+        self.tool_calls = tool_calls
+
+    def model_dump(self):
+        return {
+            "role": "assistant",
+            "content": self.content,
+            "tool_calls": self.tool_calls,
+        }
+
+
+class _FakeChoice:
+    def __init__(self, message):
+        self.message = message
+
+
+class _FakeResponse:
+    def __init__(self, message):
+        self.choices = [_FakeChoice(message)]
+
+
+class _FakeAsyncCompletions:
+    def __init__(self):
+        self.last_kwargs = None
+
+    async def create(self, messages, **kwargs):
+        self.last_kwargs = kwargs
+        return _FakeResponse(_FakeMessage(content="ok", tool_calls=None))
+
+
+@pytest.mark.asyncio
+async def test_sync_methods_fail_fast_in_active_loop(chat, monkeypatch):
+    def raise_active_loop(coro):
+        coro.close()
+        raise RuntimeError("asyncio.run() cannot be called from a running event loop")
+
+    monkeypatch.setattr("chatsnack.chat.mixin_query.asyncio.run", raise_active_loop)
+
+    with pytest.raises(RuntimeError, match=r"Cannot call sync ask\(\)"):
+        chat.ask()
+    with pytest.raises(RuntimeError, match=r"Cannot call sync chat\(\)"):
+        chat.chat()
+    with pytest.raises(RuntimeError, match=r"Cannot call sync listen\(\)"):
+        chat.listen()
+
+
+@pytest.mark.asyncio
+async def test_async_methods_work_in_active_loop(chat, monkeypatch):
+    async def fake_submit(**kwargs):
+        return "[]", "async-output"
+
+    async def fake_chat_a(self, usermsg=None, **additional_vars):
+        return Chat(name="async-chat")
+
+    monkeypatch.setattr(chat, "_submit_for_response_and_prompt", fake_submit)
+
+    assert await chat.ask_a() == "async-output"
+
+    async def fake_submit_listener(**kwargs):
+        return "[]", SimpleNamespace(start_a=lambda: asyncio.sleep(0), events=False)
+
+    chat.stream = True
+    monkeypatch.setattr(chat, "_submit_for_response_and_prompt", fake_submit_listener)
+    listener = await chat.listen_a(events=True)
+    assert listener.events is True
+
+
+@pytest.mark.asyncio
+async def test_ask_a_and_chat_a_raise_when_stream_enabled(chat):
+    chat.stream = True
+    with pytest.raises(Exception, match=r"Cannot use ask\(\) with a stream"):
+        await chat.ask_a()
+    with pytest.raises(Exception, match=r"Cannot use chat\(\) with a stream"):
+        await chat.chat_a()
+
+
+@pytest.mark.asyncio
+async def test_cleaned_chat_completion_model_fallback(chat):
+    fake_completions = _FakeAsyncCompletions()
+    chat.ai.aclient = SimpleNamespace(
+        chat=SimpleNamespace(completions=fake_completions)
+    )
+    chat.system("system")
+    await chat._cleaned_chat_completion(chat.json)
+    assert fake_completions.last_kwargs["model"] == "gpt-3.5-turbo"
+
+
+@pytest.mark.asyncio
+async def test_cleaned_chat_completion_returns_message_object_for_tool_calls(chat):
+    class ToolCompletions:
+        async def create(self, messages, **kwargs):
+            tool_calls = [SimpleNamespace(id="1", function=SimpleNamespace(name="x", arguments="{}"))]
+            return _FakeResponse(_FakeMessage(content=None, tool_calls=tool_calls))
+
+    chat.ai.aclient = SimpleNamespace(chat=SimpleNamespace(completions=ToolCompletions()))
+    response = await chat._cleaned_chat_completion("[]")
+    assert hasattr(response, "tool_calls")
+    assert response.tool_calls
+
+
+@pytest.mark.asyncio
+async def test_tool_recursion_auto_feed_false_keeps_tool_messages(chat, monkeypatch):
+    class _ToolCall:
+        def __init__(self):
+            self.id = "call_1"
+            self.function = SimpleNamespace(name="echo", arguments='{"x":1}')
+
+        def as_dict(self):
+            return {"id": self.id, "type": "function", "function": {"name": self.function.name, "arguments": self.function.arguments}}
+
+    tool_call = _ToolCall()
+
+    class _ToolMessage(_FakeMessage):
+        def model_dump(self):
+            return {"role": "assistant", "content": None, "tool_calls": [tool_call.as_dict()]}
+
+    first_response = _ToolMessage(content=None, tool_calls=[tool_call])
+
+    async def fake_submit(**kwargs):
+        return "[]", first_response
+
+    monkeypatch.setattr(chat, "_submit_for_response_and_prompt", fake_submit)
+    monkeypatch.setattr(chat, "execute_tool_call", lambda tc: {"ok": True})
+
+    chat.auto_execute = True
+    chat.auto_feed = False
+    out = await chat.chat_a()
+    messages = out.get_messages()
+    assert any(msg["role"] == "assistant" and msg.get("tool_calls") for msg in messages)
+    assert any(msg["role"] == "tool" for msg in messages)
