@@ -199,6 +199,31 @@ class ChatStreamListener:
 
 
 class ChatQueryMixin(ChatMessagesMixin, ChatParamsMixin):
+    @staticmethod
+    def _tool_response_to_dict(response) -> dict:
+        """Convert a response message with tool calls to a plain dictionary.
+
+        Uses ``model_dump()`` when available (e.g. Pydantic models), and falls
+        back to a manual construction otherwise.
+        """
+        if hasattr(response, "model_dump"):
+            return response.model_dump()
+        return {
+            "role": "assistant",
+            "content": response.content,
+            "tool_calls": [
+                {
+                    "id": tc.id,
+                    "type": tc.type,
+                    "function": {
+                        "name": tc.function.name if tc.function else "",
+                        "arguments": tc.function.arguments if tc.function else "",
+                    },
+                }
+                for tc in response.tool_calls
+            ],
+        }
+
     def _run_sync(self, coro, method_name: str):
         try:
             return asyncio.run(coro)
@@ -460,7 +485,7 @@ class ChatQueryMixin(ChatMessagesMixin, ChatParamsMixin):
                              num_calls=len(response.tool_calls))
                 
             # Add the assistant response with tool calls
-            msg = response.model_dump() if hasattr(response, "model_dump") else {"role": "assistant", "content": response.content, "tool_calls": [{"id": tc.id, "type": tc.type, "function": {"name": tc.function.name if tc.function else "", "arguments": tc.function.arguments if tc.function else ""}} for tc in response.tool_calls]}
+            msg = self._tool_response_to_dict(response)
             new_chatprompt = new_chatprompt.assistant(msg)
             logger.debug(f"Tool calls in response: {response.tool_calls}")
             
@@ -524,7 +549,7 @@ class ChatQueryMixin(ChatMessagesMixin, ChatParamsMixin):
                             
                             if has_tool_calls:
                                 # More tool calls - add to chat and continue loop
-                                msg = follow_up.model_dump() if hasattr(follow_up, "model_dump") else {"role": "assistant", "content": follow_up.content, "tool_calls": [{"id": tc.id, "type": tc.type, "function": {"name": tc.function.name if tc.function else "", "arguments": tc.function.arguments if tc.function else ""}} for tc in follow_up.tool_calls]}
+                                msg = self._tool_response_to_dict(follow_up)
                                 current_chat = current_chat.assistant(msg)
                                 logger.debug(f"Tool calls in follow-up response: {follow_up.tool_calls}")
                                 response = follow_up  # Update for next iteration
