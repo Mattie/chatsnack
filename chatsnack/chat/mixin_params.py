@@ -330,7 +330,7 @@ class ChatParams:
             if "engine" in out:  
                 out["model"] = out["engine"]
             else:
-                out["model"] = "chatgpt-4o-latest"
+                out["model"] = "gpt-5-chat-latest"
 
         # engine is deprecated; remove it from the final dict
         if "engine" in out:

@@ -73,7 +73,7 @@ def test_set_tool_choice_creates_params(chat_params_mixin):
 
 
 # Existing engine tests for various models; you can skip these if needed.
-@pytest.mark.parametrize("engine", ["gpt-3.5-turbo", "gpt-4", "gpt-4o", "o1", "o1-mini", "o3-mini", "o1-preview", "gpt-4o-mini", "gpt-4-turbo", "chatgpt-4o-latest", "gpt-4.5-preview"])
+@pytest.mark.parametrize("engine", ["gpt-3.5-turbo", "gpt-4", "gpt-4o", "o1", "o3-mini", "gpt-4o-mini", "gpt-4-turbo", "gpt-5-chat-latest", "gpt-5-nano", "gpt-5-mini", "gpt-5.3-chat-latest", "gpt-5.4"])
 @pytest.mark.skipif(os.environ.get("OPENAI_API_KEY") is None, reason="OPENAI_API_KEY is not set in environment or .env")
 def test_engines(engine):
     SENTENCE = "A short sentence about the difference between green and blue."

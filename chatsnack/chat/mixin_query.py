@@ -33,7 +33,7 @@ class ChatStreamListener:
                 # remove engine for newest models as of Nov 13 2023
                 del out["engine"]
             else:
-                out["model"] = "chatgpt-4o-latest"
+                out["model"] = "gpt-5-chat-latest"
         self.kwargs = out
 
 
