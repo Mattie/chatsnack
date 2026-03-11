@@ -122,6 +122,7 @@ async def test_listen_a():
     assert output == ask_output
 
 from types import SimpleNamespace
+from chatsnack.runtime.types import RuntimeStreamEvent
 
 
 class _FakeStreamChunk:
@@ -291,3 +292,52 @@ async def test_listener_events_mode_async_v1_opt_in():
     assert events[0]["schema_version"] == "1.0"
     assert [e["type"] for e in events] == ["text_delta", "text_delta", "text_delta", "completed"]
     assert events[-1]["data"]["terminal"]["response_text"] == "AB"
+
+
+def _runtime_stream_with_error():
+    yield RuntimeStreamEvent(type="text_delta", index=0, data={"text": "partial"})
+    yield RuntimeStreamEvent(type="error", index=1, data={"error": {"message": "provider failed"}})
+
+
+async def _runtime_stream_with_error_async():
+    yield RuntimeStreamEvent(type="text_delta", index=0, data={"text": "partial"})
+    yield RuntimeStreamEvent(type="error", index=1, data={"error": {"message": "provider failed"}})
+
+
+def test_runtime_listener_text_mode_raises_on_error_event():
+    runtime = SimpleNamespace(stream_completion=lambda *args, **kwargs: _runtime_stream_with_error())
+    listener = ChatStreamListener(ai=None, prompt="[]", runtime=runtime, events=False)
+    listener.start()
+
+    with pytest.raises(RuntimeError, match="provider failed"):
+        list(listener)
+
+    assert listener.response == "partial"
+    assert listener.is_complete
+
+
+@pytest.mark.asyncio
+async def test_runtime_listener_text_mode_raises_on_error_event_async():
+    runtime = SimpleNamespace(stream_completion_a=lambda *args, **kwargs: _runtime_stream_with_error_async())
+    listener = ChatStreamListener(ai=None, prompt="[]", runtime=runtime, events=False)
+    await listener.start_a()
+
+    with pytest.raises(RuntimeError, match="provider failed"):
+        async for _ in listener:
+            pass
+
+    assert listener.response == "partial"
+    assert listener.is_complete
+
+
+def test_runtime_listener_events_mode_surfaces_error_event():
+    runtime = SimpleNamespace(stream_completion=lambda *args, **kwargs: _runtime_stream_with_error())
+    listener = ChatStreamListener(ai=None, prompt="[]", runtime=runtime, events=True)
+    listener.start()
+
+    events = list(listener)
+
+    assert events == [
+        {"type": "text_delta", "index": 0, "text": "partial"},
+        {"type": "error", "index": 1, "error": {"message": "provider failed"}},
+    ]

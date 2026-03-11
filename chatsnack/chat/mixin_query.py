@@ -73,6 +73,15 @@ class ChatStreamListener:
             return event.data.get("text", "")
         return None
 
+    @staticmethod
+    def _runtime_error_message(event):
+        error = event.data.get("error", {}) if isinstance(event.data, dict) else {}
+        if isinstance(error, dict):
+            message = error.get("message")
+            if message:
+                return message
+        return "Runtime stream emitted an error event"
+
     def _format_text_event(self, text: str):
         if self.event_schema == "v1":
             return {
@@ -122,6 +131,8 @@ class ChatStreamListener:
                         self.is_complete = True
                     elif event.type == "error":
                         self.is_complete = True
+                        if not self.events:
+                            raise RuntimeError(self._runtime_error_message(event))
                     rendered = self._event_from_runtime(event)
                     if rendered is not None:
                         yield rendered
@@ -170,6 +181,8 @@ class ChatStreamListener:
                         self.is_complete = True
                     elif event.type == "error":
                         self.is_complete = True
+                        if not self.events:
+                            raise RuntimeError(self._runtime_error_message(event))
                     rendered = self._event_from_runtime(event)
                     if rendered is not None:
                         yield rendered
