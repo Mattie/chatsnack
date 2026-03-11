@@ -15,7 +15,7 @@ from .mixin_params import ChatParamsMixin
 
 
 class ChatStreamListener:
-    def __init__(self, ai, prompt, **kwargs):
+    def __init__(self, ai, prompt, events=False, **kwargs):
         if isinstance(prompt, list):
             self.prompt = prompt
         else:
@@ -25,6 +25,8 @@ class ChatStreamListener:
         self.current_content = ""
         self.response = ""
         self.ai = ai
+        self.events = events
+        self._chunk_index = 0
         out = kwargs.copy()
         if "model" not in out or len(out["model"]) < 2:
             # if engine is set, use that
@@ -59,10 +61,24 @@ class ChatStreamListener:
                         content = resp['choices'][0]['delta']['content']
                         if content is not None:
                             self.current_content += content
-                        yield content if content is not None else ""
+                        if self.events:
+                            yield {
+                                "type": "text_delta",
+                                "index": self._chunk_index,
+                                "text": content if content is not None else "",
+                            }
+                        else:
+                            yield content if content is not None else ""
+                        self._chunk_index += 1
         finally:
             self.is_complete = True
             self.response = self.current_content
+            if self.events:
+                yield {
+                    "type": "done",
+                    "index": self._chunk_index,
+                    "response": self.current_content,
+                }
 
     def __aiter__(self):
         return self._get_responses_a()
@@ -89,10 +105,24 @@ class ChatStreamListener:
                         content = resp['choices'][0]['delta']['content']
                         if content is not None:
                             self.current_content += content
-                        yield content if content is not None else ""
+                        if self.events:
+                            yield {
+                                "type": "text_delta",
+                                "index": self._chunk_index,
+                                "text": content if content is not None else "",
+                            }
+                        else:
+                            yield content if content is not None else ""
+                        self._chunk_index += 1
         finally:
             self.is_complete = True
             self.response = self.current_content
+            if self.events:
+                yield {
+                    "type": "done",
+                    "index": self._chunk_index,
+                    "response": self.current_content,
+                }
 
     # non-async
     def __iter__(self):
@@ -101,6 +131,17 @@ class ChatStreamListener:
 
 
 class ChatQueryMixin(ChatMessagesMixin, ChatParamsMixin):
+    def _run_sync(self, coro, method_name: str):
+        try:
+            return asyncio.run(coro)
+        except RuntimeError as exc:
+            if "asyncio.run() cannot be called from a running event loop" in str(exc):
+                raise RuntimeError(
+                    f"Cannot call sync {method_name}() from an active event loop. "
+                    f"Use {method_name}_a() instead."
+                ) from None
+            raise
+
     # async method that gathers will execute an async format method on every message in the chat prompt and gather the results into a final json string
     async def _gather_format(self, format_coro, **kwargs) -> str:
         new_messages = self.get_messages()
@@ -259,7 +300,7 @@ class ChatQueryMixin(ChatMessagesMixin, ChatParamsMixin):
         """
         if usermsg is not None:
             additional_vars["__user"] = usermsg
-        return asyncio.run(self.ask_a(**additional_vars))
+        return self._run_sync(self.ask_a(**additional_vars), "ask")
     async def ask_a(self, usermsg=None, **additional_vars) -> str:
         """ Executes the query as-is, async version of ask()"""
         if self.stream:
@@ -270,19 +311,20 @@ class ChatQueryMixin(ChatMessagesMixin, ChatParamsMixin):
         # filter the response if we have a pattern
         response = self.filter_by_pattern(response)
         return response
-    def listen(self, usermsg=None, **additional_vars) -> ChatStreamListener:
+    def listen(self, usermsg=None, events=False, **additional_vars) -> ChatStreamListener:
         """
         Executes the internal chat query as-is and returns a listener object that can be iterated on for the text.
         If usermsg is passed in, it will be added as a user message to the chat before executing the query. ⭐
         """
         if usermsg is not None:
             additional_vars["__user"] = usermsg
-        _, response = asyncio.run(self._submit_for_response_and_prompt(**additional_vars))
+        _, response = self._run_sync(self._submit_for_response_and_prompt(**additional_vars), "listen")
         if self.params.stream:
             # response is a ChatStreamListener so lets start it
+            response.events = events
             response.start()
         return response
-    async def listen_a(self, usermsg=None, async_listen=True, **additional_vars) -> ChatStreamListener:
+    async def listen_a(self, usermsg=None, async_listen=True, events=False, **additional_vars) -> ChatStreamListener:
         """ Executes the query as-is, async version of listen()"""
         if not self.stream:
             raise Exception("Cannot use listen() without a stream")
@@ -291,6 +333,7 @@ class ChatQueryMixin(ChatMessagesMixin, ChatParamsMixin):
         _, response = await self._submit_for_response_and_prompt(**additional_vars)
         if self.params.stream:
             # response is a ChatStreamListener so lets start it
+            response.events = events
             await response.start_a()
         return response
     def chat(self, usermsg=None, **additional_vars) -> object:
@@ -300,7 +343,7 @@ class ChatQueryMixin(ChatMessagesMixin, ChatParamsMixin):
         """
         if usermsg is not None:
             additional_vars["__user"] = usermsg
-        return asyncio.run(self.chat_a(**additional_vars))
+        return self._run_sync(self.chat_a(**additional_vars), "chat")
         
     async def chat_a(self, usermsg=None, **additional_vars) -> object:
         """Executes the query as-is, and returns a ChatPrompt object that contains the response. Async version of chat()"""

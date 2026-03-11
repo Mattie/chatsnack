@@ -120,3 +120,87 @@ async def test_listen_a():
 
     # assert that the output of listen is the same as the output of ask
     assert output == ask_output
+
+from types import SimpleNamespace
+
+
+class _FakeStreamChunk:
+    def __init__(self, content=None, finish_reason=None):
+        self._content = content
+        self._finish_reason = finish_reason
+
+    def model_dump(self):
+        return {
+            "choices": [
+                {
+                    "finish_reason": self._finish_reason,
+                    "delta": {"content": self._content},
+                }
+            ]
+        }
+
+
+def _sync_stream():
+    yield _FakeStreamChunk("A")
+    yield _FakeStreamChunk("B")
+    yield _FakeStreamChunk(None, finish_reason="stop")
+
+
+async def _async_stream():
+    yield _FakeStreamChunk("A")
+    yield _FakeStreamChunk("B")
+    yield _FakeStreamChunk(None, finish_reason="stop")
+
+
+def test_listener_default_legacy_text_mode():
+    ai = SimpleNamespace(
+        client=SimpleNamespace(
+            chat=SimpleNamespace(
+                completions=SimpleNamespace(create=lambda **kwargs: _sync_stream())
+            )
+        )
+    )
+    listener = ChatStreamListener(ai, "[]")
+    listener.start()
+    chunks = list(listener)
+    assert chunks == ["A", "B", ""]
+    assert "".join(chunks) == "AB"
+
+
+def test_listener_events_mode_sync():
+    ai = SimpleNamespace(
+        client=SimpleNamespace(
+            chat=SimpleNamespace(
+                completions=SimpleNamespace(create=lambda **kwargs: _sync_stream())
+            )
+        )
+    )
+    listener = ChatStreamListener(ai, "[]", events=True)
+    listener.start()
+    events = list(listener)
+    assert events[0]["type"] == "text_delta"
+    assert events[0]["text"] == "A"
+    assert events[1]["text"] == "B"
+    assert events[-1]["type"] == "done"
+    assert events[-1]["response"] == "AB"
+
+
+@pytest.mark.asyncio
+async def test_listener_events_mode_async():
+    async def create(**kwargs):
+        return _async_stream()
+
+    ai = SimpleNamespace(
+        aclient=SimpleNamespace(
+            chat=SimpleNamespace(
+                completions=SimpleNamespace(create=create)
+            )
+        )
+    )
+    listener = ChatStreamListener(ai, "[]", events=True)
+    await listener.start_a()
+    events = []
+    async for event in listener:
+        events.append(event)
+    assert [e["type"] for e in events] == ["text_delta", "text_delta", "text_delta", "done"]
+    assert events[-1]["response"] == "AB"
