@@ -14,7 +14,7 @@ This RFC locks current, observable `Chat` behavior before runtime adapter and tr
 | `ask_a()` | n/a | n/a | returns `str`; raises if `self.stream` is true | non-stream |
 | `chat()` | returns `Chat` through async implementation | fail fast with deterministic guidance error | use `chat_a()` | non-stream |
 | `chat_a()` | n/a | n/a | returns `Chat`; raises if `self.stream` is true | non-stream |
-| `listen()` | returns `ChatStreamListener` when stream enabled; otherwise completion payload | fail fast with deterministic guidance error | use `listen_a()` | stream-first |
+| `listen()` | returns `ChatStreamListener` when stream enabled; otherwise plain completion `str` payload | fail fast with deterministic guidance error | use `listen_a()` | stream-first |
 | `listen_a()` | n/a | n/a | returns `ChatStreamListener`; raises if `self.stream` is false | stream |
 
 ### Active event loop behavior
@@ -38,12 +38,20 @@ Standardized error text pattern:
   1. Zero or more `{"type": "text_delta", "index": <int>, "text": <str>}` events.
   2. A terminal `{"type": "done", "index": <int>, "response": <full_text>}` event.
 
+### Non-stream `listen()` compatibility
+- When `self.stream` is disabled, `listen()` returns the same plain `str` completion payload contract as `ask()`.
+- In this mode, `events` is ignored and no listener/event metadata is returned.
+- Stability guarantee for Phase 1: callers can treat non-stream `listen()` as an alias for non-stream completion retrieval.
+
+## Phase 1 Baseline Freeze
+The compatibility behaviors in this RFC are frozen as the authoritative baseline for Phase 1 adapter work. Any behavior changes after this point require an RFC update plus guard-test updates in `tests/mixins/`.
+
 ## Observable Behavior Locked by Phase 0
 
 ### Model fallback
-- Non-stream completion path (`_cleaned_chat_completion`) defaults to `gpt-3.5-turbo` if model/engine absent.
-- Stream listener constructor defaults to `chatgpt-4o-latest` if model/engine absent.
-- Parameter collection (`ChatParams._get_non_none_params`) defaults to `chatgpt-4o-latest` if unset.
+- Non-stream completion path (`_cleaned_chat_completion`) defaults to `gpt-5-chat-latest` if model/engine absent.
+- Stream listener constructor defaults to `gpt-5-chat-latest` if model/engine absent.
+- Parameter collection (`ChatParams._get_non_none_params`) defaults to `gpt-5-chat-latest` if unset.
 
 ### Role remapping
 - `_gather_format` remaps `system` role for reasoning-model compatibility:

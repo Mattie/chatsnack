@@ -11,7 +11,7 @@ from ..asynchelpers import aformatter
 from ..fillings import filling_machine
 
 from .mixin_messages import ChatMessagesMixin
-from .mixin_params import ChatParamsMixin
+from .mixin_params import ChatParamsMixin, DEFAULT_MODEL_FALLBACK
 
 
 class ChatStreamListener:
@@ -35,7 +35,7 @@ class ChatStreamListener:
                 # remove engine for newest models as of Nov 13 2023
                 del out["engine"]
             else:
-                out["model"] = "gpt-5-chat-latest"
+                out["model"] = DEFAULT_MODEL_FALLBACK
         self.kwargs = out
 
 
@@ -229,7 +229,7 @@ class ChatQueryMixin(ChatMessagesMixin, ChatParamsMixin):
                 # remove engine from kwargs
                 del kwargs["engine"]
             else:
-                kwargs["model"] = "gpt-3.5-turbo"
+                kwargs["model"] = DEFAULT_MODEL_FALLBACK
         if isinstance(prompt, list):
             messages = prompt
         else:

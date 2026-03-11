@@ -1,5 +1,6 @@
 import pytest
 from chatsnack import Chat, Text, CHATSNACK_BASE_DIR
+from chatsnack.chat.mixin_params import DEFAULT_MODEL_FALLBACK
 
 import os
 import shutil
@@ -248,7 +249,7 @@ async def test_cleaned_chat_completion_model_fallback(chat):
     )
     chat.system("system")
     await chat._cleaned_chat_completion(chat.json)
-    assert fake_completions.last_kwargs["model"] == "gpt-3.5-turbo"
+    assert fake_completions.last_kwargs["model"] == DEFAULT_MODEL_FALLBACK
 
 
 @pytest.mark.asyncio
@@ -294,3 +295,24 @@ async def test_tool_recursion_auto_feed_false_keeps_tool_messages(chat, monkeypa
     messages = out.get_messages()
     assert any(msg["role"] == "assistant" and msg.get("tool_calls") for msg in messages)
     assert any(msg["role"] == "tool" for msg in messages)
+
+
+def test_listen_returns_plain_str_payload_when_stream_disabled(chat, monkeypatch):
+    async def fake_submit(**kwargs):
+        return "[]", "plain-completion"
+
+    chat.stream = False
+    monkeypatch.setattr(chat, "_submit_for_response_and_prompt", fake_submit)
+
+    response = chat.listen(events=True)
+
+    assert response == "plain-completion"
+    assert isinstance(response, str)
+    assert not hasattr(response, "events")
+
+
+@pytest.mark.asyncio
+async def test_listen_a_raises_when_stream_disabled(chat):
+    chat.stream = False
+    with pytest.raises(Exception, match=r"Cannot use listen\(\) without a stream"):
+        await chat.listen_a(events=True)
