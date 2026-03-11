@@ -48,6 +48,7 @@ class ChatStreamListener:
         return self
 
     async def _get_responses_a(self):
+        done_event = None
         try:
             async for respo in self._response_gen:
                 # TODO: Sweet summer child, it's no longer just content that we need to check for
@@ -70,15 +71,17 @@ class ChatStreamListener:
                         else:
                             yield content if content is not None else ""
                         self._chunk_index += 1
-        finally:
-            self.is_complete = True
-            self.response = self.current_content
             if self.events:
-                yield {
+                done_event = {
                     "type": "done",
                     "index": self._chunk_index,
                     "response": self.current_content,
                 }
+        finally:
+            self.is_complete = True
+            self.response = self.current_content
+        if done_event is not None:
+            yield done_event
 
     def __aiter__(self):
         return self._get_responses_a()
@@ -92,6 +95,7 @@ class ChatStreamListener:
 
     # non-async method that returns a generator that yields the responses
     def _get_responses(self):
+        done_event = None
         try:
             for respo in self._response_gen:
                 # TODO: Sweet summer child, it's no longer just content that we need to check for
@@ -114,15 +118,17 @@ class ChatStreamListener:
                         else:
                             yield content if content is not None else ""
                         self._chunk_index += 1
-        finally:
-            self.is_complete = True
-            self.response = self.current_content
             if self.events:
-                yield {
+                done_event = {
                     "type": "done",
                     "index": self._chunk_index,
                     "response": self.current_content,
                 }
+        finally:
+            self.is_complete = True
+            self.response = self.current_content
+        if done_event is not None:
+            yield done_event
 
     # non-async
     def __iter__(self):

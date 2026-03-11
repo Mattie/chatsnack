@@ -185,6 +185,53 @@ def test_listener_events_mode_sync():
     assert events[-1]["response"] == "AB"
 
 
+
+
+def test_listener_events_mode_sync_stops_cleanly_on_early_break():
+    ai = SimpleNamespace(
+        client=SimpleNamespace(
+            chat=SimpleNamespace(
+                completions=SimpleNamespace(create=lambda **kwargs: _sync_stream())
+            )
+        )
+    )
+    listener = ChatStreamListener(ai, "[]", events=True)
+    listener.start()
+
+    collected = []
+    for event in listener:
+        collected.append(event)
+        break
+
+    assert collected == [{"type": "text_delta", "index": 0, "text": "A"}]
+    assert listener.response == "A"
+    assert listener.is_complete
+
+
+@pytest.mark.asyncio
+async def test_listener_events_mode_async_stops_cleanly_on_early_break():
+    async def create(**kwargs):
+        return _async_stream()
+
+    ai = SimpleNamespace(
+        aclient=SimpleNamespace(
+            chat=SimpleNamespace(
+                completions=SimpleNamespace(create=create)
+            )
+        )
+    )
+    listener = ChatStreamListener(ai, "[]", events=True)
+    await listener.start_a()
+
+    collected = []
+    async for event in listener:
+        collected.append(event)
+        break
+
+    assert collected == [{"type": "text_delta", "index": 0, "text": "A"}]
+    assert listener.response == "A"
+    assert listener.is_complete
+
 @pytest.mark.asyncio
 async def test_listener_events_mode_async():
     async def create(**kwargs):
