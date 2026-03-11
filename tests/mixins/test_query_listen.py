@@ -251,3 +251,43 @@ async def test_listener_events_mode_async():
         events.append(event)
     assert [e["type"] for e in events] == ["text_delta", "text_delta", "text_delta", "done"]
     assert events[-1]["response"] == "AB"
+
+
+def test_listener_events_mode_sync_v1_opt_in():
+    ai = SimpleNamespace(
+        client=SimpleNamespace(
+            chat=SimpleNamespace(
+                completions=SimpleNamespace(create=lambda **kwargs: _sync_stream())
+            )
+        )
+    )
+    listener = ChatStreamListener(ai, "[]", events=True, event_schema="v1")
+    listener.start()
+    events = list(listener)
+    assert events[0]["schema_version"] == "1.0"
+    assert events[0]["type"] == "text_delta"
+    assert events[0]["data"]["text"] == "A"
+    assert events[-1]["type"] == "completed"
+    assert events[-1]["data"]["terminal"]["response_text"] == "AB"
+
+
+@pytest.mark.asyncio
+async def test_listener_events_mode_async_v1_opt_in():
+    async def create(**kwargs):
+        return _async_stream()
+
+    ai = SimpleNamespace(
+        aclient=SimpleNamespace(
+            chat=SimpleNamespace(
+                completions=SimpleNamespace(create=create)
+            )
+        )
+    )
+    listener = ChatStreamListener(ai, "[]", events=True, event_schema="v1")
+    await listener.start_a()
+    events = []
+    async for event in listener:
+        events.append(event)
+    assert events[0]["schema_version"] == "1.0"
+    assert [e["type"] for e in events] == ["text_delta", "text_delta", "text_delta", "completed"]
+    assert events[-1]["data"]["terminal"]["response_text"] == "AB"

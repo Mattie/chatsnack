@@ -8,6 +8,7 @@ from datafiles import datafile
 
 from ..aiclient import AiClient
 from ..defaults import CHATSNACK_BASE_DIR
+from ..runtime import ChatCompletionsAdapter
 from .mixin_query import ChatQueryMixin
 from .mixin_params import ChatParams, ChatParamsMixin
 from .mixin_serialization import DatafileMixin, ChatSerializationMixin
@@ -142,6 +143,7 @@ class Chat(ChatQueryMixin, ChatSerializationMixin, ChatUtensilMixin):
         self._initial_registry = getattr(self, '_local_registry', None)
 
         self.ai = AiClient()
+        self.runtime = ChatCompletionsAdapter(self.ai)
 
 
    
