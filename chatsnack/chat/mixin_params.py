@@ -4,6 +4,9 @@ from typing import Optional, List, Dict, Any, Union, Literal
 from dataclasses import dataclass, field
 from datafiles import datafile
 
+
+DEFAULT_MODEL_FALLBACK = "gpt-5-chat-latest"
+
 @datafile
 class ParameterProperty:
     """Represents a property in the parameters schema"""
@@ -330,7 +333,7 @@ class ChatParams:
             if "engine" in out:  
                 out["model"] = out["engine"]
             else:
-                out["model"] = "gpt-5-chat-latest"
+                out["model"] = DEFAULT_MODEL_FALLBACK
 
         # engine is deprecated; remove it from the final dict
         if "engine" in out:

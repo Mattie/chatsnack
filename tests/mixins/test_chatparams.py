@@ -1,6 +1,7 @@
 import os
 import pytest
 from chatsnack.packs import Jane
+from chatsnack.chat.mixin_params import DEFAULT_MODEL_FALLBACK
 from chatsnack import Chat, ChatParams
 
 @pytest.fixture
@@ -101,7 +102,7 @@ def test_engines(engine):
 def test_get_non_none_params_default_model_fallback(chat_params):
     chat_params.model = ""
     out = chat_params._get_non_none_params()
-    assert out["model"] == "chatgpt-4o-latest"
+    assert out["model"] == DEFAULT_MODEL_FALLBACK
 
 
 @pytest.mark.asyncio
