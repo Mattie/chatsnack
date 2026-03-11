@@ -96,3 +96,29 @@ def test_engines(engine):
     assert output is not None
     assert len(output) > 0
     print(output)
+
+
+def test_get_non_none_params_default_model_fallback(chat_params):
+    chat_params.model = ""
+    out = chat_params._get_non_none_params()
+    assert out["model"] == "chatgpt-4o-latest"
+
+
+@pytest.mark.asyncio
+async def test_reasoning_model_role_remap_to_developer(chat_params_mixin):
+    chat_params_mixin.model = "o1"
+    chat_params_mixin.system("You are system")
+    prompt = await chat_params_mixin._build_final_prompt()
+    import json
+    messages = json.loads(prompt)
+    assert messages[0]["role"] == "developer"
+
+
+@pytest.mark.asyncio
+async def test_o1_preview_role_remap_to_user(chat_params_mixin):
+    chat_params_mixin.model = "o1-preview"
+    chat_params_mixin.system("You are system")
+    prompt = await chat_params_mixin._build_final_prompt()
+    import json
+    messages = json.loads(prompt)
+    assert messages[0]["role"] == "user"
