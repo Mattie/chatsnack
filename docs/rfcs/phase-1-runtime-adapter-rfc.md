@@ -1,7 +1,7 @@
 # Phase 1 RFC: Runtime Adapter Boundary and Normalized Runtime Types
 
 ## Status
-Draft
+Accepted.
 
 ## Summary
 This RFC introduces an internal runtime boundary (`chatsnack/runtime/`) that isolates provider-specific SDK objects from the `Chat` layer.
@@ -40,6 +40,19 @@ Reserved event types:
 
 ## Migration notes
 - Existing prompt compilation paths stay unchanged in phase 1.
-- Listener `events=True` remains backward-compatible by default with legacy event payloads (`text_delta` + `done`).
+- **Compatibility exception (phase 1):** listener `events=True` intentionally keeps the legacy default payload shape (`text_delta` + `done`) even though the runtime boundary introduces the v1 event envelope. This is a product/contract decision to avoid breaking existing event consumers during the phase 1 rollout.
 - The v1 envelope (`schema_version`, `type`, `index`, `data`) is available as an explicit opt-in (`event_schema="v1"`).
 - `ChatStreamListener` can consume runtime events in normalized mode while maintaining legacy plain text streaming behavior for compatibility.
+
+## Migration plan for default event schema
+To eventually align defaults with the normalized runtime contract while minimizing migration risk:
+
+1. **Phase 1 (current):** keep `events=True` defaulting to legacy events and document this as a compatibility exception.
+2. **Phase 2 (deprecation window):** emit a deprecation warning when `events=True` is used without `event_schema`, advising consumers to set `event_schema="legacy"` or `event_schema="v1"` explicitly.
+3. **Phase 3 (default flip):** change the implicit default for `events=True` to `event_schema="v1"`; retain `event_schema="legacy"` as an explicit compatibility mode for one additional minor release.
+4. **Phase 4 (cleanup):** remove legacy implicit behavior after the compatibility window and keep explicit schema selection as the long-term contract.
+
+## Decision record
+- **Approval date:** 2026-03-12
+- **Approver/owner:** Chatsnack maintainers (runtime + chat compatibility owners)
+- **Baseline declaration:** This RFC is accepted as the implementation baseline for Phase 1 runtime adapter work merged in the commit line around `c5f38a5`; behaviors and contracts documented here are frozen as the authoritative baseline for adapter evolution unless superseded by a subsequent RFC update.

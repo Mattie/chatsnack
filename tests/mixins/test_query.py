@@ -371,6 +371,55 @@ async def test_chat_a_parity_tool_recursion_history(chat, monkeypatch, use_runti
 def test_listen_returns_plain_str_payload_when_stream_disabled(chat, monkeypatch, use_runtime_adapter):
     _set_runtime_mode(chat, use_runtime_adapter)
 
+
+
+def test_listen_events_true_defaults_to_legacy_schema(chat, monkeypatch):
+    class _DummyListener:
+        def __init__(self):
+            self.events = False
+            self.event_schema = None
+            self.started = False
+
+        def start(self):
+            self.started = True
+
+    async def fake_submit(**kwargs):
+        return "[]", _DummyListener()
+
+    chat.stream = True
+    monkeypatch.setattr(chat, "_submit_for_response_and_prompt", fake_submit)
+
+    listener = chat.listen(events=True)
+
+    assert listener.events is True
+    assert listener.event_schema == "legacy"
+    assert listener.started is True
+
+
+@pytest.mark.asyncio
+async def test_listen_a_events_true_defaults_to_legacy_schema(chat, monkeypatch):
+    class _DummyListener:
+        def __init__(self):
+            self.events = False
+            self.event_schema = None
+            self.started = False
+
+        async def start_a(self):
+            self.started = True
+
+    async def fake_submit(**kwargs):
+        return "[]", _DummyListener()
+
+    chat.stream = True
+    monkeypatch.setattr(chat, "_submit_for_response_and_prompt", fake_submit)
+
+    listener = await chat.listen_a(events=True)
+
+    assert listener.events is True
+    assert listener.event_schema == "legacy"
+    assert listener.started is True
+
+def test_listen_returns_plain_str_payload_when_stream_disabled(chat, monkeypatch):
     async def fake_submit(**kwargs):
         return "[]", "plain-completion"
 
