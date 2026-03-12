@@ -153,6 +153,17 @@ async def _async_stream():
     yield _FakeStreamChunk(None, finish_reason="stop")
 
 
+def _runtime_sync_stream_success():
+    yield RuntimeStreamEvent(type="text_delta", index=0, data={"text": "A"})
+    yield RuntimeStreamEvent(type="text_delta", index=1, data={"text": "B"})
+    yield RuntimeStreamEvent(type="text_delta", index=2, data={"text": ""})
+    yield RuntimeStreamEvent(
+        type="completed",
+        index=3,
+        data={"terminal": {"response_text": "AB"}},
+    )
+
+
 def test_listener_default_legacy_text_mode():
     ai = SimpleNamespace(
         client=SimpleNamespace(
@@ -166,6 +177,33 @@ def test_listener_default_legacy_text_mode():
     chunks = list(listener)
     assert chunks == ["A", "B", ""]
     assert "".join(chunks) == "AB"
+
+
+@pytest.mark.parametrize("use_runtime_adapter", [True, False])
+def test_listener_text_mode_parity_runtime_and_legacy(use_runtime_adapter):
+    if use_runtime_adapter:
+        listener = ChatStreamListener(
+            ai=None,
+            prompt="[]",
+            runtime=SimpleNamespace(
+                stream_completion=lambda *args, **kwargs: _runtime_sync_stream_success()
+            ),
+        )
+    else:
+        ai = SimpleNamespace(
+            client=SimpleNamespace(
+                chat=SimpleNamespace(
+                    completions=SimpleNamespace(create=lambda **kwargs: _sync_stream())
+                )
+            )
+        )
+        listener = ChatStreamListener(ai, "[]")
+
+    listener.start()
+    chunks = list(listener)
+
+    assert chunks == ["A", "B", ""]
+    assert listener.response == "AB"
 
 
 def test_listener_events_mode_sync():
@@ -183,6 +221,35 @@ def test_listener_events_mode_sync():
     assert events[0]["text"] == "A"
     assert events[1]["text"] == "B"
     assert events[-1]["type"] == "done"
+    assert events[-1]["response"] == "AB"
+
+
+@pytest.mark.parametrize("use_runtime_adapter", [True, False])
+def test_listener_events_mode_ordering_parity_runtime_and_legacy(use_runtime_adapter):
+    if use_runtime_adapter:
+        listener = ChatStreamListener(
+            ai=None,
+            prompt="[]",
+            events=True,
+            runtime=SimpleNamespace(
+                stream_completion=lambda *args, **kwargs: _runtime_sync_stream_success()
+            ),
+        )
+    else:
+        ai = SimpleNamespace(
+            client=SimpleNamespace(
+                chat=SimpleNamespace(
+                    completions=SimpleNamespace(create=lambda **kwargs: _sync_stream())
+                )
+            )
+        )
+        listener = ChatStreamListener(ai, "[]", events=True)
+
+    listener.start()
+    events = list(listener)
+
+    assert [event["type"] for event in events] == ["text_delta", "text_delta", "text_delta", "done"]
+    assert [event.get("text") for event in events[:-1]] == ["A", "B", ""]
     assert events[-1]["response"] == "AB"
 
 

@@ -61,6 +61,13 @@ def setup_and_cleanup():
 def chat():
     return Chat()
 
+
+def _set_runtime_mode(chat, use_runtime_adapter: bool):
+    if use_runtime_adapter:
+        assert chat.runtime is not None
+    else:
+        chat.runtime = None
+
 def test_copy_chatprompt_same_name():
     """Copying a ChatPrompt with the same name should succeed."""
     chat = Chat(name="test")
@@ -196,7 +203,10 @@ class _FakeAsyncCompletions:
 
 
 @pytest.mark.asyncio
-async def test_sync_methods_fail_fast_in_active_loop(chat, monkeypatch):
+@pytest.mark.parametrize("use_runtime_adapter", [True, False])
+async def test_sync_methods_fail_fast_in_active_loop(chat, monkeypatch, use_runtime_adapter):
+    _set_runtime_mode(chat, use_runtime_adapter)
+
     def raise_active_loop(coro):
         coro.close()
         raise RuntimeError("asyncio.run() cannot be called from a running event loop")
@@ -212,7 +222,10 @@ async def test_sync_methods_fail_fast_in_active_loop(chat, monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_async_methods_work_in_active_loop(chat, monkeypatch):
+@pytest.mark.parametrize("use_runtime_adapter", [True, False])
+async def test_async_methods_work_in_active_loop(chat, monkeypatch, use_runtime_adapter):
+    _set_runtime_mode(chat, use_runtime_adapter)
+
     async def fake_submit(**kwargs):
         return "[]", "async-output"
 
@@ -297,7 +310,67 @@ async def test_tool_recursion_auto_feed_false_keeps_tool_messages(chat, monkeypa
     assert any(msg["role"] == "tool" for msg in messages)
 
 
-def test_listen_returns_plain_str_payload_when_stream_disabled(chat, monkeypatch):
+@pytest.mark.parametrize("use_runtime_adapter", [True, False])
+def test_chat_parity_preserves_response_history(chat, monkeypatch, use_runtime_adapter):
+    _set_runtime_mode(chat, use_runtime_adapter)
+
+    async def fake_submit(**kwargs):
+        return '[{"role":"user","content":"hello"}]', "reply"
+
+    monkeypatch.setattr(chat, "_submit_for_response_and_prompt", fake_submit)
+
+    output = chat.chat()
+    assert output.get_messages() == [
+        {"role": "user", "content": "hello"},
+        {"role": "assistant", "content": "reply"},
+    ]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("use_runtime_adapter", [True, False])
+async def test_chat_a_parity_tool_recursion_history(chat, monkeypatch, use_runtime_adapter):
+    _set_runtime_mode(chat, use_runtime_adapter)
+    chat.auto_execute = True
+    chat.auto_feed = True
+
+    class _ToolCall:
+        id = "call_1"
+        function = SimpleNamespace(name="echo", arguments='{"x":1}')
+
+    class _ToolMessage(_FakeMessage):
+        def model_dump(self):
+            return {
+                "role": "assistant",
+                "content": None,
+                "tool_calls": [
+                    {
+                        "id": "call_1",
+                        "type": "function",
+                        "function": {"name": "echo", "arguments": '{"x":1}'},
+                    }
+                ],
+            }
+
+    async def fake_submit(**kwargs):
+        return "[]", _ToolMessage(content=None, tool_calls=[_ToolCall()])
+
+    async def fake_follow_up(self, prompt, **kwargs):
+        return "final"
+
+    monkeypatch.setattr(chat, "_submit_for_response_and_prompt", fake_submit)
+    monkeypatch.setattr(chat, "execute_tool_call", lambda tc: {"ok": True})
+    monkeypatch.setattr(Chat, "_cleaned_chat_completion", fake_follow_up)
+
+    output = await chat.chat_a()
+    roles = [msg["role"] for msg in output.get_messages()]
+    assert roles == ["assistant", "tool", "assistant"]
+    assert output.get_messages()[-1]["content"] == "final"
+
+
+@pytest.mark.parametrize("use_runtime_adapter", [True, False])
+def test_listen_returns_plain_str_payload_when_stream_disabled(chat, monkeypatch, use_runtime_adapter):
+    _set_runtime_mode(chat, use_runtime_adapter)
+
     async def fake_submit(**kwargs):
         return "[]", "plain-completion"
 
