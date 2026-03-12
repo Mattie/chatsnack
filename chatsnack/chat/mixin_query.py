@@ -9,13 +9,14 @@ from datafiles import datafile
 
 from ..asynchelpers import aformatter
 from ..fillings import filling_machine
+from ..runtime import EVENT_SCHEMA_VERSION
 
 from .mixin_messages import ChatMessagesMixin
 from .mixin_params import ChatParamsMixin, DEFAULT_MODEL_FALLBACK
 
 
 class ChatStreamListener:
-    def __init__(self, ai, prompt, events=False, **kwargs):
+    def __init__(self, ai, prompt, events=False, event_schema="legacy", runtime=None, **kwargs):
         if isinstance(prompt, list):
             self.prompt = prompt
         else:
@@ -25,36 +26,119 @@ class ChatStreamListener:
         self.current_content = ""
         self.response = ""
         self.ai = ai
+        self.runtime = runtime
         self.events = events
+        self.event_schema = event_schema
         self._chunk_index = 0
         out = kwargs.copy()
         if "model" not in out or len(out["model"]) < 2:
-            # if engine is set, use that
             if "engine" in out:
                 out["model"] = out["engine"]
-                # remove engine for newest models as of Nov 13 2023
                 del out["engine"]
             else:
                 out["model"] = DEFAULT_MODEL_FALLBACK
         self.kwargs = out
 
+    def _event_from_runtime(self, event):
+        if self.events:
+            if self.event_schema == "v1":
+                return {
+                    "schema_version": event.schema_version,
+                    "type": event.type,
+                    "index": event.index,
+                    "data": event.data,
+                }
+
+            if event.type == "text_delta":
+                return {
+                    "type": "text_delta",
+                    "index": event.index,
+                    "text": event.data.get("text", ""),
+                }
+            if event.type == "completed":
+                terminal = event.data.get("terminal", {})
+                return {
+                    "type": "done",
+                    "index": event.index,
+                    "response": terminal.get("response_text", self.current_content),
+                }
+            if event.type == "error":
+                return {
+                    "type": "error",
+                    "index": event.index,
+                    "error": event.data.get("error", {}),
+                }
+            return None
+        if event.type == "text_delta":
+            return event.data.get("text", "")
+        return None
+
+    @staticmethod
+    def _runtime_error_message(event):
+        error = event.data.get("error", {}) if isinstance(event.data, dict) else {}
+        if isinstance(error, dict):
+            message = error.get("message")
+            if message:
+                return message
+        return "Runtime stream emitted an error event"
+
+    def _format_text_event(self, text: str):
+        if self.event_schema == "v1":
+            return {
+                "schema_version": EVENT_SCHEMA_VERSION,
+                "type": "text_delta",
+                "index": self._chunk_index,
+                "data": {"text": text},
+            }
+        return {
+            "type": "text_delta",
+            "index": self._chunk_index,
+            "text": text,
+        }
+
+    def _format_done_event(self):
+        if self.event_schema == "v1":
+            return {
+                "schema_version": EVENT_SCHEMA_VERSION,
+                "type": "completed",
+                "index": self._chunk_index,
+                "data": {"terminal": {"response_text": self.current_content}},
+            }
+        return {
+            "type": "done",
+            "index": self._chunk_index,
+            "response": self.current_content,
+        }
 
     async def start_a(self):
-        # if stream=True isn't in the kwargs, add it
+        if self.runtime is not None:
+            self._response_gen = self.runtime.stream_completion_a(self.prompt, **self.kwargs)
+            return self
         if not self.kwargs.get('stream', False):
             self.kwargs['stream'] = True
-        #self._response_gen = await _chatcompletion(self.prompt,  **self.kwargs)
         self._response_gen = await self.ai.aclient.chat.completions.create(messages=self.prompt,**self.kwargs)
         return self
 
     async def _get_responses_a(self):
-        done_event = None
         try:
-            async for respo in self._response_gen:
-                # TODO: Sweet summer child, it's no longer just content that we need to check for
-                #       but also slowly filling function call arguments for tool_calls. 
-                #       See: https://community.openai.com/t/functions-calling-with-streaming/305742
-                resp = respo.model_dump()
+            async for event in self._response_gen:
+                if self.runtime is not None:
+                    if event.type == "text_delta":
+                        self.current_content += event.data.get("text", "")
+                    elif event.type == "completed":
+                        terminal = event.data.get("terminal", {})
+                        self.current_content = terminal.get("response_text", self.current_content)
+                        self.is_complete = True
+                    elif event.type == "error":
+                        self.is_complete = True
+                        if not self.events:
+                            raise RuntimeError(self._runtime_error_message(event))
+                    rendered = self._event_from_runtime(event)
+                    if rendered is not None:
+                        yield rendered
+                    continue
+
+                resp = event.model_dump()
                 if "choices" in resp:
                     if resp['choices'][0]['finish_reason'] is not None:
                         self.is_complete = True
@@ -63,45 +147,48 @@ class ChatStreamListener:
                         if content is not None:
                             self.current_content += content
                         if self.events:
-                            yield {
-                                "type": "text_delta",
-                                "index": self._chunk_index,
-                                "text": content if content is not None else "",
-                            }
+                            yield self._format_text_event(content if content is not None else "")
                         else:
                             yield content if content is not None else ""
                         self._chunk_index += 1
-            if self.events:
-                done_event = {
-                    "type": "done",
-                    "index": self._chunk_index,
-                    "response": self.current_content,
-                }
+            if self.events and self.runtime is None:
+                yield self._format_done_event()
         finally:
             self.is_complete = True
             self.response = self.current_content
-        if done_event is not None:
-            yield done_event
 
     def __aiter__(self):
         return self._get_responses_a()
 
     def start(self):
-        # if stream=True isn't in the kwargs, add it
+        if self.runtime is not None:
+            self._response_gen = self.runtime.stream_completion(self.prompt, **self.kwargs)
+            return self
         if not self.kwargs.get('stream', False):
-            self.kwargs['stream'] = True        
+            self.kwargs['stream'] = True
         self._response_gen = self.ai.client.chat.completions.create(messages=self.prompt,**self.kwargs)
         return self
 
-    # non-async method that returns a generator that yields the responses
     def _get_responses(self):
-        done_event = None
         try:
-            for respo in self._response_gen:
-                # TODO: Sweet summer child, it's no longer just content that we need to check for
-                #       but also slowly filling function call arguments for tool_calls. 
-                #       See: https://community.openai.com/t/functions-calling-with-streaming/305742
-                resp = respo.model_dump()
+            for event in self._response_gen:
+                if self.runtime is not None:
+                    if event.type == "text_delta":
+                        self.current_content += event.data.get("text", "")
+                    elif event.type == "completed":
+                        terminal = event.data.get("terminal", {})
+                        self.current_content = terminal.get("response_text", self.current_content)
+                        self.is_complete = True
+                    elif event.type == "error":
+                        self.is_complete = True
+                        if not self.events:
+                            raise RuntimeError(self._runtime_error_message(event))
+                    rendered = self._event_from_runtime(event)
+                    if rendered is not None:
+                        yield rendered
+                    continue
+
+                resp = event.model_dump()
                 if "choices" in resp:
                     if resp['choices'][0]['finish_reason'] is not None:
                         self.is_complete = True
@@ -110,33 +197,46 @@ class ChatStreamListener:
                         if content is not None:
                             self.current_content += content
                         if self.events:
-                            yield {
-                                "type": "text_delta",
-                                "index": self._chunk_index,
-                                "text": content if content is not None else "",
-                            }
+                            yield self._format_text_event(content if content is not None else "")
                         else:
                             yield content if content is not None else ""
                         self._chunk_index += 1
-            if self.events:
-                done_event = {
-                    "type": "done",
-                    "index": self._chunk_index,
-                    "response": self.current_content,
-                }
+            if self.events and self.runtime is None:
+                yield self._format_done_event()
         finally:
             self.is_complete = True
             self.response = self.current_content
-        if done_event is not None:
-            yield done_event
 
-    # non-async
     def __iter__(self):
         return self._get_responses()
 
 
-
 class ChatQueryMixin(ChatMessagesMixin, ChatParamsMixin):
+    @staticmethod
+    def _tool_response_to_dict(response) -> dict:
+        """Convert a response message with tool calls to a plain dictionary.
+
+        Uses ``model_dump()`` when available (e.g. Pydantic models), and falls
+        back to a manual construction otherwise.
+        """
+        if hasattr(response, "model_dump"):
+            return response.model_dump()
+        return {
+            "role": "assistant",
+            "content": response.content,
+            "tool_calls": [
+                {
+                    "id": tc.id,
+                    "type": tc.type,
+                    "function": {
+                        "name": tc.function.name if tc.function else "",
+                        "arguments": tc.function.arguments if tc.function else "",
+                    },
+                }
+                for tc in response.tool_calls
+            ],
+        }
+
     def _run_sync(self, coro, method_name: str):
         try:
             return asyncio.run(coro)
@@ -215,7 +315,7 @@ class ChatQueryMixin(ChatMessagesMixin, ChatParamsMixin):
         
         if hasattr(self, 'params') and self.params and self.params.stream:
             # we're streaming so we need to use the wrapper object
-            listener = ChatStreamListener(self.ai, prompt, **kwargs)
+            listener = ChatStreamListener(self.ai, prompt, runtime=getattr(self, "runtime", None), **kwargs)
             return prompt, listener
         else:
             return prompt, await self._cleaned_chat_completion(prompt, **kwargs)
@@ -235,43 +335,45 @@ class ChatQueryMixin(ChatMessagesMixin, ChatParamsMixin):
         else:
             messages = json.loads(prompt)            
 
-        response = await self.ai.aclient.chat.completions.create(
-            messages=messages,
-            **kwargs
-        )
+        adapter = getattr(self, "runtime", None)
+        if adapter is not None:
+            normalized = await adapter.create_completion_a(messages=messages, **kwargs)
+            response = normalized
+        else:
+            response = await self.ai.aclient.chat.completions.create(
+                messages=messages,
+                **kwargs
+            )
         # trace log for the messages and the kwargs
         logger.trace("Messages: {messages}", messages=messages)
         logger.trace("Kwargs: {kwargs}", kwargs=
                      {k: v for k, v in kwargs.items() if k != 'stream'})
 
+        if adapter is not None:
+            message = response.message
+            logger.trace("Response content: {content}", content=message.content)
+            has_tool_calls = bool(message.tool_calls)
+            if has_tool_calls:
+                logger.debug("Tool calls detected in response: {num_calls}", num_calls=len(message.tool_calls))
+                return message
+            return message.content
+
         # trace log of the message content, if it exists
         if hasattr(response, "choices") and len(response.choices) > 0:
             if hasattr(response.choices[0], "message") and hasattr(response.choices[0].message, "content"):
-                # format string clarifying what this is
                 logger.trace("Response content: {content}", content=response.choices[0].message.content)
-                # log the entire base response object in pprint
                 import pprint
                 logger.trace(pprint.pformat(response))
-                
             else:
-                # mention there was no message for the prompt var (first 15 chars)
-                logger.warning("No response content for prompt: {prompt}", prompt=prompt[:15]) 
+                logger.warning("No response content for prompt: {prompt}", prompt=prompt[:15])
         else:
-            # mention there was no response for the prompt var
             logger.warning("Response content: No response for prompt: {prompt}", prompt=prompt[:15])
 
-        # Check if we have tool calls and record them for later use
-        has_tool_calls = (hasattr(response.choices[0].message, "tool_calls") and 
-                          response.choices[0].message.tool_calls)
-        
-        # Return the full message object if it contains tool calls
-        # This preserves the tool_calls field for proper handling in chat_a
+        has_tool_calls = (hasattr(response.choices[0].message, "tool_calls") and response.choices[0].message.tool_calls)
         if has_tool_calls:
-            logger.debug("Tool calls detected in response: {num_calls}", 
-                        num_calls=len(response.choices[0].message.tool_calls))
+            logger.debug("Tool calls detected in response: {num_calls}", num_calls=len(response.choices[0].message.tool_calls))
             return response.choices[0].message
-        
-        # Otherwise just return the content as before
+
         return response.choices[0].message.content
 
     @property
@@ -317,7 +419,7 @@ class ChatQueryMixin(ChatMessagesMixin, ChatParamsMixin):
         # filter the response if we have a pattern
         response = self.filter_by_pattern(response)
         return response
-    def listen(self, usermsg=None, events=False, **additional_vars) -> ChatStreamListener:
+    def listen(self, usermsg=None, events=False, event_schema="legacy", **additional_vars) -> ChatStreamListener:
         """
         Executes the internal chat query as-is and returns a listener object that can be iterated on for the text.
         If usermsg is passed in, it will be added as a user message to the chat before executing the query. ⭐
@@ -328,9 +430,10 @@ class ChatQueryMixin(ChatMessagesMixin, ChatParamsMixin):
         if self.params.stream:
             # response is a ChatStreamListener so lets start it
             response.events = events
+            response.event_schema = event_schema
             response.start()
         return response
-    async def listen_a(self, usermsg=None, async_listen=True, events=False, **additional_vars) -> ChatStreamListener:
+    async def listen_a(self, usermsg=None, async_listen=True, events=False, event_schema="legacy", **additional_vars) -> ChatStreamListener:
         """ Executes the query as-is, async version of listen()"""
         if not self.stream:
             raise Exception("Cannot use listen() without a stream")
@@ -340,6 +443,7 @@ class ChatQueryMixin(ChatMessagesMixin, ChatParamsMixin):
         if self.params.stream:
             # response is a ChatStreamListener so lets start it
             response.events = events
+            response.event_schema = event_schema
             await response.start_a()
         return response
     def chat(self, usermsg=None, **additional_vars) -> object:
@@ -394,7 +498,7 @@ class ChatQueryMixin(ChatMessagesMixin, ChatParamsMixin):
                              num_calls=len(response.tool_calls))
                 
             # Add the assistant response with tool calls
-            msg = response.model_dump()
+            msg = self._tool_response_to_dict(response)
             new_chatprompt = new_chatprompt.assistant(msg)
             logger.debug(f"Tool calls in response: {response.tool_calls}")
             
@@ -458,7 +562,7 @@ class ChatQueryMixin(ChatMessagesMixin, ChatParamsMixin):
                             
                             if has_tool_calls:
                                 # More tool calls - add to chat and continue loop
-                                msg = follow_up.model_dump()
+                                msg = self._tool_response_to_dict(follow_up)
                                 current_chat = current_chat.assistant(msg)
                                 logger.debug(f"Tool calls in follow-up response: {follow_up.tool_calls}")
                                 response = follow_up  # Update for next iteration
