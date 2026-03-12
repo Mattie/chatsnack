@@ -9,7 +9,7 @@ from datafiles import datafile
 
 from ..asynchelpers import aformatter
 from ..fillings import filling_machine
-from ..runtime import EVENT_SCHEMA_VERSION
+from ..runtime import EVENT_SCHEMA_VERSION, ChatCompletionsAdapter
 
 from .mixin_messages import ChatMessagesMixin
 from .mixin_params import ChatParamsMixin, DEFAULT_MODEL_FALLBACK
@@ -42,6 +42,13 @@ class ChatStreamListener:
     def _event_from_runtime(self, event):
         if self.events:
             if self.event_schema == "v1":
+                if event.type == "completed":
+                    return {
+                        "schema_version": event.schema_version,
+                        "type": event.type,
+                        "index": event.index + 1,
+                        "data": event.data,
+                    }
                 return {
                     "schema_version": event.schema_version,
                     "type": event.type,
@@ -59,7 +66,7 @@ class ChatStreamListener:
                 terminal = event.data.get("terminal", {})
                 return {
                     "type": "done",
-                    "index": event.index,
+                    "index": event.index + 1,
                     "response": terminal.get("response_text", self.current_content),
                 }
             if event.type == "error":
@@ -71,7 +78,16 @@ class ChatStreamListener:
             return None
         if event.type == "text_delta":
             return event.data.get("text", "")
+        if event.type == "completed":
+            # Preserve legacy text-stream behavior where a terminal SDK chunk
+            # with empty delta content yielded an empty string.
+            return ""
         return None
+
+    def _resolve_runtime(self):
+        if self.runtime is not None:
+            return self.runtime
+        return ChatCompletionsAdapter(self.ai)
 
     @staticmethod
     def _runtime_error_message(event):
@@ -111,48 +127,40 @@ class ChatStreamListener:
         }
 
     async def start_a(self):
-        if self.runtime is not None:
-            self._response_gen = self.runtime.stream_completion_a(self.prompt, **self.kwargs)
-            return self
-        if not self.kwargs.get('stream', False):
-            self.kwargs['stream'] = True
-        self._response_gen = await self.ai.aclient.chat.completions.create(messages=self.prompt,**self.kwargs)
+        runtime = self._resolve_runtime()
+        self._response_gen = runtime.stream_completion_a(self.prompt, **self.kwargs)
         return self
 
     async def _get_responses_a(self):
         try:
             async for event in self._response_gen:
-                if self.runtime is not None:
-                    if event.type == "text_delta":
-                        self.current_content += event.data.get("text", "")
-                    elif event.type == "completed":
-                        terminal = event.data.get("terminal", {})
-                        self.current_content = terminal.get("response_text", self.current_content)
-                        self.is_complete = True
-                    elif event.type == "error":
-                        self.is_complete = True
-                        if not self.events:
-                            raise RuntimeError(self._runtime_error_message(event))
-                    rendered = self._event_from_runtime(event)
-                    if rendered is not None:
-                        yield rendered
-                    continue
-
-                resp = event.model_dump()
-                if "choices" in resp:
-                    if resp['choices'][0]['finish_reason'] is not None:
-                        self.is_complete = True
-                    if 'delta' in resp['choices'][0]:
-                        content = resp['choices'][0]['delta']['content']
-                        if content is not None:
-                            self.current_content += content
-                        if self.events:
-                            yield self._format_text_event(content if content is not None else "")
-                        else:
-                            yield content if content is not None else ""
-                        self._chunk_index += 1
-            if self.events and self.runtime is None:
-                yield self._format_done_event()
+                if event.type == "text_delta":
+                    self.current_content += event.data.get("text", "")
+                elif event.type == "completed":
+                    terminal = event.data.get("terminal", {})
+                    self.current_content = terminal.get("response_text", self.current_content)
+                    self.is_complete = True
+                elif event.type == "error":
+                    self.is_complete = True
+                    if not self.events:
+                        raise RuntimeError(self._runtime_error_message(event))
+                if self.events and event.type == "completed":
+                    if self.event_schema == "v1":
+                        yield {
+                            "schema_version": event.schema_version,
+                            "type": "text_delta",
+                            "index": event.index,
+                            "data": {"text": ""},
+                        }
+                    else:
+                        yield {
+                            "type": "text_delta",
+                            "index": event.index,
+                            "text": "",
+                        }
+                rendered = self._event_from_runtime(event)
+                if rendered is not None:
+                    yield rendered
         finally:
             self.is_complete = True
             self.response = self.current_content
@@ -161,48 +169,40 @@ class ChatStreamListener:
         return self._get_responses_a()
 
     def start(self):
-        if self.runtime is not None:
-            self._response_gen = self.runtime.stream_completion(self.prompt, **self.kwargs)
-            return self
-        if not self.kwargs.get('stream', False):
-            self.kwargs['stream'] = True
-        self._response_gen = self.ai.client.chat.completions.create(messages=self.prompt,**self.kwargs)
+        runtime = self._resolve_runtime()
+        self._response_gen = runtime.stream_completion(self.prompt, **self.kwargs)
         return self
 
     def _get_responses(self):
         try:
             for event in self._response_gen:
-                if self.runtime is not None:
-                    if event.type == "text_delta":
-                        self.current_content += event.data.get("text", "")
-                    elif event.type == "completed":
-                        terminal = event.data.get("terminal", {})
-                        self.current_content = terminal.get("response_text", self.current_content)
-                        self.is_complete = True
-                    elif event.type == "error":
-                        self.is_complete = True
-                        if not self.events:
-                            raise RuntimeError(self._runtime_error_message(event))
-                    rendered = self._event_from_runtime(event)
-                    if rendered is not None:
-                        yield rendered
-                    continue
-
-                resp = event.model_dump()
-                if "choices" in resp:
-                    if resp['choices'][0]['finish_reason'] is not None:
-                        self.is_complete = True
-                    if 'delta' in resp['choices'][0]:
-                        content = resp['choices'][0]['delta']['content']
-                        if content is not None:
-                            self.current_content += content
-                        if self.events:
-                            yield self._format_text_event(content if content is not None else "")
-                        else:
-                            yield content if content is not None else ""
-                        self._chunk_index += 1
-            if self.events and self.runtime is None:
-                yield self._format_done_event()
+                if event.type == "text_delta":
+                    self.current_content += event.data.get("text", "")
+                elif event.type == "completed":
+                    terminal = event.data.get("terminal", {})
+                    self.current_content = terminal.get("response_text", self.current_content)
+                    self.is_complete = True
+                elif event.type == "error":
+                    self.is_complete = True
+                    if not self.events:
+                        raise RuntimeError(self._runtime_error_message(event))
+                if self.events and event.type == "completed":
+                    if self.event_schema == "v1":
+                        yield {
+                            "schema_version": event.schema_version,
+                            "type": "text_delta",
+                            "index": event.index,
+                            "data": {"text": ""},
+                        }
+                    else:
+                        yield {
+                            "type": "text_delta",
+                            "index": event.index,
+                            "text": "",
+                        }
+                rendered = self._event_from_runtime(event)
+                if rendered is not None:
+                    yield rendered
         finally:
             self.is_complete = True
             self.response = self.current_content
@@ -336,45 +336,22 @@ class ChatQueryMixin(ChatMessagesMixin, ChatParamsMixin):
             messages = json.loads(prompt)            
 
         adapter = getattr(self, "runtime", None)
-        if adapter is not None:
-            normalized = await adapter.create_completion_a(messages=messages, **kwargs)
-            response = normalized
-        else:
-            response = await self.ai.aclient.chat.completions.create(
-                messages=messages,
-                **kwargs
-            )
+        if adapter is None:
+            adapter = ChatCompletionsAdapter(self.ai)
+        response = await adapter.create_completion_a(messages=messages, **kwargs)
         # trace log for the messages and the kwargs
         logger.trace("Messages: {messages}", messages=messages)
         logger.trace("Kwargs: {kwargs}", kwargs=
                      {k: v for k, v in kwargs.items() if k != 'stream'})
 
-        if adapter is not None:
-            message = response.message
-            logger.trace("Response content: {content}", content=message.content)
-            has_tool_calls = bool(message.tool_calls)
-            if has_tool_calls:
-                logger.debug("Tool calls detected in response: {num_calls}", num_calls=len(message.tool_calls))
-                return message
-            return message.content
-
-        # trace log of the message content, if it exists
-        if hasattr(response, "choices") and len(response.choices) > 0:
-            if hasattr(response.choices[0], "message") and hasattr(response.choices[0].message, "content"):
-                logger.trace("Response content: {content}", content=response.choices[0].message.content)
-                import pprint
-                logger.trace(pprint.pformat(response))
-            else:
-                logger.warning("No response content for prompt: {prompt}", prompt=prompt[:15])
-        else:
-            logger.warning("Response content: No response for prompt: {prompt}", prompt=prompt[:15])
-
-        has_tool_calls = (hasattr(response.choices[0].message, "tool_calls") and response.choices[0].message.tool_calls)
+        message = response.message
+        logger.trace("Response content: {content}", content=message.content)
+        has_tool_calls = bool(message.tool_calls)
         if has_tool_calls:
-            logger.debug("Tool calls detected in response: {num_calls}", num_calls=len(response.choices[0].message.tool_calls))
-            return response.choices[0].message
+            logger.debug("Tool calls detected in response: {num_calls}", num_calls=len(message.tool_calls))
+            return message
 
-        return response.choices[0].message.content
+        return message.content
 
     @property
     def response(self) -> str:
