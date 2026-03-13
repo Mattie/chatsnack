@@ -39,6 +39,7 @@ class NormalizedCompletionResult:
     finish_reason: Optional[str] = None
     model: Optional[str] = None
     usage: Optional[Dict[str, Any]] = None
+    metadata: Dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass
@@ -47,6 +48,7 @@ class RuntimeTerminalMetadata:
     model: Optional[str] = None
     usage: Optional[Dict[str, Any]] = None
     response_text: str = ""
+    metadata: Dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass

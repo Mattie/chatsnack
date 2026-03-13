@@ -11,6 +11,7 @@ from .types import (
     RuntimeTerminalMetadata,
 )
 from .chat_completions_adapter import ChatCompletionsAdapter
+from .responses_adapter import ResponsesAdapter
 
 __all__ = [
     "EVENT_SCHEMA_VERSION",
@@ -24,4 +25,5 @@ __all__ = [
     "RuntimeTerminalMetadata",
     "RuntimeErrorPayload",
     "ChatCompletionsAdapter",
+    "ResponsesAdapter",
 ]
