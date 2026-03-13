@@ -427,7 +427,7 @@ class ChatQueryMixin(ChatMessagesMixin, ChatParamsMixin):
         if usermsg is not None:
             additional_vars["__user"] = usermsg
         _, response = self._run_sync(self._submit_for_response_and_prompt(**additional_vars), "listen")
-        if self.params.stream:
+        if self.stream:
             # response is a ChatStreamListener so lets start it
             response.events = events
             response.event_schema = event_schema
@@ -440,7 +440,7 @@ class ChatQueryMixin(ChatMessagesMixin, ChatParamsMixin):
         if usermsg is not None:
             additional_vars["__user"] = usermsg
         _, response = await self._submit_for_response_and_prompt(**additional_vars)
-        if self.params.stream:
+        if self.stream:
             # response is a ChatStreamListener so lets start it
             response.events = events
             response.event_schema = event_schema

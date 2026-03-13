@@ -61,6 +61,13 @@ def setup_and_cleanup():
 def chat():
     return Chat()
 
+
+def _set_runtime_mode(chat, use_runtime_adapter: bool):
+    if use_runtime_adapter:
+        assert chat.runtime is not None
+    else:
+        chat.runtime = None
+
 def test_copy_chatprompt_same_name():
     """Copying a ChatPrompt with the same name should succeed."""
     chat = Chat(name="test")
@@ -196,7 +203,10 @@ class _FakeAsyncCompletions:
 
 
 @pytest.mark.asyncio
-async def test_sync_methods_fail_fast_in_active_loop(chat, monkeypatch):
+@pytest.mark.parametrize("use_runtime_adapter", [True, False])
+async def test_sync_methods_fail_fast_in_active_loop(chat, monkeypatch, use_runtime_adapter):
+    _set_runtime_mode(chat, use_runtime_adapter)
+
     def raise_active_loop(coro):
         coro.close()
         raise RuntimeError("asyncio.run() cannot be called from a running event loop")
@@ -212,7 +222,10 @@ async def test_sync_methods_fail_fast_in_active_loop(chat, monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_async_methods_work_in_active_loop(chat, monkeypatch):
+@pytest.mark.parametrize("use_runtime_adapter", [True, False])
+async def test_async_methods_work_in_active_loop(chat, monkeypatch, use_runtime_adapter):
+    _set_runtime_mode(chat, use_runtime_adapter)
+
     async def fake_submit(**kwargs):
         return "[]", "async-output"
 
@@ -297,6 +310,61 @@ async def test_tool_recursion_auto_feed_false_keeps_tool_messages(chat, monkeypa
     assert any(msg["role"] == "tool" for msg in messages)
 
 
+@pytest.mark.parametrize("use_runtime_adapter", [True, False])
+def test_chat_parity_preserves_response_history(chat, monkeypatch, use_runtime_adapter):
+    _set_runtime_mode(chat, use_runtime_adapter)
+
+    async def fake_submit(**kwargs):
+        return '[{"role":"user","content":"hello"}]', "reply"
+
+    monkeypatch.setattr(chat, "_submit_for_response_and_prompt", fake_submit)
+
+    output = chat.chat()
+    assert output.get_messages() == [
+        {"role": "user", "content": "hello"},
+        {"role": "assistant", "content": "reply"},
+    ]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("use_runtime_adapter", [True, False])
+async def test_chat_a_parity_tool_recursion_history(chat, monkeypatch, use_runtime_adapter):
+    _set_runtime_mode(chat, use_runtime_adapter)
+    chat.auto_execute = True
+    chat.auto_feed = True
+
+    class _ToolCall:
+        id = "call_1"
+        function = SimpleNamespace(name="echo", arguments='{"x":1}')
+
+    class _ToolMessage(_FakeMessage):
+        def model_dump(self):
+            return {
+                "role": "assistant",
+                "content": None,
+                "tool_calls": [
+                    {
+                        "id": "call_1",
+                        "type": "function",
+                        "function": {"name": "echo", "arguments": '{"x":1}'},
+                    }
+                ],
+            }
+
+    async def fake_submit(**kwargs):
+        return "[]", _ToolMessage(content=None, tool_calls=[_ToolCall()])
+
+    async def fake_follow_up(self, prompt, **kwargs):
+        return "final"
+
+    monkeypatch.setattr(chat, "_submit_for_response_and_prompt", fake_submit)
+    monkeypatch.setattr(chat, "execute_tool_call", lambda tc: {"ok": True})
+    monkeypatch.setattr(Chat, "_cleaned_chat_completion", fake_follow_up)
+
+    output = await chat.chat_a()
+    roles = [msg["role"] for msg in output.get_messages()]
+    assert roles == ["assistant", "tool", "assistant"]
+    assert output.get_messages()[-1]["content"] == "final"
 
 
 def test_listen_events_true_defaults_to_legacy_schema(chat, monkeypatch):
@@ -345,7 +413,10 @@ async def test_listen_a_events_true_defaults_to_legacy_schema(chat, monkeypatch)
     assert listener.event_schema == "legacy"
     assert listener.started is True
 
-def test_listen_returns_plain_str_payload_when_stream_disabled(chat, monkeypatch):
+@pytest.mark.parametrize("use_runtime_adapter", [True, False])
+def test_listen_returns_plain_str_payload_when_stream_disabled(chat, monkeypatch, use_runtime_adapter):
+    _set_runtime_mode(chat, use_runtime_adapter)
+
     async def fake_submit(**kwargs):
         return "[]", "plain-completion"
 
@@ -364,3 +435,124 @@ async def test_listen_a_raises_when_stream_disabled(chat):
     chat.stream = False
     with pytest.raises(Exception, match=r"Cannot use listen\(\) without a stream"):
         await chat.listen_a(events=True)
+
+
+# ---------------------------------------------------------------------------
+# Live API parity tests – skipped when OPENAI_API_KEY is absent.
+#
+# These tests do NOT mock _submit_for_response_and_prompt.  They exercise
+# the full runtime-adapter (ChatCompletionsAdapter) and legacy-client paths
+# end-to-end so that real regressions in either branch are caught.
+# ---------------------------------------------------------------------------
+
+_LIVE_SYSTEM = "Respond only with the single word POPSICLE, nothing else."
+_LIVE_PROMPT = "What is your response?"
+_POPSICLE = "POPSICLE"
+
+_skip_no_key = pytest.mark.skipif(
+    os.environ.get("OPENAI_API_KEY") is None,
+    reason="OPENAI_API_KEY is not set in environment or .env",
+)
+
+
+def _make_live_chat(use_runtime_adapter: bool) -> "Chat":
+    """Return a Chat configured for live API calls."""
+    c = Chat()
+    _set_runtime_mode(c, use_runtime_adapter)
+    c.system(_LIVE_SYSTEM)
+    c.user(_LIVE_PROMPT)
+    return c
+
+
+@_skip_no_key
+@pytest.mark.parametrize("use_runtime_adapter", [True, False])
+def test_live_ask_parity(use_runtime_adapter):
+    """Both adapter paths return a non-empty string via ask()."""
+    c = _make_live_chat(use_runtime_adapter)
+    response = c.ask()
+    assert isinstance(response, str)
+    assert len(response) > 0
+    assert _POPSICLE in response.upper()
+
+
+@_skip_no_key
+@pytest.mark.asyncio
+@pytest.mark.parametrize("use_runtime_adapter", [True, False])
+async def test_live_ask_a_parity(use_runtime_adapter):
+    """Both adapter paths return a non-empty string via ask_a()."""
+    c = _make_live_chat(use_runtime_adapter)
+    response = await c.ask_a()
+    assert isinstance(response, str)
+    assert len(response) > 0
+    assert _POPSICLE in response.upper()
+
+
+@_skip_no_key
+@pytest.mark.parametrize("use_runtime_adapter", [True, False])
+def test_live_chat_parity(use_runtime_adapter):
+    """Both adapter paths return a Chat with an assistant message via chat()."""
+    c = _make_live_chat(use_runtime_adapter)
+    result = c.chat()
+    messages = result.get_messages()
+    assistant_messages = [m for m in messages if m["role"] == "assistant"]
+    assert len(assistant_messages) >= 1
+    assert _POPSICLE in assistant_messages[-1]["content"].upper()
+
+
+@_skip_no_key
+@pytest.mark.asyncio
+@pytest.mark.parametrize("use_runtime_adapter", [True, False])
+async def test_live_chat_a_parity(use_runtime_adapter):
+    """Both adapter paths return a Chat with an assistant message via chat_a()."""
+    c = _make_live_chat(use_runtime_adapter)
+    result = await c.chat_a()
+    messages = result.get_messages()
+    assistant_messages = [m for m in messages if m["role"] == "assistant"]
+    assert len(assistant_messages) >= 1
+    assert _POPSICLE in assistant_messages[-1]["content"].upper()
+
+
+@_skip_no_key
+@pytest.mark.parametrize("use_runtime_adapter", [True, False])
+def test_live_listen_non_stream_parity(use_runtime_adapter):
+    """Both adapter paths return the plain response string via listen() when stream=False."""
+    c = _make_live_chat(use_runtime_adapter)
+    # stream defaults to False; listen() returns the completion string directly
+    response = c.listen()
+    assert isinstance(response, str)
+    assert len(response) > 0
+    assert _POPSICLE in response.upper()
+
+
+@_skip_no_key
+@pytest.mark.parametrize("use_runtime_adapter", [True, False])
+def test_live_listen_stream_parity(use_runtime_adapter):
+    """Both adapter paths yield text chunks and accumulate the full response via listen() when stream=True."""
+    c = _make_live_chat(use_runtime_adapter)
+    c.stream = True
+    listener = c.listen()
+    chunks = list(listener)
+    full_text = "".join(chunks)
+    assert len(full_text) > 0
+    assert _POPSICLE in full_text.upper()
+    # The listener should have accumulated the complete response too
+    assert listener.is_complete
+    assert _POPSICLE in listener.response.upper()
+
+
+@_skip_no_key
+@pytest.mark.asyncio
+@pytest.mark.parametrize("use_runtime_adapter", [True, False])
+async def test_live_listen_a_stream_parity(use_runtime_adapter):
+    """Both adapter paths yield text chunks via listen_a() when stream=True."""
+    c = _make_live_chat(use_runtime_adapter)
+    c.stream = True
+    listener = await c.listen_a()
+    chunks = []
+    async for chunk in listener:
+        chunks.append(chunk)
+    full_text = "".join(chunks)
+    assert len(full_text) > 0
+    assert _POPSICLE in full_text.upper()
+    assert listener.is_complete
+    assert _POPSICLE in listener.response.upper()
