@@ -119,3 +119,28 @@ def test_profile_defaults_and_model_specific_options_are_applied():
     assert captured["temperature"] == 0.1
     assert captured["reasoning"] == {"effort": "medium"}
     assert captured["store"] is False
+
+
+def test_assistant_history_message_is_encoded_as_input_text():
+    captured = {}
+
+    def create(**kwargs):
+        captured.update(kwargs)
+        return _FakeObj({"id": "resp_3", "status": "completed", "model": "gpt-4.1", "output": []})
+
+    ai = SimpleNamespace(client=SimpleNamespace(responses=SimpleNamespace(create=create)))
+    adapter = ResponsesAdapter(ai)
+
+    adapter.create_completion(
+        messages=[
+            {"role": "assistant", "content": "Prior answer."},
+            {"role": "user", "content": "Follow up?"},
+        ],
+        model="gpt-4.1",
+    )
+
+    assert captured["input"][0] == {
+        "type": "message",
+        "role": "assistant",
+        "content": [{"type": "input_text", "text": "Prior answer."}],
+    }

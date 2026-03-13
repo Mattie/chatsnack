@@ -59,7 +59,7 @@ class ResponsesAdapter:
                     {
                         "type": "message",
                         "role": "assistant",
-                        "content": [{"type": "output_text", "text": text_content}],
+                        "content": [{"type": "input_text", "text": text_content}],
                     }
                 )
             for tool_call in tool_calls:
@@ -77,7 +77,7 @@ class ResponsesAdapter:
         if role not in {"system", "developer", "user", "assistant"}:
             role = "user"
 
-        text_type = "output_text" if role == "assistant" else "input_text"
+        text_type = "input_text"
         return [
             {
                 "type": "message",
