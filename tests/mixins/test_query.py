@@ -367,12 +367,6 @@ async def test_chat_a_parity_tool_recursion_history(chat, monkeypatch, use_runti
     assert output.get_messages()[-1]["content"] == "final"
 
 
-@pytest.mark.parametrize("use_runtime_adapter", [True, False])
-def test_listen_returns_plain_str_payload_when_stream_disabled(chat, monkeypatch, use_runtime_adapter):
-    _set_runtime_mode(chat, use_runtime_adapter)
-
-
-
 def test_listen_events_true_defaults_to_legacy_schema(chat, monkeypatch):
     class _DummyListener:
         def __init__(self):
@@ -419,7 +413,10 @@ async def test_listen_a_events_true_defaults_to_legacy_schema(chat, monkeypatch)
     assert listener.event_schema == "legacy"
     assert listener.started is True
 
-def test_listen_returns_plain_str_payload_when_stream_disabled(chat, monkeypatch):
+@pytest.mark.parametrize("use_runtime_adapter", [True, False])
+def test_listen_returns_plain_str_payload_when_stream_disabled(chat, monkeypatch, use_runtime_adapter):
+    _set_runtime_mode(chat, use_runtime_adapter)
+
     async def fake_submit(**kwargs):
         return "[]", "plain-completion"
 
