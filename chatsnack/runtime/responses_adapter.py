@@ -17,6 +17,21 @@ class ResponsesAdapter:
     def __init__(self, ai_client):
         self.ai_client = ai_client
 
+    def _get_responses_create(self, *, async_mode: bool = False):
+        client_name = "aclient" if async_mode else "client"
+        client = getattr(self.ai_client, client_name, None)
+        responses = getattr(client, "responses", None) if client is not None else None
+        create = getattr(responses, "create", None) if responses is not None else None
+        if callable(create):
+            return create
+
+        endpoint = f"{client_name}.responses.create"
+        raise RuntimeError(
+            "ResponsesAdapter requires an ai_client exposing "
+            f"`{endpoint}`. Inject a compatible OpenAI client (openai>=1.66.0) "
+            "or select the chat_completions runtime."
+        )
+
     @staticmethod
     def _to_dict(obj: Any) -> Dict[str, Any]:
         if obj is None:
@@ -181,12 +196,12 @@ class ResponsesAdapter:
 
     def create_completion(self, messages: List[Dict[str, Any]], **kwargs: Any) -> NormalizedCompletionResult:
         request_kwargs = self._build_responses_kwargs(messages, kwargs)
-        response = self.ai_client.client.responses.create(**request_kwargs)
+        response = self._get_responses_create(async_mode=False)(**request_kwargs)
         return self._normalize_completion(response, request_kwargs)
 
     async def create_completion_a(self, messages: List[Dict[str, Any]], **kwargs: Any) -> NormalizedCompletionResult:
         request_kwargs = self._build_responses_kwargs(messages, kwargs)
-        response = await self.ai_client.aclient.responses.create(**request_kwargs)
+        response = await self._get_responses_create(async_mode=True)(**request_kwargs)
         return self._normalize_completion(response, request_kwargs)
 
     def stream_completion(self, messages: List[Dict[str, Any]], **kwargs: Any):
