@@ -165,6 +165,24 @@ def test_default_runtime_selection_preserves_phase0_behavior(chat, monkeypatch):
     assert chat.ask() == "legacy-shape"
 
 
+def test_profile_forwarded_to_adapter_via_submit(chat, monkeypatch):
+    """profile set in ChatParams must be forwarded to adapter.create_completion_a."""
+    captured_kwargs = {}
+
+    async def fake_create_completion_a(messages, **kwargs):
+        captured_kwargs.update(kwargs)
+        return SimpleNamespace(message=SimpleNamespace(content="ok", tool_calls=[]))
+
+    profile = {"defaults": {"temperature": 0.7}}
+    chat.params = ChatParams(profile=profile)
+    monkeypatch.setattr(chat.runtime, "create_completion_a", fake_create_completion_a)
+
+    chat.ask()
+
+    assert "profile" in captured_kwargs
+    assert captured_kwargs["profile"] == profile
+
+
 @pytest.mark.asyncio
 async def test_chat_a_tool_recursion_with_responses_runtime(chat, monkeypatch):
     chat.runtime = ResponsesAdapter(chat.ai)

@@ -112,3 +112,49 @@ async def test_normalizes_async_stream_errors_into_error_event():
     assert events[0].type == "error"
     assert events[0].schema_version == EVENT_SCHEMA_VERSION
     assert events[0].data["error"]["message"] == "boom"
+
+
+def test_profile_is_stripped_before_api_call():
+    captured = {}
+
+    def create(**kwargs):
+        captured.update(kwargs)
+        return _FakeObj(
+            {
+                "model": "gpt-4.1",
+                "choices": [{"finish_reason": "stop", "message": {"role": "assistant", "content": "hi"}}],
+            }
+        )
+
+    ai = SimpleNamespace(client=SimpleNamespace(chat=SimpleNamespace(completions=SimpleNamespace(create=create))))
+    adapter = ChatCompletionsAdapter(ai)
+
+    adapter.create_completion(
+        messages=[{"role": "user", "content": "hello"}],
+        model="gpt-4.1",
+        profile={"defaults": {"temperature": 0.5}},
+    )
+
+    assert "profile" not in captured
+
+
+def test_profile_is_stripped_in_stream_completion():
+    captured = {}
+    chunks = iter([
+        _FakeObj({"model": "gpt-4.1", "choices": [{"finish_reason": "stop", "delta": {"content": "hi"}}]}),
+    ])
+
+    def create(**kwargs):
+        captured.update(kwargs)
+        return chunks
+
+    ai = SimpleNamespace(client=SimpleNamespace(chat=SimpleNamespace(completions=SimpleNamespace(create=create))))
+    adapter = ChatCompletionsAdapter(ai)
+
+    list(adapter.stream_completion(
+        messages=[{"role": "user", "content": "hello"}],
+        model="gpt-4.1",
+        profile={"defaults": {"temperature": 0.5}},
+    ))
+
+    assert "profile" not in captured
