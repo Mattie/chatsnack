@@ -62,10 +62,12 @@ class ChatCompletionsAdapter:
         )
 
     def create_completion(self, messages: List[Dict[str, Any]], **kwargs: Any) -> NormalizedCompletionResult:
+        kwargs.pop("profile", None)
         response = self.ai_client.client.chat.completions.create(messages=messages, **kwargs)
         return self._normalize_completion(response)
 
     async def create_completion_a(self, messages: List[Dict[str, Any]], **kwargs: Any) -> NormalizedCompletionResult:
+        kwargs.pop("profile", None)
         response = await self.ai_client.aclient.chat.completions.create(messages=messages, **kwargs)
         return self._normalize_completion(response)
 
@@ -102,6 +104,7 @@ class ChatCompletionsAdapter:
 
     def stream_completion(self, messages: List[Dict[str, Any]], **kwargs: Any):
         kwargs = kwargs.copy()
+        kwargs.pop("profile", None)
         kwargs["stream"] = True
         response_gen = self.ai_client.client.chat.completions.create(messages=messages, **kwargs)
 
@@ -129,6 +132,7 @@ class ChatCompletionsAdapter:
 
     async def stream_completion_a(self, messages: List[Dict[str, Any]], **kwargs: Any):
         kwargs = kwargs.copy()
+        kwargs.pop("profile", None)
         kwargs["stream"] = True
         response_gen = await self.ai_client.aclient.chat.completions.create(messages=messages, **kwargs)
 
