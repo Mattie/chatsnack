@@ -466,11 +466,10 @@ class ChatQueryMixin(ChatMessagesMixin, ChatParamsMixin):
         prompt, response = await self._submit_for_response_and_prompt(**additional_vars)
         
         # create a new chatprompt with the new name, copy it from this one
-        new_chatprompt = self.__class__()
-        
-        # Copy params if available
-        if hasattr(self, 'params') and self.params is not None:
-            new_chatprompt.params = self.params
+        new_chatprompt = self.__class__(
+            params=getattr(self, "params", None),
+            runtime=getattr(self, "runtime", None),
+        )
 
         logger.trace("Expanded prompt: " + prompt)
         new_chatprompt.add_messages_json(prompt)
@@ -589,8 +588,9 @@ class ChatQueryMixin(ChatMessagesMixin, ChatParamsMixin):
     def copy(self, name: str = None, system = None, expand_includes: bool = False, expand_fillings: bool = False, **additional_vars) -> object:
         """ Returns a new ChatPrompt object that is a copy of this one, optionally with a new name ⭐"""
         import copy
+        copied_params = copy.copy(self.params)
         if name is not None:
-            new_chat = self.__class__(name=name)
+            new_chat = self.__class__(name=name, params=copied_params, runtime=getattr(self, "runtime", None))
         else:
             # if the existing name ends with _{datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}-{uuid.uuid4()}" then we need to trim that off and add a new one
             # use a regex to match at the end of the name
@@ -601,8 +601,11 @@ class ChatQueryMixin(ChatMessagesMixin, ChatParamsMixin):
                 name = self.name[:match.start()]
             else:
                 name = self.name
-            new_chat = self.__class__(name=name + f"_{datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}-{uuid.uuid4()}")
-        new_chat.params = copy.copy(self.params)
+            new_chat = self.__class__(
+                name=name + f"_{datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}-{uuid.uuid4()}",
+                params=copied_params,
+                runtime=getattr(self, "runtime", None),
+            )
 
         # copy local registry
         new_chat._local_registry = copy.deepcopy(self._local_registry) if hasattr(self, '_local_registry') else None

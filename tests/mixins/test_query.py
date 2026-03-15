@@ -1,5 +1,9 @@
 import pytest
+import json
+from types import SimpleNamespace
 from chatsnack import Chat, Text, CHATSNACK_BASE_DIR
+from chatsnack.chat.mixin_params import ChatParams
+from chatsnack.runtime import ChatCompletionsAdapter, ResponsesAdapter
 from chatsnack.chat.mixin_params import DEFAULT_MODEL_FALLBACK
 
 import os
@@ -67,6 +71,160 @@ def _set_runtime_mode(chat, use_runtime_adapter: bool):
         assert chat.runtime is not None
     else:
         chat.runtime = None
+
+
+
+def test_default_runtime_is_chat_completions_adapter():
+    chat = Chat()
+    assert isinstance(chat.runtime, ChatCompletionsAdapter)
+
+
+def test_runtime_selector_selects_responses_adapter():
+    chat = Chat(runtime_selector="responses")
+    assert isinstance(chat.runtime, ResponsesAdapter)
+
+
+def test_runtime_profile_selects_responses_adapter():
+    chat = Chat(params=ChatParams(runtime="responses"))
+    assert isinstance(chat.runtime, ResponsesAdapter)
+
+
+def test_runtime_injection_takes_precedence_over_selector():
+    runtime = object()
+    chat = Chat(runtime=runtime, runtime_selector="responses")
+    assert chat.runtime is runtime
+
+
+def test_ask_with_responses_runtime_returns_str(chat, monkeypatch):
+    chat.runtime = ResponsesAdapter(chat.ai)
+
+    async def fake_create_completion_a(messages, **kwargs):
+        return SimpleNamespace(message=SimpleNamespace(content="reply", tool_calls=[]))
+
+    monkeypatch.setattr(chat.runtime, "create_completion_a", fake_create_completion_a)
+
+    out = chat.ask()
+    assert isinstance(out, str)
+    assert out == "reply"
+
+
+def test_chat_with_responses_runtime_returns_chat_with_assistant_history(chat, monkeypatch):
+    chat.runtime = ResponsesAdapter(chat.ai)
+
+    async def fake_create_completion_a(messages, **kwargs):
+        return SimpleNamespace(message=SimpleNamespace(content="reply", tool_calls=[]))
+
+    monkeypatch.setattr(chat.runtime, "create_completion_a", fake_create_completion_a)
+
+    result = chat.chat("hello")
+    assert isinstance(result, Chat)
+    assert isinstance(result.runtime, ResponsesAdapter)
+    assert result.get_messages()[-1] == {"role": "assistant", "content": "reply"}
+
+
+def test_copy_preserves_responses_runtime_selection_from_params():
+    chat = Chat(params=ChatParams(runtime="responses"))
+    assert isinstance(chat.runtime, ResponsesAdapter)
+
+    copied = chat.copy()
+
+    assert isinstance(copied.runtime, ResponsesAdapter)
+
+
+def test_copy_creates_independent_adapter_instances():
+    """Cloned chats must not share the parent's adapter instance."""
+    chat = Chat(params=ChatParams(runtime="responses"))
+    copied = chat.copy()
+    assert copied.runtime is not chat.runtime
+    assert copied.runtime.ai_client is not chat.runtime.ai_client
+
+
+def test_chat_continuation_creates_independent_adapter_instance(chat, monkeypatch):
+    """chat() continuation must not share the source chat's adapter instance."""
+    chat.runtime = ResponsesAdapter(chat.ai)
+
+    async def fake_create_completion_a(messages, **kwargs):
+        return SimpleNamespace(message=SimpleNamespace(content="reply", tool_calls=[]))
+
+    monkeypatch.setattr(chat.runtime, "create_completion_a", fake_create_completion_a)
+
+    result = chat.chat("hello")
+    assert isinstance(result.runtime, ResponsesAdapter)
+    assert result.runtime is not chat.runtime
+    assert result.runtime.ai_client is not chat.runtime.ai_client
+
+
+
+def test_default_runtime_selection_preserves_phase0_behavior(chat, monkeypatch):
+    assert isinstance(chat.runtime, ChatCompletionsAdapter)
+
+    async def fake_create_completion_a(messages, **kwargs):
+        return SimpleNamespace(message=SimpleNamespace(content="legacy-shape", tool_calls=[]))
+
+    monkeypatch.setattr(chat.runtime, "create_completion_a", fake_create_completion_a)
+    assert chat.ask() == "legacy-shape"
+
+
+def test_profile_forwarded_to_adapter_via_submit(chat, monkeypatch):
+    """profile set in ChatParams must be forwarded to adapter.create_completion_a."""
+    captured_kwargs = {}
+
+    async def fake_create_completion_a(messages, **kwargs):
+        captured_kwargs.update(kwargs)
+        return SimpleNamespace(message=SimpleNamespace(content="ok", tool_calls=[]))
+
+    profile = {"defaults": {"temperature": 0.7}}
+    chat.params = ChatParams(profile=profile)
+    monkeypatch.setattr(chat.runtime, "create_completion_a", fake_create_completion_a)
+
+    chat.ask()
+
+    assert "profile" in captured_kwargs
+    assert captured_kwargs["profile"] == profile
+
+
+@pytest.mark.asyncio
+async def test_chat_a_tool_recursion_with_responses_runtime(chat, monkeypatch):
+    chat.runtime = ResponsesAdapter(chat.ai)
+    chat.auto_execute = True
+    chat.auto_feed = True
+    chat.user("hello")
+
+    class _ToolCall:
+        id = "call_1"
+        function = SimpleNamespace(name="echo", arguments='{"x":1}')
+
+    class _ToolMessage:
+        content = None
+        tool_calls = [_ToolCall()]
+
+        def model_dump(self):
+            return {
+                "role": "assistant",
+                "content": None,
+                "tool_calls": [
+                    {
+                        "id": "call_1",
+                        "type": "function",
+                        "function": {"name": "echo", "arguments": '{"x":1}'},
+                    }
+                ],
+            }
+
+    async def fake_submit(**kwargs):
+        return json.dumps(chat.get_messages()), _ToolMessage()
+
+    async def fake_follow_up(self, prompt, **kwargs):
+        return "final"
+
+    monkeypatch.setattr(chat, "_submit_for_response_and_prompt", fake_submit)
+    monkeypatch.setattr(chat, "execute_tool_call", lambda tc: {"ok": True})
+    monkeypatch.setattr(Chat, "_cleaned_chat_completion", fake_follow_up)
+
+    output = await chat.chat_a()
+    roles = [msg["role"] for msg in output.get_messages()]
+    assert roles == ["user", "assistant", "tool", "assistant"]
+    assert output.get_messages()[-1]["content"] == "final"
 
 def test_copy_chatprompt_same_name():
     """Copying a ChatPrompt with the same name should succeed."""
@@ -167,7 +325,6 @@ def test_copy_chatprompt_generated_name_length():
 
 
 import asyncio
-from types import SimpleNamespace
 
 
 class _FakeMessage:
@@ -332,6 +489,7 @@ async def test_chat_a_parity_tool_recursion_history(chat, monkeypatch, use_runti
     _set_runtime_mode(chat, use_runtime_adapter)
     chat.auto_execute = True
     chat.auto_feed = True
+    chat.user("hello")
 
     class _ToolCall:
         id = "call_1"

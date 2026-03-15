@@ -281,6 +281,8 @@ class ChatParams:
     api_key_env: Optional[str] = None
 
     response_pattern: Optional[str] = None  # internal usage, not passed to the API
+    runtime: Optional[str] = None  # internal runtime selector, not passed to provider API
+    profile: Optional[dict] = None  # runtime profile/options; forwarded to adapters, stripped before provider API
 
 
     """
@@ -366,6 +368,8 @@ class ChatParams:
         # response_pattern is for internal usage only; remove it
         if "response_pattern" in out:
             del out["response_pattern"]
+        if "runtime" in out:
+            del out["runtime"]
 
         # Convert tool definitions to API format
         if "tools" in out and out["tools"]:

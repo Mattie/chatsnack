@@ -105,6 +105,13 @@ def test_get_non_none_params_default_model_fallback(chat_params):
     assert out["model"] == DEFAULT_MODEL_FALLBACK
 
 
+def test_get_non_none_params_preserves_profile(chat_params):
+    chat_params.profile = {"defaults": {"temperature": 0.5}}
+    out = chat_params._get_non_none_params()
+    assert "profile" in out
+    assert out["profile"] == {"defaults": {"temperature": 0.5}}
+
+
 @pytest.mark.asyncio
 async def test_reasoning_model_role_remap_to_developer(chat_params_mixin):
     chat_params_mixin.model = "o1"
