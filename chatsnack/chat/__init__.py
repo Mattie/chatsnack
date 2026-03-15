@@ -163,6 +163,13 @@ class Chat(ChatQueryMixin, ChatSerializationMixin, ChatUtensilMixin):
 
     def _select_runtime(self, runtime=None, runtime_selector=None, profile=None):
         if runtime is not None:
+            # Recreate known adapter types bound to this chat's own ai client so
+            # that cloned/continued chats are fully independent (not sharing the
+            # source chat's ai_client or any adapter state).
+            if isinstance(runtime, (ResponsesAdapter, ChatCompletionsAdapter)):
+                return type(runtime)(self.ai)
+            # Unknown / custom runtime objects are passed through verbatim to
+            # preserve intentional injection (e.g. test doubles).
             return runtime
 
         if self._is_responses_runtime_selected(runtime_selector):
