@@ -8,7 +8,7 @@ from datafiles import datafile
 
 from ..aiclient import AiClient
 from ..defaults import CHATSNACK_BASE_DIR
-from ..runtime import ChatCompletionsAdapter
+from ..runtime import ChatCompletionsAdapter, ResponsesAdapter
 from .mixin_query import ChatQueryMixin
 from .mixin_params import ChatParams, ChatParamsMixin
 from .mixin_serialization import DatafileMixin, ChatSerializationMixin
@@ -64,6 +64,7 @@ class Chat(ChatQueryMixin, ChatSerializationMixin, ChatUtensilMixin):
         auto_execute = kwargs.pop("auto_execute", None)
         tool_choice = kwargs.pop("tool_choice", None)
         auto_feed = kwargs.pop("auto_feed", None)
+        runtime = kwargs.pop("runtime", None)
         
         # get name from kwargs, if it's there
         if "name" in kwargs:
@@ -143,10 +144,35 @@ class Chat(ChatQueryMixin, ChatSerializationMixin, ChatUtensilMixin):
         self._initial_registry = getattr(self, '_local_registry', None)
 
         self.ai = AiClient()
-        self.runtime = ChatCompletionsAdapter(self.ai)
+        runtime_selector = kwargs.get("runtime_selector")
+        profile = None
+        if hasattr(self, "params") and self.params is not None:
+            profile = getattr(self.params, "profile", None)
+            runtime_selector = runtime_selector or getattr(self.params, "runtime", None)
+        self.runtime = self._select_runtime(runtime=runtime, runtime_selector=runtime_selector, profile=profile)
 
 
    
+    @staticmethod
+    def _is_responses_runtime_selected(runtime_selector) -> bool:
+        if runtime_selector is None:
+            return False
+        if isinstance(runtime_selector, str):
+            return runtime_selector.strip().lower() in {"responses", "responses_api"}
+        return False
+
+    def _select_runtime(self, runtime=None, runtime_selector=None, profile=None):
+        if runtime is not None:
+            return runtime
+
+        if self._is_responses_runtime_selected(runtime_selector):
+            return ResponsesAdapter(self.ai)
+
+        if isinstance(profile, dict) and self._is_responses_runtime_selected(profile.get("runtime")):
+            return ResponsesAdapter(self.ai)
+
+        return ChatCompletionsAdapter(self.ai)
+
     def reset(self) -> object:
         """ Resets the chat prompt to its initial state, returns itself """
         self.name = self._initial_name

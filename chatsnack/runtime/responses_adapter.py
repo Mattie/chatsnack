@@ -146,6 +146,9 @@ class ResponsesAdapter:
                     )
                 )
 
+        if not content_parts and response_dict.get("output_text"):
+            content_parts.append(self._coerce_text(response_dict.get("output_text")))
+
         message = NormalizedAssistantMessage(
             role="assistant",
             content="".join(content_parts) or None,
@@ -187,7 +190,7 @@ class ResponsesAdapter:
         return self._normalize_completion(response, request_kwargs)
 
     def stream_completion(self, messages: List[Dict[str, Any]], **kwargs: Any):
-        request_kwargs = self._build_responses_kwargs(messages, kwargs)
+        """Compatibility shim over non-stream Responses requests; not true provider streaming."""
         index = 0
         try:
             result = self.create_completion(messages, **kwargs)
@@ -214,6 +217,7 @@ class ResponsesAdapter:
             yield RuntimeStreamEvent(type="error", index=index, data={"error": payload.__dict__})
 
     async def stream_completion_a(self, messages: List[Dict[str, Any]], **kwargs: Any):
+        """Compatibility shim over non-stream Responses requests; not true provider streaming."""
         index = 0
         try:
             result = await self.create_completion_a(messages, **kwargs)
