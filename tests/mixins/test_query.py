@@ -118,7 +118,17 @@ def test_chat_with_responses_runtime_returns_chat_with_assistant_history(chat, m
 
     result = chat.chat("hello")
     assert isinstance(result, Chat)
+    assert isinstance(result.runtime, ResponsesAdapter)
     assert result.get_messages()[-1] == {"role": "assistant", "content": "reply"}
+
+
+def test_copy_preserves_responses_runtime_selection_from_params():
+    chat = Chat(params=ChatParams(runtime="responses"))
+    assert isinstance(chat.runtime, ResponsesAdapter)
+
+    copied = chat.copy()
+
+    assert isinstance(copied.runtime, ResponsesAdapter)
 
 
 
