@@ -131,6 +131,29 @@ def test_copy_preserves_responses_runtime_selection_from_params():
     assert isinstance(copied.runtime, ResponsesAdapter)
 
 
+def test_copy_creates_independent_adapter_instances():
+    """Cloned chats must not share the parent's adapter instance."""
+    chat = Chat(params=ChatParams(runtime="responses"))
+    copied = chat.copy()
+    assert copied.runtime is not chat.runtime
+    assert copied.runtime.ai_client is not chat.runtime.ai_client
+
+
+def test_chat_continuation_creates_independent_adapter_instance(chat, monkeypatch):
+    """chat() continuation must not share the source chat's adapter instance."""
+    chat.runtime = ResponsesAdapter(chat.ai)
+
+    async def fake_create_completion_a(messages, **kwargs):
+        return SimpleNamespace(message=SimpleNamespace(content="reply", tool_calls=[]))
+
+    monkeypatch.setattr(chat.runtime, "create_completion_a", fake_create_completion_a)
+
+    result = chat.chat("hello")
+    assert isinstance(result.runtime, ResponsesAdapter)
+    assert result.runtime is not chat.runtime
+    assert result.runtime.ai_client is not chat.runtime.ai_client
+
+
 
 def test_default_runtime_selection_preserves_phase0_behavior(chat, monkeypatch):
     assert isinstance(chat.runtime, ChatCompletionsAdapter)
