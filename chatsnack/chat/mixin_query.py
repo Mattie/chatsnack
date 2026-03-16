@@ -320,6 +320,38 @@ class ChatQueryMixin(ChatMessagesMixin, ChatParamsMixin):
         else:
             return prompt, await self._cleaned_chat_completion(prompt, **kwargs)
 
+    def _runtime_supports_continuation(self) -> bool:
+        runtime = getattr(self, "runtime", None)
+        return runtime is not None and runtime.__class__.__name__ == "ResponsesAdapter"
+
+    def _normalize_runtime_metadata(self, normalized_response) -> Dict[str, object]:
+        metadata = {}
+        if normalized_response is not None:
+            metadata = getattr(normalized_response, "metadata", None) or {}
+
+        return {
+            "response_id": metadata.get("response_id"),
+            "usage": getattr(normalized_response, "usage", None) if normalized_response is not None else None,
+            "assistant_phase": metadata.get("assistant_phase"),
+            "provider_extras": metadata.get("provider_extras"),
+        }
+
+    def _set_last_runtime_metadata(self, metadata: Optional[Dict[str, object]] = None):
+        empty = {
+            "response_id": None,
+            "usage": None,
+            "assistant_phase": None,
+            "provider_extras": None,
+        }
+        if metadata:
+            empty.update(metadata)
+        self._last_runtime_metadata = empty
+
+    def _clone_runtime_metadata_to(self, other):
+        source = getattr(self, "_last_runtime_metadata", None) or {}
+        if hasattr(other, "_set_last_runtime_metadata"):
+            other._set_last_runtime_metadata(source.copy())
+
     async def _cleaned_chat_completion(self, prompt, **kwargs):
         # if there's no model specified, use the default
         if "model" not in kwargs:
@@ -337,9 +369,16 @@ class ChatQueryMixin(ChatMessagesMixin, ChatParamsMixin):
 
         adapter = getattr(self, "runtime", None)
         if adapter is not None:
-            normalized = await adapter.create_completion_a(messages=messages, **kwargs)
+            request_kwargs = kwargs.copy()
+            if self._runtime_supports_continuation() and not request_kwargs.get("previous_response_id"):
+                last_response_id = (getattr(self, "_last_runtime_metadata", {}) or {}).get("response_id")
+                if last_response_id:
+                    request_kwargs["previous_response_id"] = last_response_id
+            normalized = await adapter.create_completion_a(messages=messages, **request_kwargs)
             response = normalized
+            self._set_last_runtime_metadata(self._normalize_runtime_metadata(normalized))
         else:
+            self._set_last_runtime_metadata()
             response = await self.ai.aclient.chat.completions.create(
                 messages=messages,
                 **kwargs
@@ -470,6 +509,7 @@ class ChatQueryMixin(ChatMessagesMixin, ChatParamsMixin):
             params=getattr(self, "params", None),
             runtime=getattr(self, "runtime", None),
         )
+        self._clone_runtime_metadata_to(new_chatprompt)
 
         logger.trace("Expanded prompt: " + prompt)
         new_chatprompt.add_messages_json(prompt)
@@ -479,6 +519,7 @@ class ChatQueryMixin(ChatMessagesMixin, ChatParamsMixin):
         if isinstance(response, str):
             # Add the response as an assistant message
             new_chatprompt.add_or_update_last_assistant_message(response)
+            self._clone_runtime_metadata_to(new_chatprompt)
             return new_chatprompt
         else:
             # Handle tool call response
@@ -491,6 +532,7 @@ class ChatQueryMixin(ChatMessagesMixin, ChatParamsMixin):
                 # Just a regular response with content but no tool calls
                 if content:
                     new_chatprompt = new_chatprompt.assistant(content)
+                self._clone_runtime_metadata_to(new_chatprompt)
                 return new_chatprompt
             else:
                 logger.debug("Tool calls detected in response: {num_calls}",
@@ -546,6 +588,7 @@ class ChatQueryMixin(ChatMessagesMixin, ChatParamsMixin):
                         # Use _submit_for_response_and_prompt for the follow-up call
                         # Since we want to use the current conversation as context, we create a temporary chat object
                         temp_chat = current_chat.copy()
+                        current_chat._clone_runtime_metadata_to(temp_chat)
                         new_prompt = json.dumps(temp_chat.get_messages()) 
                         logger.trace(f"Temp chat messagesx: {temp_chat.get_messages()}")
                         follow_up = await temp_chat._cleaned_chat_completion(new_prompt)
@@ -554,6 +597,7 @@ class ChatQueryMixin(ChatMessagesMixin, ChatParamsMixin):
                         if isinstance(follow_up, str):
                             # Text response - no tool calls
                             current_chat = current_chat.assistant(follow_up)
+                            temp_chat._clone_runtime_metadata_to(current_chat)
                             has_tool_calls = False
                         else:
                             # Check for tool calls in the response
@@ -563,12 +607,14 @@ class ChatQueryMixin(ChatMessagesMixin, ChatParamsMixin):
                                 # More tool calls - add to chat and continue loop
                                 msg = self._tool_response_to_dict(follow_up)
                                 current_chat = current_chat.assistant(msg)
+                                temp_chat._clone_runtime_metadata_to(current_chat)
                                 logger.debug(f"Tool calls in follow-up response: {follow_up.tool_calls}")
                                 response = follow_up  # Update for next iteration
                             else:
                                 # Final response with content but no more tool calls
                                 content = follow_up.content if hasattr(follow_up, "content") else ""
                                 current_chat = current_chat.assistant(content)
+                                temp_chat._clone_runtime_metadata_to(current_chat)
                     else:
                         # If auto_feed is False, break the tool call recursion loop
                         # The assistant's tool calls are recorded but not fed back to the model
@@ -582,6 +628,7 @@ class ChatQueryMixin(ChatMessagesMixin, ChatParamsMixin):
                 # Return the chat with all tool interactions
                 return current_chat
                         
+            self._clone_runtime_metadata_to(new_chatprompt)
             return new_chatprompt
     
     # clone function to create a new chatprompt with the same name and data
@@ -620,4 +667,5 @@ class ChatQueryMixin(ChatMessagesMixin, ChatParamsMixin):
             new_chat.add_messages_json(self.json if expand_includes else self.json_unexpanded, escape=False)
         if system is not None:
             new_chat.system(system)
+        self._clone_runtime_metadata_to(new_chat)
         return new_chat

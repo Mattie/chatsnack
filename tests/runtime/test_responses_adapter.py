@@ -236,3 +236,42 @@ def test_mapping_developer_system_user_assistant_messages_assistant_tool_calls_a
         "call_id": "call_1",
         "output": "tool result",
     }
+
+
+def test_sequential_calls_allow_manual_continuation_with_metadata_round_trip():
+    captured = []
+
+    def create(**kwargs):
+        captured.append(kwargs.copy())
+        response_id = f"resp_{len(captured)}"
+        return _FakeObj(
+            {
+                "id": response_id,
+                "status": "completed",
+                "model": "gpt-4.1",
+                "usage": {"total_tokens": len(captured)},
+                "output": [
+                    {
+                        "type": "message",
+                        "role": "assistant",
+                        "status": "completed",
+                        "content": [{"type": "output_text", "text": f"turn {len(captured)}"}],
+                    }
+                ],
+            }
+        )
+
+    ai = SimpleNamespace(client=SimpleNamespace(responses=SimpleNamespace(create=create)))
+    adapter = ResponsesAdapter(ai)
+
+    first = adapter.create_completion(messages=[{"role": "user", "content": "one"}], model="gpt-4.1")
+    second = adapter.create_completion(
+        messages=[{"role": "user", "content": "two"}],
+        model="gpt-4.1",
+        previous_response_id=first.metadata["response_id"],
+    )
+
+    assert captured[1]["previous_response_id"] == "resp_1"
+    assert second.metadata["previous_response_id"] == "resp_1"
+    assert second.metadata["response_id"] == "resp_2"
+    assert second.usage == {"total_tokens": 2}
