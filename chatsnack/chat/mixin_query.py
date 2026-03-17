@@ -370,6 +370,8 @@ class ChatQueryMixin(ChatMessagesMixin, ChatParamsMixin):
         adapter = getattr(self, "runtime", None)
         if adapter is not None:
             request_kwargs = kwargs.copy()
+            if self._runtime_supports_continuation() and "store" not in request_kwargs:
+                request_kwargs["store"] = True
             if self._runtime_supports_continuation() and not request_kwargs.get("previous_response_id"):
                 last_response_id = (getattr(self, "_last_runtime_metadata", {}) or {}).get("response_id")
                 if last_response_id:

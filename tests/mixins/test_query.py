@@ -259,12 +259,14 @@ def test_chat_continuation_injects_previous_response_id_and_persists_metadata(ch
     first = chat.chat("hello")
 
     assert calls[0].get("previous_response_id") is None
+    assert calls[0]["store"] is True
     assert first._last_runtime_metadata["response_id"] == "resp_1"
     assert first._last_runtime_metadata["usage"] == {"total_tokens": 11}
 
     second = first.chat("continue")
 
     assert calls[1]["previous_response_id"] == "resp_1"
+    assert calls[1]["store"] is True
     assert second._last_runtime_metadata["response_id"] == "resp_2"
 
 

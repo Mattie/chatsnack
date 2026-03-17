@@ -114,10 +114,41 @@ class ResponsesAdapter:
 
         return out
 
+
+    @staticmethod
+    def _select_continuation_messages(messages: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """Select incremental input for `previous_response_id` continuations.
+
+        When continuing from a previous response id, the Responses API already
+        has prior context. Sending the full replay (especially assistant
+        messages rendered as input_text) can be rejected by the API.
+        We therefore send only the suffix after the most recent assistant turn.
+        """
+        if not messages:
+            return messages
+
+        last_assistant_idx = -1
+        for idx in range(len(messages) - 1, -1, -1):
+            if messages[idx].get("role") == "assistant":
+                last_assistant_idx = idx
+                break
+
+        if last_assistant_idx == -1:
+            return [messages[-1]]
+
+        suffix = messages[last_assistant_idx + 1 :]
+        return suffix or [messages[-1]]
+
     def _build_responses_kwargs(self, messages: List[Dict[str, Any]], kwargs: Dict[str, Any]) -> Dict[str, Any]:
         options = self._apply_profile_defaults(kwargs)
-        options["input"] = self._map_messages_to_input(messages)
-        options.setdefault("store", False)
+        input_messages = messages
+        if options.get("previous_response_id"):
+            input_messages = self._select_continuation_messages(messages)
+        options["input"] = self._map_messages_to_input(input_messages)
+        if options.get("previous_response_id") and "store" not in options:
+            options["store"] = True
+        else:
+            options.setdefault("store", False)
         return options
 
     def _normalize_output(self, response_dict: Dict[str, Any]) -> Tuple[NormalizedAssistantMessage, Optional[str]]:
