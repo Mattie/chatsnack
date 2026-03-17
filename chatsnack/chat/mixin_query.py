@@ -289,7 +289,7 @@ class ChatQueryMixin(ChatMessagesMixin, ChatParamsMixin):
         prompt = await self._gather_format(aformatter.async_format, **filling_machine(promptvars))
         return prompt
 
-    async def _submit_for_response_and_prompt(self, **additional_vars):
+    async def _submit_for_response_and_prompt(self, track_continuation: bool = False, **additional_vars):
         """ Executes the query as-is and returns a tuple of the final prompt and the response"""
         prompter = self
         # if the user in additional_vars, we're going to instead deepcopy this prompt into a new prompt and add the .user() to it
@@ -318,7 +318,11 @@ class ChatQueryMixin(ChatMessagesMixin, ChatParamsMixin):
             listener = ChatStreamListener(self.ai, prompt, runtime=getattr(self, "runtime", None), **kwargs)
             return prompt, listener
         else:
-            return prompt, await self._cleaned_chat_completion(prompt, **kwargs)
+            return prompt, await self._cleaned_chat_completion(
+                prompt,
+                track_continuation=track_continuation,
+                **kwargs,
+            )
 
     def _runtime_supports_continuation(self) -> bool:
         runtime = getattr(self, "runtime", None)
@@ -352,7 +356,7 @@ class ChatQueryMixin(ChatMessagesMixin, ChatParamsMixin):
         if hasattr(other, "_set_last_runtime_metadata"):
             other._set_last_runtime_metadata(source.copy())
 
-    async def _cleaned_chat_completion(self, prompt, **kwargs):
+    async def _cleaned_chat_completion(self, prompt, track_continuation: bool = False, **kwargs):
         # if there's no model specified, use the default
         if "model" not in kwargs:
             # if there's an engine in the kwargs, use that as the model
@@ -370,17 +374,23 @@ class ChatQueryMixin(ChatMessagesMixin, ChatParamsMixin):
         adapter = getattr(self, "runtime", None)
         if adapter is not None:
             request_kwargs = kwargs.copy()
-            if self._runtime_supports_continuation() and "store" not in request_kwargs:
+            if track_continuation and self._runtime_supports_continuation() and "store" not in request_kwargs:
                 request_kwargs["store"] = True
-            if self._runtime_supports_continuation() and not request_kwargs.get("previous_response_id"):
+            if (
+                track_continuation
+                and self._runtime_supports_continuation()
+                and not request_kwargs.get("previous_response_id")
+            ):
                 last_response_id = (getattr(self, "_last_runtime_metadata", {}) or {}).get("response_id")
                 if last_response_id:
                     request_kwargs["previous_response_id"] = last_response_id
             normalized = await adapter.create_completion_a(messages=messages, **request_kwargs)
             response = normalized
-            self._set_last_runtime_metadata(self._normalize_runtime_metadata(normalized))
+            if track_continuation:
+                self._set_last_runtime_metadata(self._normalize_runtime_metadata(normalized))
         else:
-            self._set_last_runtime_metadata()
+            if track_continuation:
+                self._set_last_runtime_metadata()
             response = await self.ai.aclient.chat.completions.create(
                 messages=messages,
                 **kwargs
@@ -504,7 +514,7 @@ class ChatQueryMixin(ChatMessagesMixin, ChatParamsMixin):
         if self.stream:
             raise Exception("Cannot use chat() with a stream")
         
-        prompt, response = await self._submit_for_response_and_prompt(**additional_vars)
+        prompt, response = await self._submit_for_response_and_prompt(track_continuation=True, **additional_vars)
         
         # create a new chatprompt with the new name, copy it from this one
         new_chatprompt = self.__class__(
@@ -593,7 +603,10 @@ class ChatQueryMixin(ChatMessagesMixin, ChatParamsMixin):
                         current_chat._clone_runtime_metadata_to(temp_chat)
                         new_prompt = json.dumps(temp_chat.get_messages()) 
                         logger.trace(f"Temp chat messagesx: {temp_chat.get_messages()}")
-                        follow_up = await temp_chat._cleaned_chat_completion(new_prompt)
+                        follow_up = await temp_chat._cleaned_chat_completion(
+                            new_prompt,
+                            track_continuation=True,
+                        )
                         
                         # Check if the follow-up response has tool calls
                         if isinstance(follow_up, str):

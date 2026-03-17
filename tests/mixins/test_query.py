@@ -270,6 +270,44 @@ def test_chat_continuation_injects_previous_response_id_and_persists_metadata(ch
     assert second._last_runtime_metadata["response_id"] == "resp_2"
 
 
+def test_ask_does_not_implicitly_continue_responses_thread(chat, monkeypatch):
+    chat.runtime = ResponsesAdapter(chat.ai)
+    calls = []
+
+    async def fake_create_completion_a(self, messages, **kwargs):
+        calls.append(kwargs.copy())
+        if len(calls) == 1:
+            return SimpleNamespace(
+                message=SimpleNamespace(content="chat", tool_calls=[]),
+                usage={"total_tokens": 9},
+                metadata={
+                    "response_id": "resp_chat",
+                    "assistant_phase": "completed",
+                    "provider_extras": {"status": "completed"},
+                },
+            )
+        return SimpleNamespace(
+            message=SimpleNamespace(content="ask", tool_calls=[]),
+            usage={"total_tokens": 7},
+            metadata={
+                "response_id": "resp_ask",
+                "assistant_phase": "completed",
+                "provider_extras": {"status": "completed"},
+            },
+        )
+
+    monkeypatch.setattr(ResponsesAdapter, "create_completion_a", fake_create_completion_a)
+
+    continued = chat.chat("start")
+    assert calls[0].get("previous_response_id") is None
+    assert calls[0]["store"] is True
+    assert continued._last_runtime_metadata["response_id"] == "resp_chat"
+
+    assert continued.ask("one-shot") == "ask"
+    assert "previous_response_id" not in calls[1]
+    assert "store" not in calls[1]
+
+
 @pytest.mark.asyncio
 async def test_chat_a_tool_recursion_preserves_runtime_continuation_metadata(chat, monkeypatch):
     chat.runtime = ResponsesAdapter(chat.ai)
