@@ -21,6 +21,9 @@ Add your OpenAI API key to your .env file. If you don't have a .env file, the li
 ### Learn More!
 Read more below, watch the [intro video](https://www.youtube.com/watch?v=Yjwi54rHrhw) or check out the [Getting Started notebook](notebooks/).
 
+### Response API Support
+If you wish to use the Responses runtime (`runtime_selector="responses"` or `params.runtime="responses"`), chatsnack will require the OpenAI Python client to be `openai>=1.66.0` (or newer) to ensure compatibility.
+
 ## Usage
 
 ### Enjoy a Quick Snack

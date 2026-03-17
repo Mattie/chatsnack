@@ -851,3 +851,13 @@ async def test_live_listen_a_stream_parity(use_runtime_adapter):
     assert _POPSICLE in full_text.upper()
     assert listener.is_complete
     assert _POPSICLE in listener.response.upper()
+
+
+def test_runtime_selector_responses_surfaces_aiclient_capability_error(chat):
+    def _raise():
+        raise RuntimeError("missing responses endpoints")
+
+    chat.ai = SimpleNamespace(ensure_responses_support=_raise)
+
+    with pytest.raises(RuntimeError, match="missing responses endpoints"):
+        chat._select_runtime(runtime_selector="responses")

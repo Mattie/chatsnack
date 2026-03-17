@@ -183,9 +183,11 @@ class Chat(ChatQueryMixin, ChatSerializationMixin, ChatUtensilMixin):
             return runtime
 
         if self._is_responses_runtime_selected(runtime_selector):
+            self.ai.ensure_responses_support()
             return ResponsesAdapter(self.ai)
 
         if isinstance(profile, dict) and self._is_responses_runtime_selected(profile.get("runtime")):
+            self.ai.ensure_responses_support()
             return ResponsesAdapter(self.ai)
 
         return ChatCompletionsAdapter(self.ai)
