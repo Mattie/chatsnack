@@ -318,7 +318,9 @@ class ChatQueryMixin(ChatMessagesMixin, ChatParamsMixin):
             listener = ChatStreamListener(self.ai, prompt, runtime=getattr(self, "runtime", None), **kwargs)
             return prompt, listener
         else:
-            return prompt, await self._cleaned_chat_completion(
+            # Route completion through the prompter instance so continuation metadata
+            # is written to the chat instance that actually owns this submitted prompt.
+            return prompt, await prompter._cleaned_chat_completion(
                 prompt,
                 track_continuation=track_continuation,
                 **kwargs,

@@ -270,6 +270,29 @@ def test_chat_continuation_injects_previous_response_id_and_persists_metadata(ch
     assert second._last_runtime_metadata["response_id"] == "resp_2"
 
 
+def test_chat_with_usermsg_does_not_mutate_source_continuation_metadata(chat, monkeypatch):
+    """Branching with usermsg must not stamp continuation metadata onto the source chat."""
+    chat.runtime = ResponsesAdapter(chat.ai)
+
+    async def fake_create_completion_a(self, messages, **kwargs):
+        return SimpleNamespace(
+            message=SimpleNamespace(content="branch", tool_calls=[]),
+            usage={"total_tokens": 5},
+            metadata={
+                "response_id": "resp_branch",
+                "assistant_phase": "completed",
+                "provider_extras": {"status": "completed"},
+            },
+        )
+
+    monkeypatch.setattr(ResponsesAdapter, "create_completion_a", fake_create_completion_a)
+
+    branched = chat.chat("hello from branch")
+
+    assert chat._last_runtime_metadata["response_id"] is None
+    assert chat.get_messages() == []
+    assert branched._last_runtime_metadata["response_id"] == "resp_branch"
+
 def test_ask_does_not_implicitly_continue_responses_thread(chat, monkeypatch):
     chat.runtime = ResponsesAdapter(chat.ai)
     calls = []
