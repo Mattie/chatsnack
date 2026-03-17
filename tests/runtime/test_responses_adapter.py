@@ -236,3 +236,30 @@ def test_mapping_developer_system_user_assistant_messages_assistant_tool_calls_a
         "call_id": "call_1",
         "output": "tool result",
     }
+
+
+def test_unsupported_sync_client_raises_descriptive_runtime_error():
+    adapter = ResponsesAdapter(SimpleNamespace(client=SimpleNamespace()))
+
+    with pytest.raises(RuntimeError, match=r"client\.responses\.create"):
+        adapter.create_completion(messages=[{"role": "user", "content": "hello"}], model="gpt-4.1")
+
+
+@pytest.mark.asyncio
+async def test_unsupported_async_client_raises_descriptive_runtime_error():
+    adapter = ResponsesAdapter(SimpleNamespace(aclient=SimpleNamespace()))
+
+    with pytest.raises(RuntimeError, match=r"aclient\.responses\.create"):
+        await adapter.create_completion_a(messages=[{"role": "user", "content": "hello"}], model="gpt-4.1")
+
+
+def test_supported_client_path_succeeds_without_capability_error():
+    ai = SimpleNamespace(
+        client=SimpleNamespace(responses=SimpleNamespace(create=lambda **kwargs: _FakeObj({"id": "resp_ok", "status": "completed", "model": "gpt-4.1", "output": []}))),
+        aclient=SimpleNamespace(responses=SimpleNamespace(create=lambda **kwargs: _FakeObj({"id": "resp_ok", "status": "completed", "model": "gpt-4.1", "output": []}))),
+    )
+    adapter = ResponsesAdapter(ai)
+
+    result = adapter.create_completion(messages=[{"role": "user", "content": "hello"}], model="gpt-4.1")
+
+    assert result.metadata["response_id"] == "resp_ok"

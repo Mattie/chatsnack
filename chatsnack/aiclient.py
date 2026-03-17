@@ -65,3 +65,26 @@ class AiClient:
         self._api_key = value
         self.aclient.api_key = value
         self.client.api_key = value
+
+    @staticmethod
+    def _supports_responses_endpoint(client) -> bool:
+        responses = getattr(client, "responses", None)
+        return responses is not None and callable(getattr(responses, "create", None))
+
+    def ensure_responses_support(self) -> None:
+        sync_supported = self._supports_responses_endpoint(getattr(self, "client", None))
+        async_supported = self._supports_responses_endpoint(getattr(self, "aclient", None))
+        if sync_supported and async_supported:
+            return
+
+        missing = []
+        if not sync_supported:
+            missing.append("client.responses.create")
+        if not async_supported:
+            missing.append("aclient.responses.create")
+
+        raise RuntimeError(
+            "Responses runtime requires OpenAI clients with Responses endpoints. Missing: "
+            + ", ".join(missing)
+            + ". Upgrade the `openai` package to >=1.66.0 and/or inject compatible clients."
+        )
