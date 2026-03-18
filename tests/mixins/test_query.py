@@ -111,10 +111,10 @@ def test_ask_with_responses_runtime_returns_str(chat, monkeypatch):
 def test_chat_with_responses_runtime_returns_chat_with_assistant_history(chat, monkeypatch):
     chat.runtime = ResponsesAdapter(chat.ai)
 
-    async def fake_create_completion_a(messages, **kwargs):
+    async def fake_create_completion_a(self, messages, **kwargs):
         return SimpleNamespace(message=SimpleNamespace(content="reply", tool_calls=[]))
 
-    monkeypatch.setattr(chat.runtime, "create_completion_a", fake_create_completion_a)
+    monkeypatch.setattr(ResponsesAdapter, "create_completion_a", fake_create_completion_a)
 
     result = chat.chat("hello")
     assert isinstance(result, Chat)
@@ -143,10 +143,10 @@ def test_chat_continuation_creates_independent_adapter_instance(chat, monkeypatc
     """chat() continuation must not share the source chat's adapter instance."""
     chat.runtime = ResponsesAdapter(chat.ai)
 
-    async def fake_create_completion_a(messages, **kwargs):
+    async def fake_create_completion_a(self, messages, **kwargs):
         return SimpleNamespace(message=SimpleNamespace(content="reply", tool_calls=[]))
 
-    monkeypatch.setattr(chat.runtime, "create_completion_a", fake_create_completion_a)
+    monkeypatch.setattr(ResponsesAdapter, "create_completion_a", fake_create_completion_a)
 
     result = chat.chat("hello")
     assert isinstance(result.runtime, ResponsesAdapter)
@@ -225,6 +225,181 @@ async def test_chat_a_tool_recursion_with_responses_runtime(chat, monkeypatch):
     roles = [msg["role"] for msg in output.get_messages()]
     assert roles == ["user", "assistant", "tool", "assistant"]
     assert output.get_messages()[-1]["content"] == "final"
+
+
+
+def test_chat_continuation_injects_previous_response_id_and_persists_metadata(chat, monkeypatch):
+    chat.runtime = ResponsesAdapter(chat.ai)
+    calls = []
+
+    async def fake_create_completion_a(self, messages, **kwargs):
+        calls.append(kwargs.copy())
+        if len(calls) == 1:
+            return SimpleNamespace(
+                message=SimpleNamespace(content="first", tool_calls=[]),
+                usage={"total_tokens": 11},
+                metadata={
+                    "response_id": "resp_1",
+                    "assistant_phase": "completed",
+                    "provider_extras": {"status": "completed"},
+                },
+            )
+        return SimpleNamespace(
+            message=SimpleNamespace(content="second", tool_calls=[]),
+            usage={"total_tokens": 22},
+            metadata={
+                "response_id": "resp_2",
+                "assistant_phase": "completed",
+                "provider_extras": {"status": "completed"},
+            },
+        )
+
+    monkeypatch.setattr(ResponsesAdapter, "create_completion_a", fake_create_completion_a)
+
+    first = chat.chat("hello")
+
+    assert calls[0].get("previous_response_id") is None
+    assert calls[0]["store"] is True
+    assert first._last_runtime_metadata["response_id"] == "resp_1"
+    assert first._last_runtime_metadata["usage"] == {"total_tokens": 11}
+
+    second = first.chat("continue")
+
+    assert calls[1]["previous_response_id"] == "resp_1"
+    assert calls[1]["store"] is True
+    assert second._last_runtime_metadata["response_id"] == "resp_2"
+
+
+def test_chat_with_usermsg_does_not_mutate_source_continuation_metadata(chat, monkeypatch):
+    """Branching with usermsg must not stamp continuation metadata onto the source chat."""
+    chat.runtime = ResponsesAdapter(chat.ai)
+
+    async def fake_create_completion_a(self, messages, **kwargs):
+        return SimpleNamespace(
+            message=SimpleNamespace(content="branch", tool_calls=[]),
+            usage={"total_tokens": 5},
+            metadata={
+                "response_id": "resp_branch",
+                "assistant_phase": "completed",
+                "provider_extras": {"status": "completed"},
+            },
+        )
+
+    monkeypatch.setattr(ResponsesAdapter, "create_completion_a", fake_create_completion_a)
+
+    branched = chat.chat("hello from branch")
+
+    assert chat._last_runtime_metadata["response_id"] is None
+    assert chat.get_messages() == []
+    assert branched._last_runtime_metadata["response_id"] == "resp_branch"
+
+def test_ask_does_not_implicitly_continue_responses_thread(chat, monkeypatch):
+    chat.runtime = ResponsesAdapter(chat.ai)
+    calls = []
+
+    async def fake_create_completion_a(self, messages, **kwargs):
+        calls.append(kwargs.copy())
+        if len(calls) == 1:
+            return SimpleNamespace(
+                message=SimpleNamespace(content="chat", tool_calls=[]),
+                usage={"total_tokens": 9},
+                metadata={
+                    "response_id": "resp_chat",
+                    "assistant_phase": "completed",
+                    "provider_extras": {"status": "completed"},
+                },
+            )
+        return SimpleNamespace(
+            message=SimpleNamespace(content="ask", tool_calls=[]),
+            usage={"total_tokens": 7},
+            metadata={
+                "response_id": "resp_ask",
+                "assistant_phase": "completed",
+                "provider_extras": {"status": "completed"},
+            },
+        )
+
+    monkeypatch.setattr(ResponsesAdapter, "create_completion_a", fake_create_completion_a)
+
+    continued = chat.chat("start")
+    assert calls[0].get("previous_response_id") is None
+    assert calls[0]["store"] is True
+    assert continued._last_runtime_metadata["response_id"] == "resp_chat"
+
+    assert continued.ask("one-shot") == "ask"
+    assert "previous_response_id" not in calls[1]
+    assert "store" not in calls[1]
+
+
+@pytest.mark.asyncio
+async def test_chat_a_tool_recursion_preserves_runtime_continuation_metadata(chat, monkeypatch):
+    chat.runtime = ResponsesAdapter(chat.ai)
+    chat.auto_execute = True
+    chat.auto_feed = True
+    chat.user("hello")
+
+    class _ToolCall:
+        id = "call_1"
+        function = SimpleNamespace(name="echo", arguments='{"x":1}')
+
+    class _ToolMessage:
+        content = None
+        tool_calls = [_ToolCall()]
+
+        def model_dump(self):
+            return {
+                "role": "assistant",
+                "content": None,
+                "tool_calls": [
+                    {
+                        "id": "call_1",
+                        "type": "function",
+                        "function": {"name": "echo", "arguments": '{"x":1}'},
+                    }
+                ],
+            }
+
+    async def fake_submit(**kwargs):
+        chat._set_last_runtime_metadata({
+            "response_id": "resp_tool",
+            "usage": {"total_tokens": 15},
+            "assistant_phase": "incomplete",
+            "provider_extras": {"status": "in_progress"},
+        })
+        return json.dumps(chat.get_messages()), SimpleNamespace(
+            message=_ToolMessage(),
+            usage={"total_tokens": 15},
+            metadata={
+                "response_id": "resp_tool",
+                "assistant_phase": "incomplete",
+                "provider_extras": {"status": "in_progress"},
+            },
+        )
+
+    captured = {}
+
+    async def fake_create_completion_a(self, messages, **kwargs):
+        captured["previous_response_id"] = kwargs.get("previous_response_id")
+        return SimpleNamespace(
+            message=SimpleNamespace(content="final", tool_calls=[]),
+            usage={"total_tokens": 20},
+            metadata={
+                "response_id": "resp_follow_up",
+                "assistant_phase": "completed",
+                "provider_extras": {"status": "completed"},
+            },
+        )
+
+    monkeypatch.setattr(chat, "_submit_for_response_and_prompt", fake_submit)
+    monkeypatch.setattr(chat, "execute_tool_call", lambda tc: {"ok": True})
+    monkeypatch.setattr(ResponsesAdapter, "create_completion_a", fake_create_completion_a)
+
+    output = await chat.chat_a()
+
+    assert captured["previous_response_id"] == "resp_tool"
+    assert output._last_runtime_metadata["response_id"] == "resp_follow_up"
+    assert output._last_runtime_metadata["assistant_phase"] == "completed"
+
 
 def test_copy_chatprompt_same_name():
     """Copying a ChatPrompt with the same name should succeed."""
@@ -620,6 +795,37 @@ def _make_live_chat(use_runtime_adapter: bool) -> "Chat":
     c.system(_LIVE_SYSTEM)
     c.user(_LIVE_PROMPT)
     return c
+
+
+def _make_live_responses_gpt54_chat() -> "Chat":
+    """Return a Responses-runtime chat pinned to gpt-5.4 for continuation live tests."""
+    c = Chat(runtime_selector="responses", params=ChatParams(model="gpt-5.4"))
+    return c
+
+
+@_skip_no_key
+def test_live_responses_continuation_ownership_gpt54():
+    """Live multi-turn continuation should be owned internally for Responses runtime on gpt-5.4."""
+    chat = _make_live_responses_gpt54_chat()
+
+    first = chat.chat("Return exactly: TURN_ONE_OK")
+    first_messages = first.get_messages()
+    first_assistant = [m for m in first_messages if m["role"] == "assistant"]
+    assert len(first_assistant) >= 1
+    assert "TURN_ONE_OK" in (first_assistant[-1].get("content") or "").upper()
+
+    first_response_id = first._last_runtime_metadata["response_id"]
+    assert first_response_id
+
+    second = first.chat("Return exactly: TURN_TWO_OK")
+    second_messages = second.get_messages()
+    second_assistant = [m for m in second_messages if m["role"] == "assistant"]
+    assert len(second_assistant) >= 1
+    assert "TURN_TWO_OK" in (second_assistant[-1].get("content") or "").upper()
+
+    second_response_id = second._last_runtime_metadata["response_id"]
+    assert second_response_id
+    assert second_response_id != first_response_id
 
 
 @_skip_no_key

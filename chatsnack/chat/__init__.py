@@ -21,6 +21,15 @@ log.init(level=log.WARNING)
 log.silence('datafiles', allow_warning=False)
 
 
+def _empty_runtime_metadata() -> Dict[str, object]:
+    return {
+        "response_id": None,
+        "usage": None,
+        "assistant_phase": None,
+        "provider_extras": None,
+    }
+
+
 ########################################################################################################################
 # Core datafile classes of Plunkychat
 # (1) Chat, high-level class that symbolizes a prompt/request/response, can reference other Chat objects to chain
@@ -150,6 +159,7 @@ class Chat(ChatQueryMixin, ChatSerializationMixin, ChatUtensilMixin):
             profile = getattr(self.params, "profile", None)
             runtime_selector = runtime_selector or getattr(self.params, "runtime", None)
         self.runtime = self._select_runtime(runtime=runtime, runtime_selector=runtime_selector, profile=profile)
+        self._last_runtime_metadata = _empty_runtime_metadata()
 
 
    
@@ -195,6 +205,7 @@ class Chat(ChatQueryMixin, ChatSerializationMixin, ChatUtensilMixin):
             self._local_registry = self._initial_registry
             # Re-load tools from the initial registry
             self._load_tools_from_params()
+        self._last_runtime_metadata = _empty_runtime_metadata()
         return self
     
     def _load_tools_from_params(self):

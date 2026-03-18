@@ -21,3 +21,4 @@ datafiles/plunkylib/completions/**
 tests/test_datafiles/**
 examples/snackswipe-web/flask_session/**
 notebooks/audio/**
+datafiles/chatsnack/**

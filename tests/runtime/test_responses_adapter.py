@@ -238,6 +238,129 @@ def test_mapping_developer_system_user_assistant_messages_assistant_tool_calls_a
     }
 
 
+def test_sequential_calls_allow_manual_continuation_with_metadata_round_trip():
+    captured = []
+
+    def create(**kwargs):
+        captured.append(kwargs.copy())
+        response_id = f"resp_{len(captured)}"
+        return _FakeObj(
+            {
+                "id": response_id,
+                "status": "completed",
+                "model": "gpt-4.1",
+                "usage": {"total_tokens": len(captured)},
+                "output": [
+                    {
+                        "type": "message",
+                        "role": "assistant",
+                        "status": "completed",
+                        "content": [{"type": "output_text", "text": f"turn {len(captured)}"}],
+                    }
+                ],
+            }
+        )
+
+    ai = SimpleNamespace(client=SimpleNamespace(responses=SimpleNamespace(create=create)))
+    adapter = ResponsesAdapter(ai)
+
+    first = adapter.create_completion(messages=[{"role": "user", "content": "one"}], model="gpt-4.1")
+    second = adapter.create_completion(
+        messages=[{"role": "user", "content": "two"}],
+        model="gpt-4.1",
+        previous_response_id=first.metadata["response_id"],
+    )
+
+    assert captured[1]["previous_response_id"] == "resp_1"
+    assert second.metadata["previous_response_id"] == "resp_1"
+    assert second.metadata["response_id"] == "resp_2"
+    assert second.usage == {"total_tokens": 2}
+
+
+def test_continuation_previous_response_id_uses_incremental_suffix_not_full_replay():
+    captured = {}
+
+    def create(**kwargs):
+        captured.update(kwargs)
+        return _FakeObj({"id": "resp_inc", "status": "completed", "model": "gpt-4.1", "output": []})
+
+    ai = SimpleNamespace(client=SimpleNamespace(responses=SimpleNamespace(create=create)))
+    adapter = ResponsesAdapter(ai)
+
+    adapter.create_completion(
+        messages=[
+            {"role": "user", "content": "turn1"},
+            {"role": "assistant", "content": "TURN_ONE_OK"},
+            {"role": "user", "content": "turn2"},
+        ],
+        model="gpt-4.1",
+        previous_response_id="resp_prev",
+    )
+
+    assert captured["previous_response_id"] == "resp_prev"
+    assert captured["store"] is True
+    assert captured["input"] == [
+        {
+            "type": "message",
+            "role": "user",
+            "content": [{"type": "input_text", "text": "turn2"}],
+        }
+    ]
+
+
+def test_continuation_with_tool_followup_keeps_only_tool_outputs_after_latest_assistant():
+    captured = {}
+
+    def create(**kwargs):
+        captured.update(kwargs)
+        return _FakeObj({"id": "resp_tool", "status": "completed", "model": "gpt-4.1", "output": []})
+
+    ai = SimpleNamespace(client=SimpleNamespace(responses=SimpleNamespace(create=create)))
+    adapter = ResponsesAdapter(ai)
+
+    adapter.create_completion(
+        messages=[
+            {"role": "user", "content": "hi"},
+            {
+                "role": "assistant",
+                "content": None,
+                "tool_calls": [
+                    {"id": "call_1", "function": {"name": "lookup", "arguments": '{"q":"tea"}'}}
+                ],
+            },
+            {"role": "tool", "tool_call_id": "call_1", "content": "tool-result"},
+        ],
+        model="gpt-4.1",
+        previous_response_id="resp_prev",
+    )
+
+    assert captured["input"] == [
+        {
+            "type": "function_call_output",
+            "call_id": "call_1",
+            "output": "tool-result",
+        }
+    ]
+
+
+def test_continuation_respects_explicit_store_override():
+    captured = {}
+
+    def create(**kwargs):
+        captured.update(kwargs)
+        return _FakeObj({"id": "resp_store", "status": "completed", "model": "gpt-4.1", "output": []})
+
+    ai = SimpleNamespace(client=SimpleNamespace(responses=SimpleNamespace(create=create)))
+    adapter = ResponsesAdapter(ai)
+
+    adapter.create_completion(
+        messages=[{"role": "user", "content": "next"}],
+        model="gpt-4.1",
+        previous_response_id="resp_prev",
+        store=False,
+    )
+
+    assert captured["store"] is False
 def test_unsupported_sync_client_raises_descriptive_runtime_error():
     adapter = ResponsesAdapter(SimpleNamespace(client=SimpleNamespace()))
 
