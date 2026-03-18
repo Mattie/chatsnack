@@ -20,4 +20,4 @@ __pycache__
 datafiles/plunkylib/completions/**
 tests/test_datafiles/**
 examples/snackswipe-web/flask_session/**
-notebooks/audio/**
+notebooks/audio/**datafiles/chatsnack/**
