@@ -111,10 +111,10 @@ def test_ask_with_responses_runtime_returns_str(chat, monkeypatch):
 def test_chat_with_responses_runtime_returns_chat_with_assistant_history(chat, monkeypatch):
     chat.runtime = ResponsesAdapter(chat.ai)
 
-    async def fake_create_completion_a(messages, **kwargs):
+    async def fake_create_completion_a(self, messages, **kwargs):
         return SimpleNamespace(message=SimpleNamespace(content="reply", tool_calls=[]))
 
-    monkeypatch.setattr(chat.runtime, "create_completion_a", fake_create_completion_a)
+    monkeypatch.setattr(ResponsesAdapter, "create_completion_a", fake_create_completion_a)
 
     result = chat.chat("hello")
     assert isinstance(result, Chat)
@@ -143,10 +143,10 @@ def test_chat_continuation_creates_independent_adapter_instance(chat, monkeypatc
     """chat() continuation must not share the source chat's adapter instance."""
     chat.runtime = ResponsesAdapter(chat.ai)
 
-    async def fake_create_completion_a(messages, **kwargs):
+    async def fake_create_completion_a(self, messages, **kwargs):
         return SimpleNamespace(message=SimpleNamespace(content="reply", tool_calls=[]))
 
-    monkeypatch.setattr(chat.runtime, "create_completion_a", fake_create_completion_a)
+    monkeypatch.setattr(ResponsesAdapter, "create_completion_a", fake_create_completion_a)
 
     result = chat.chat("hello")
     assert isinstance(result.runtime, ResponsesAdapter)
@@ -366,7 +366,15 @@ async def test_chat_a_tool_recursion_preserves_runtime_continuation_metadata(cha
             "assistant_phase": "incomplete",
             "provider_extras": {"status": "in_progress"},
         })
-        return json.dumps(chat.get_messages()), _ToolMessage()
+        return json.dumps(chat.get_messages()), SimpleNamespace(
+            message=_ToolMessage(),
+            usage={"total_tokens": 15},
+            metadata={
+                "response_id": "resp_tool",
+                "assistant_phase": "incomplete",
+                "provider_extras": {"status": "in_progress"},
+            },
+        )
 
     captured = {}
 

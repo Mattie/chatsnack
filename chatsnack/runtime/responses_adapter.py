@@ -149,7 +149,9 @@ class ResponsesAdapter:
                 break
 
         if last_assistant_idx == -1:
-            return [messages[-1]]
+            # No assistant turn found – send all messages so that multi-message
+            # incremental inputs (e.g. developer + user) are preserved.
+            return messages
 
         suffix = messages[last_assistant_idx + 1 :]
         return suffix or [messages[-1]]
