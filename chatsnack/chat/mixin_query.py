@@ -327,8 +327,9 @@ class ChatQueryMixin(ChatMessagesMixin, ChatParamsMixin):
             )
 
     def _runtime_supports_continuation(self) -> bool:
+        from ..runtime import ResponsesAdapter
         runtime = getattr(self, "runtime", None)
-        return runtime is not None and runtime.__class__.__name__ == "ResponsesAdapter"
+        return isinstance(runtime, ResponsesAdapter)
 
     def _normalize_runtime_metadata(self, normalized_response) -> Dict[str, object]:
         metadata = {}
@@ -357,6 +358,11 @@ class ChatQueryMixin(ChatMessagesMixin, ChatParamsMixin):
         source = getattr(self, "_last_runtime_metadata", None) or {}
         if hasattr(other, "_set_last_runtime_metadata"):
             other._set_last_runtime_metadata(source.copy())
+
+    def _set_runtime_metadata_from_response(self, response):
+        """Extract and store runtime metadata from an adapter response object."""
+        meta = self._normalize_runtime_metadata(response)
+        self._set_last_runtime_metadata(meta)
 
     async def _cleaned_chat_completion(self, prompt, track_continuation: bool = False, **kwargs):
         # if there's no model specified, use the default
@@ -408,7 +414,13 @@ class ChatQueryMixin(ChatMessagesMixin, ChatParamsMixin):
             has_tool_calls = bool(message.tool_calls)
             if has_tool_calls:
                 logger.debug("Tool calls detected in response: {num_calls}", num_calls=len(message.tool_calls))
+                if track_continuation:
+                    # Return full normalized response so callers can extract
+                    # both the message and the runtime metadata.
+                    return response
                 return message
+            if track_continuation:
+                return response
             return message.content
 
         # trace log of the message content, if it exists
@@ -523,7 +535,6 @@ class ChatQueryMixin(ChatMessagesMixin, ChatParamsMixin):
             params=getattr(self, "params", None),
             runtime=getattr(self, "runtime", None),
         )
-        self._clone_runtime_metadata_to(new_chatprompt)
 
         logger.trace("Expanded prompt: " + prompt)
         new_chatprompt.add_messages_json(prompt)
@@ -533,12 +544,14 @@ class ChatQueryMixin(ChatMessagesMixin, ChatParamsMixin):
         if isinstance(response, str):
             # Add the response as an assistant message
             new_chatprompt.add_or_update_last_assistant_message(response)
-            self._clone_runtime_metadata_to(new_chatprompt)
+            # Legacy path – no adapter metadata to propagate.
             return new_chatprompt
         else:
-            # Handle tool call response
-            content = response.content if hasattr(response, "content") else None
-            has_tool_calls = hasattr(response, "tool_calls") and response.tool_calls
+            # Adapter path: response is a NormalizedCompletionResult with
+            # .message (content/tool_calls) and .metadata for continuation.
+            message = response.message if hasattr(response, "message") else response
+            content = message.content if hasattr(message, "content") else None
+            has_tool_calls = hasattr(message, "tool_calls") and message.tool_calls
             
             if not has_tool_calls:
                 # trace log
@@ -546,16 +559,20 @@ class ChatQueryMixin(ChatMessagesMixin, ChatParamsMixin):
                 # Just a regular response with content but no tool calls
                 if content:
                     new_chatprompt = new_chatprompt.assistant(content)
-                self._clone_runtime_metadata_to(new_chatprompt)
+                # Propagate metadata from the adapter response (not from self,
+                # which may be the source chat that did not run the completion).
+                new_chatprompt._set_runtime_metadata_from_response(response)
                 return new_chatprompt
             else:
                 logger.debug("Tool calls detected in response: {num_calls}",
-                             num_calls=len(response.tool_calls))
+                             num_calls=len(message.tool_calls))
                 
             # Add the assistant response with tool calls
-            msg = self._tool_response_to_dict(response)
+            msg = self._tool_response_to_dict(message)
             new_chatprompt = new_chatprompt.assistant(msg)
-            logger.debug(f"Tool calls in response: {response.tool_calls}")
+            # Seed new_chatprompt with the metadata from the initial tool-bearing response.
+            new_chatprompt._set_runtime_metadata_from_response(response)
+            logger.debug(f"Tool calls in response: {message.tool_calls}")
             
             # debug dump new_chatprompt.yaml
             logger.debug(f"New chat prompt: {new_chatprompt.yaml}")
@@ -574,7 +591,7 @@ class ChatQueryMixin(ChatMessagesMixin, ChatParamsMixin):
                     current_recursion += 1
                     logger.debug(f"Tool recursion {current_recursion}/{max_tool_recursion}")
                    
-                    for tool_call in response.tool_calls:
+                    for tool_call in message.tool_calls:
                         tool_call_dict = {
                             "id": tool_call.id,  # Ensure ID is included here
                             "type": "function", 
@@ -617,21 +634,22 @@ class ChatQueryMixin(ChatMessagesMixin, ChatParamsMixin):
                             temp_chat._clone_runtime_metadata_to(current_chat)
                             has_tool_calls = False
                         else:
-                            # Check for tool calls in the response
-                            has_tool_calls = hasattr(follow_up, "tool_calls") and follow_up.tool_calls
+                            # follow_up is a NormalizedCompletionResult; extract message.
+                            follow_msg = follow_up.message if hasattr(follow_up, "message") else follow_up
+                            has_tool_calls = hasattr(follow_msg, "tool_calls") and follow_msg.tool_calls
                             
                             if has_tool_calls:
                                 # More tool calls - add to chat and continue loop
-                                msg = self._tool_response_to_dict(follow_up)
+                                msg = self._tool_response_to_dict(follow_msg)
                                 current_chat = current_chat.assistant(msg)
-                                temp_chat._clone_runtime_metadata_to(current_chat)
-                                logger.debug(f"Tool calls in follow-up response: {follow_up.tool_calls}")
-                                response = follow_up  # Update for next iteration
+                                current_chat._set_runtime_metadata_from_response(follow_up)
+                                logger.debug(f"Tool calls in follow-up response: {follow_msg.tool_calls}")
+                                message = follow_msg  # Update for next iteration
                             else:
                                 # Final response with content but no more tool calls
-                                content = follow_up.content if hasattr(follow_up, "content") else ""
+                                content = follow_msg.content if hasattr(follow_msg, "content") else ""
                                 current_chat = current_chat.assistant(content)
-                                temp_chat._clone_runtime_metadata_to(current_chat)
+                                current_chat._set_runtime_metadata_from_response(follow_up)
                     else:
                         # If auto_feed is False, break the tool call recursion loop
                         # The assistant's tool calls are recorded but not fed back to the model
@@ -645,9 +663,9 @@ class ChatQueryMixin(ChatMessagesMixin, ChatParamsMixin):
                 # Return the chat with all tool interactions
                 return current_chat
                         
-            self._clone_runtime_metadata_to(new_chatprompt)
+            new_chatprompt._set_runtime_metadata_from_response(response)
             return new_chatprompt
-    
+
     # clone function to create a new chatprompt with the same name and data
     def copy(self, name: str = None, system = None, expand_includes: bool = False, expand_fillings: bool = False, **additional_vars) -> object:
         """ Returns a new ChatPrompt object that is a copy of this one, optionally with a new name ⭐"""
