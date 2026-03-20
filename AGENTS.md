@@ -20,6 +20,10 @@ When working on a bug fix or feature, review `3HTDD.md` and prefer its Three-Hor
 
 Use TDD, but worry less about forcing every step into a low-level red-green loop. Aim a little higher with top-level Goal tests that prove acceptance criteria and serve as user-facing examples, use Steer tests to bridge toward implementation, and drop to Unit tests only when a tighter loop is helpful.
 
+## Project checklists
+
+When working on a major feature or change, use the relevant checklist in `docs/projects/` to track progress and ensure alignment with the RFC. Check things off, leave short notes, and say what somebody can actually do now. The goal is to keep the implementation work easy to follow (for the team and the follow-on developers) without making anyone dig through the full RFC every time.
+
 ## Method intent documentation
 
 For new methods (internal or external), maintain docstrings (or at least comments) that summarize intent beyond what the code alone expresses.
