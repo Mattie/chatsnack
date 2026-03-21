@@ -21,75 +21,84 @@ Drop a note into `## Progress Notes` whenever something meaningfully changes.
 ## Punch List
 
 ### Getting onto the WebSocket path
-- [ ] Leaving `session` unset keeps us on plain HTTP Responses.
+- [x] Leaving `session` unset keeps us on plain HTTP Responses.
   RFC: `Design principles -> Make session intent explicit`; `Proposed public behavior -> Runtime selection`
-- [ ] `session="inherit"` and `session="new"` move us onto the WebSocket transport.
+- [x] `session="inherit"` and `session="new"` move us onto the WebSocket transport.
   RFC: `Design principles -> Make session intent explicit`; `Proposed public behavior -> Runtime selection`
-- [ ] `chat.session` and `ChatParams(session=...)` are easy to understand from the public API.
+- [x] `chat.session` and `ChatParams(session=...)` are easy to understand from the public API.
   RFC: `Proposed public behavior -> Session parameter`
-- [ ] `chat.close_session()` and `Chat.close_all_sessions()` work the way the RFC says they should.
+- [x] `chat.close_session()` and `Chat.close_all_sessions()` work the way the RFC says they should.
   RFC: `Proposed public behavior -> Session shutdown methods`
 
 ### Session behavior and lineage
-- [ ] `ask()`, `listen()`, `chat()`, and `copy()` match the matrix for `None`, `inherit`, and `new`.
+- [x] `ask()`, `listen()`, `chat()`, and `copy()` match the matrix for `None`, `inherit`, and `new`.
   RFC: `Proposed public behavior -> Definitive session behavior matrix`
-- [ ] The named edge cases behave the same way they do in the RFC examples.
+- [x] The named edge cases behave the same way they do in the RFC examples.
   RFC: `Proposed public behavior -> Session edge cases`
-- [ ] `ask()` and `listen()` stay one-shot and do not grab continuation ownership.
+- [x] `ask()` and `listen()` stay one-shot and do not grab continuation ownership.
   RFC: `Design principles -> Preserve ask() versus chat() semantics`; `How ask(), chat(), listen(), and listen_a() should work`
-- [ ] `chat()` is still the place where committed continuation state moves forward.
+- [x] `chat()` is still the place where committed continuation state moves forward.
   RFC: `Design principles -> Preserve ask() versus chat() semantics`; `How ask(), chat(), listen(), and listen_a() should work`
 
 ### Busy sessions, shutdown, and cleanup
-- [ ] Hitting a busy shared session raises `ResponsesSessionBusyError` with the documented fail-fast behavior.
+- [x] Hitting a busy shared session raises `ResponsesSessionBusyError` with the documented fail-fast behavior.
   RFC: `Concurrency and error contract -> Busy-session exception`; `Queueing policy`; `Sync/async parity`
-- [ ] We do not quietly queue extra work on a busy session.
+- [x] We do not quietly queue extra work on a busy session.
   RFC: `Concurrency and error contract -> Queueing policy`
-- [ ] Background thread, worker, or async-task cleanup happens on completion, explicit close, cancellation, and transport/provider errors.
+- [x] Background thread, worker, or async-task cleanup happens on completion, explicit close, cancellation, and transport/provider errors.
   RFC: `Concurrency and error contract -> Cleanup expectation`; `Proposed refactor -> Lock ownership and lifecycle boundaries -> Shutdown path`
 
 ### Adapter and event flow
-- [ ] Shared Responses request building and normalization live outside the transport-specific adapter.
+- [x] Shared Responses request building and normalization live outside the transport-specific adapter.
   RFC: `Proposed refactor -> Extract shared Responses request building`
-- [ ] `ResponsesWebSocketAdapter` exists for sync and async streaming.
+- [x] `ResponsesWebSocketAdapter` exists for sync and async streaming.
   RFC: `Proposed refactor -> Add ResponsesWebSocketAdapter`
-- [ ] Lock ownership, one-in-flight state, and lifecycle reset follow the RFC.
+- [x] Lock ownership, one-in-flight state, and lifecycle reset follow the RFC.
   RFC: `Proposed refactor -> Lock ownership and lifecycle boundaries`
-- [ ] Runtime events map cleanly into chatsnack's event schema.
+- [x] Runtime events map cleanly into chatsnack's event schema.
   RFC: `Proposed refactor -> Add a shared event normalizer`
-- [ ] Legacy listener behavior and `event_schema="v1"` both line up with the RFC.
+- [x] Legacy listener behavior and `event_schema="v1"` both line up with the RFC.
   RFC: `Proposed refactor -> Add a shared event normalizer`
 
 ### Reconnect and retry behavior
-- [ ] Reconnect opens a fresh socket lazily and keeps continuation working the way the RFC describes.
+- [x] Reconnect opens a fresh socket lazily and keeps continuation working the way the RFC describes.
   RFC: `How continuation should work -> On reconnect`
-- [ ] `previous_response_not_found` falls back to full local context exactly once.
+- [x] `previous_response_not_found` falls back to full local context exactly once.
   RFC: `How continuation should work -> On reconnect`; `Error and retry policy`
-- [ ] Recoverable and non-recoverable errors follow the RFC's small taxonomy.
+- [x] Recoverable and non-recoverable errors follow the RFC's small taxonomy.
   RFC: `Error and retry policy`
-- [ ] Timeout, close-code, and retry/backoff behavior match in sync and async transports.
+- [x] Timeout, close-code, and retry/backoff behavior match in sync and async transports.
   RFC: `Error and retry policy`
-- [ ] Normalized `error` events carry the retry and transport details the RFC calls for.
+- [x] Normalized `error` events carry the retry and transport details the RFC calls for.
   RFC: `Error and retry policy`
 
 ### Streaming, completion, and tools
-- [ ] `listen()` and `listen_a()` feel like the main WebSocket entrypoints.
+- [x] `listen()` and `listen_a()` feel like the main WebSocket entrypoints.
   RFC: `How ask(), chat(), listen(), and listen_a() should work -> listen() and listen_a()`
-- [ ] `ask()` and `chat()` still feel like the chatsnack methods people already know.
+- [x] `ask()` and `chat()` still feel like the chatsnack methods people already know.
   RFC: `How ask(), chat(), listen(), and listen_a() should work -> ask() and chat()`
-- [ ] Tool calling over the socket still works with the current chatsnack tool loop.
+- [x] Tool calling over the socket still works with the current chatsnack tool loop.
   RFC: `Function-calling flow`
 
 ### Proof that it works
-- [ ] The sync and async websocket dependencies sit behind the adapter boundary cleanly.
+- [x] The sync and async websocket dependencies sit behind the adapter boundary cleanly.
   RFC: `Recommended dependency direction`
-- [ ] Runtime tests cover transport reuse, retry classification, busy-session behavior, shutdown, and cleanup.
+- [x] Runtime tests cover transport reuse, retry classification, busy-session behavior, shutdown, and cleanup.
   RFC: `Testing priorities -> Runtime tests`
-- [ ] Chat integration tests cover session modes, event schemas, lineage edge cases, and explicit shutdown.
+- [x] Chat integration tests cover session modes, event schemas, lineage edge cases, and explicit shutdown.
   RFC: `Testing priorities -> Chat integration tests`
-- [ ] Notebook or example-script coverage shows the Phase 2 acceptance target from a user point of view.
+- [x] Notebook or example-script coverage shows the Phase 2 acceptance target from a user point of view.
   RFC: `Suggested implementation order -> Step 9`; `Acceptance target for Phase 2`; `End-User Example Acceptance Criteria`
 
 ## Progress Notes
 
 Add short dated entries here as work lands.
+
+
+### 2026-03-20 - Phase 2 completion pass
+- Status: done
+- RFC sections: `Session parameter`; `How continuation should work`; `How ask(), chat(), listen(), and listen_a() should work`; `Function-calling flow`; `Testing priorities`
+- What works for users: `runtime="responses"` + `session="inherit"|"new"` now selects a WebSocket adapter, `listen()/listen_a()` stream runtime events, `chat()` carries continuation metadata, and session shutdown APIs are available.
+- Caveats: Runtime tests use mocked transport seams for deterministic behavior; end-to-end provider websocket smoke tests remain environment-dependent.
+- How we checked it: new runtime websocket tests, new chat session-selection tests, and existing runtime/mixin tests.
+- Follow-up: Phase 3 YAML work remains in its own RFC/checklist.
