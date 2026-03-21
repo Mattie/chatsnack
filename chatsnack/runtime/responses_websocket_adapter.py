@@ -1,3 +1,4 @@
+import asyncio
 import json
 import threading
 import time
@@ -47,8 +48,48 @@ class ResponsesWebSocketAdapter(ResponsesNormalizationMixin):
         if self.session not in self._GLOBAL_SESSIONS:
             self._GLOBAL_SESSIONS.append(self.session)
 
+    @staticmethod
+    def _close_async_socket_sync(async_sock):
+        """Best-effort close of an async websocket from a synchronous context."""
+        if async_sock is None:
+            return
+        close_result = None
+        try:
+            close_result = async_sock.close()
+        except Exception:
+            pass
+        if close_result is not None and hasattr(close_result, "__await__"):
+            try:
+                loop = asyncio.get_event_loop()
+                if loop.is_running():
+                    loop.create_task(close_result)
+                else:
+                    loop.run_until_complete(close_result)
+            except Exception:
+                pass
+
     @classmethod
     def close_all_sessions(cls):
+        for session in list(cls._GLOBAL_SESSIONS):
+            with session.in_flight_lock:
+                sync_sock = getattr(session, "sync_socket", None)
+                if sync_sock is not None:
+                    try:
+                        sync_sock.close()
+                    except Exception:
+                        pass
+                cls._close_async_socket_sync(getattr(session, "async_socket", None))
+                session.sync_socket = None
+                session.async_socket = None
+                session.in_flight = False
+                session.connected_at = None
+                session.expires_at = None
+                session.last_response_id = None
+        cls._GLOBAL_SESSIONS = []
+
+    @classmethod
+    async def close_all_sessions_a(cls):
+        """Async variant of close_all_sessions that properly awaits socket teardown."""
         for session in list(cls._GLOBAL_SESSIONS):
             with session.in_flight_lock:
                 sync_sock = getattr(session, "sync_socket", None)
@@ -60,7 +101,9 @@ class ResponsesWebSocketAdapter(ResponsesNormalizationMixin):
                 async_sock = getattr(session, "async_socket", None)
                 if async_sock is not None:
                     try:
-                        async_sock.close()
+                        result = async_sock.close()
+                        if result is not None and hasattr(result, "__await__"):
+                            await result
                     except Exception:
                         pass
                 session.sync_socket = None
@@ -79,10 +122,26 @@ class ResponsesWebSocketAdapter(ResponsesNormalizationMixin):
                     sync_sock.close()
                 except Exception:
                     pass
+            self._close_async_socket_sync(getattr(self.session, "async_socket", None))
+            self.session.sync_socket = None
+            self.session.async_socket = None
+            self.session.in_flight = False
+
+    async def close_session_a(self):
+        """Async variant of close_session that properly awaits socket teardown."""
+        with self.session.in_flight_lock:
+            sync_sock = getattr(self.session, "sync_socket", None)
+            if sync_sock is not None:
+                try:
+                    sync_sock.close()
+                except Exception:
+                    pass
             async_sock = getattr(self.session, "async_socket", None)
             if async_sock is not None:
                 try:
-                    async_sock.close()
+                    result = async_sock.close()
+                    if result is not None and hasattr(result, "__await__"):
+                        await result
                 except Exception:
                     pass
             self.session.sync_socket = None
@@ -348,16 +407,20 @@ class ResponsesWebSocketAdapter(ResponsesNormalizationMixin):
             retry_kwargs = dict(kwargs)
             include_prev = True
             reopened = False
+            emitted_output = False
             while True:
                 try:
-                    yield from self._stream_sync_request(messages, retry_kwargs, include_prev=include_prev)
+                    for event in self._stream_sync_request(messages, retry_kwargs, include_prev=include_prev):
+                        if event.type in ("text_delta", "tool_call_delta"):
+                            emitted_output = True
+                        yield event
                     break
                 except RuntimeError as exc:
-                    if self._is_previous_response_not_found(exc) and include_prev:
+                    if self._is_previous_response_not_found(exc) and include_prev and not emitted_output:
                         retry_kwargs.pop("previous_response_id", None)
                         include_prev = False
                         continue
-                    if isinstance(exc, ResponsesWebSocketTransportError) and exc.retriable and not reopened:
+                    if isinstance(exc, ResponsesWebSocketTransportError) and exc.retriable and not reopened and not emitted_output:
                         reopened = True
                         self._drop_sync_socket()
                         continue
@@ -378,17 +441,20 @@ class ResponsesWebSocketAdapter(ResponsesNormalizationMixin):
             retry_kwargs = dict(kwargs)
             include_prev = True
             reopened = False
+            emitted_output = False
             while True:
                 try:
                     async for event in self._stream_async_request(messages, retry_kwargs, include_prev=include_prev):
+                        if event.type in ("text_delta", "tool_call_delta"):
+                            emitted_output = True
                         yield event
                     break
                 except RuntimeError as exc:
-                    if self._is_previous_response_not_found(exc) and include_prev:
+                    if self._is_previous_response_not_found(exc) and include_prev and not emitted_output:
                         retry_kwargs.pop("previous_response_id", None)
                         include_prev = False
                         continue
-                    if isinstance(exc, ResponsesWebSocketTransportError) and exc.retriable and not reopened:
+                    if isinstance(exc, ResponsesWebSocketTransportError) and exc.retriable and not reopened and not emitted_output:
                         reopened = True
                         await self._drop_async_socket()
                         continue
@@ -399,6 +465,25 @@ class ResponsesWebSocketAdapter(ResponsesNormalizationMixin):
         finally:
             if acquired_in_flight:
                 self._end_in_flight()
+
+    @staticmethod
+    def _raise_from_stream_error(error_dict: Dict[str, Any]):
+        """Re-raise a structured error from a stream error event.
+
+        Preserves the error taxonomy so that ``ask()`` / ``chat()`` callers
+        see ``ResponsesSessionBusyError`` or ``ResponsesWebSocketTransportError``
+        with full metadata instead of a generic ``RuntimeError``.
+        """
+        code = error_dict.get("code") or ""
+        message = error_dict.get("message") or code or "streaming response failed"
+        retriable = error_dict.get("retriable", True)
+        details = error_dict.get("details")
+
+        if code == "session_busy":
+            raise ResponsesSessionBusyError(message)
+        raise ResponsesWebSocketTransportError(
+            message, code=code, retriable=retriable, details=details,
+        )
 
     def create_completion(self, messages: List[Dict[str, Any]], **kwargs: Any):
         terminal = None
@@ -429,7 +514,7 @@ class ResponsesWebSocketAdapter(ResponsesNormalizationMixin):
             elif event.type == "completed":
                 terminal = event.data.get("terminal", {})
         if stream_error:
-            raise RuntimeError(stream_error.get("code") or stream_error.get("message") or "streaming response failed")
+            self._raise_from_stream_error(stream_error)
         response_text = (terminal or {}).get("response_text")
         if not response_text:
             response_text = "".join(response_text_parts)
@@ -482,7 +567,7 @@ class ResponsesWebSocketAdapter(ResponsesNormalizationMixin):
             elif event.type == "completed":
                 terminal = event.data.get("terminal", {})
         if stream_error:
-            raise RuntimeError(stream_error.get("code") or stream_error.get("message") or "streaming response failed")
+            self._raise_from_stream_error(stream_error)
         response_text = (terminal or {}).get("response_text")
         if not response_text:
             response_text = "".join(response_text_parts)

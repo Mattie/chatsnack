@@ -200,7 +200,14 @@ class Chat(ChatQueryMixin, ChatSerializationMixin, ChatUtensilMixin):
             # source chat's ai_client or any adapter state).
             if isinstance(runtime, ResponsesWebSocketAdapter):
                 if session_mode == "new":
-                    return ResponsesWebSocketAdapter(self.ai, session=ResponsesWebSocketSession(mode="new"))
+                    child_session = ResponsesWebSocketSession(mode="new")
+                    # Seed the new session with lineage from the parent so that
+                    # the child can continue from the parent's last response.
+                    parent_session = runtime.session
+                    child_session.last_response_id = getattr(parent_session, "last_response_id", None)
+                    child_session.last_model = getattr(parent_session, "last_model", None)
+                    child_session.last_store_value = getattr(parent_session, "last_store_value", None)
+                    return ResponsesWebSocketAdapter(self.ai, session=child_session)
                 return ResponsesWebSocketAdapter(self.ai, session=runtime.session)
             if isinstance(runtime, (ResponsesAdapter, ChatCompletionsAdapter)):
                 return type(runtime)(self.ai)
