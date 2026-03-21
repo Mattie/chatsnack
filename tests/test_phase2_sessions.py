@@ -10,14 +10,26 @@ def test_responses_runtime_without_session_stays_http():
     assert isinstance(chat.runtime, ResponsesAdapter)
 
 
+def test_constructor_runtime_string_selects_responses_adapter():
+    chat = Chat(runtime="responses")
+    assert isinstance(chat.runtime, ResponsesAdapter)
+
+
+def test_constructor_kwargs_apply_model_and_session():
+    chat = Chat(runtime="responses", model="gpt-5.4", session="inherit")
+    assert chat.model == "gpt-5.4"
+    assert chat.session == "inherit"
+    assert isinstance(chat.runtime, ResponsesWebSocketAdapter)
+
+
 def test_responses_runtime_with_inherit_selects_websocket_and_inherits_lineage(monkeypatch):
     chat = Chat(params=ChatParams(runtime="responses", session="inherit"))
     assert isinstance(chat.runtime, ResponsesWebSocketAdapter)
 
-    async def fake_create_completion_a(messages, **kwargs):
+    async def fake_create_completion_a(self, messages, **kwargs):
         return SimpleNamespace(message=SimpleNamespace(content="hello", tool_calls=[]), metadata={"response_id": "r1"})
 
-    monkeypatch.setattr(chat.runtime, "create_completion_a", fake_create_completion_a)
+    monkeypatch.setattr(ResponsesWebSocketAdapter, "create_completion_a", fake_create_completion_a)
     next_chat = chat.chat("hello")
 
     assert isinstance(next_chat.runtime, ResponsesWebSocketAdapter)
@@ -27,10 +39,10 @@ def test_responses_runtime_with_inherit_selects_websocket_and_inherits_lineage(m
 def test_responses_runtime_with_new_selects_websocket_and_descendants_get_new_session(monkeypatch):
     chat = Chat(params=ChatParams(runtime="responses", session="new"))
 
-    async def fake_create_completion_a(messages, **kwargs):
+    async def fake_create_completion_a(self, messages, **kwargs):
         return SimpleNamespace(message=SimpleNamespace(content="hello", tool_calls=[]), metadata={"response_id": "r1"})
 
-    monkeypatch.setattr(chat.runtime, "create_completion_a", fake_create_completion_a)
+    monkeypatch.setattr(ResponsesWebSocketAdapter, "create_completion_a", fake_create_completion_a)
     next_chat = chat.chat("hello")
 
     assert isinstance(next_chat.runtime, ResponsesWebSocketAdapter)

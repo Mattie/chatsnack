@@ -79,6 +79,10 @@ class Chat(ChatQueryMixin, ChatSerializationMixin, ChatUtensilMixin):
         tool_choice = kwargs.pop("tool_choice", None)
         auto_feed = kwargs.pop("auto_feed", None)
         runtime = kwargs.pop("runtime", None)
+        runtime_selector = kwargs.pop("runtime_selector", None)
+        model = kwargs.pop("model", None)
+        session = kwargs.pop("session", None)
+        stream = kwargs.pop("stream", None)
         
         # get name from kwargs, if it's there
         if "name" in kwargs:
@@ -106,6 +110,12 @@ class Chat(ChatQueryMixin, ChatSerializationMixin, ChatUtensilMixin):
 
         if "engine" in kwargs:
             self.engine = kwargs["engine"]
+        if model is not None:
+            self.model = model
+        if session is not None:
+            self.session = session
+        if stream is not None:
+            self.stream = stream
             
         if "system" in kwargs:
             self.system_message = kwargs["system"]
@@ -158,7 +168,9 @@ class Chat(ChatQueryMixin, ChatSerializationMixin, ChatUtensilMixin):
         self._initial_registry = getattr(self, '_local_registry', None)
 
         self.ai = AiClient()
-        runtime_selector = kwargs.get("runtime_selector")
+        if isinstance(runtime, str) and runtime_selector is None:
+            runtime_selector = runtime
+            runtime = None
         profile = None
         session_mode = None
         if hasattr(self, "params") and self.params is not None:
@@ -179,6 +191,9 @@ class Chat(ChatQueryMixin, ChatSerializationMixin, ChatUtensilMixin):
         return False
 
     def _select_runtime(self, runtime=None, runtime_selector=None, profile=None, session_mode=None):
+        if isinstance(runtime, str):
+            runtime_selector = runtime_selector or runtime
+            runtime = None
         if runtime is not None:
             # Recreate known adapter types bound to this chat's own ai client so
             # that cloned/continued chats are fully independent (not sharing the

@@ -10,6 +10,7 @@ from chatsnack.runtime import (
     ResponsesWebSocketSession,
     RuntimeStreamEvent,
 )
+from chatsnack.runtime.responses_websocket_adapter import ResponsesWebSocketTransportError
 
 
 def test_session_busy_raises_fail_fast(monkeypatch):
@@ -73,6 +74,49 @@ def test_previous_response_not_found_retries_once_without_previous(monkeypatch):
     assert calls[0][1] is True
     assert calls[1][1] is False
     assert adapter.session.last_response_id == "resp_new"
+
+
+def test_retriable_transport_error_reopens_socket_once(monkeypatch):
+    ai = SimpleNamespace(api_key="x", base_url=None)
+    adapter = ResponsesWebSocketAdapter(ai, session=ResponsesWebSocketSession(mode="inherit"))
+    calls = []
+
+    def fake_stream_once(messages, kwargs, include_prev=True):
+        calls.append((kwargs.copy(), include_prev))
+        if len(calls) == 1:
+            raise ResponsesWebSocketTransportError("socket_receive_failed", code="socket_receive_failed", retriable=True)
+        yield RuntimeStreamEvent(type="text_delta", index=0, data={"text": "ok"})
+
+    dropped = {"count": 0}
+
+    def drop_socket():
+        dropped["count"] += 1
+
+    monkeypatch.setattr(adapter, "_stream_sync_request", fake_stream_once)
+    monkeypatch.setattr(adapter, "_drop_sync_socket", drop_socket)
+
+    events = list(adapter.stream_completion(messages=[{"role": "user", "content": "hi"}], model="gpt-4.1"))
+
+    assert events[0].type == "text_delta"
+    assert len(calls) == 2
+    assert dropped["count"] == 1
+
+
+def test_non_retriable_transport_error_surfaces_structured_error(monkeypatch):
+    ai = SimpleNamespace(api_key="x", base_url=None)
+    adapter = ResponsesWebSocketAdapter(ai, session=ResponsesWebSocketSession(mode="inherit"))
+
+    def fake_stream_fail(messages, kwargs, include_prev=True):
+        raise ResponsesWebSocketTransportError("auth failed", code="auth_error", retriable=False, details={"provider_code": "unauthorized"})
+        yield  # pragma: no cover
+
+    monkeypatch.setattr(adapter, "_stream_sync_request", fake_stream_fail)
+    events = list(adapter.stream_completion(messages=[{"role": "user", "content": "hi"}], model="gpt-4.1"))
+
+    assert events[0].type == "error"
+    assert events[0].data["error"]["code"] == "auth_error"
+    assert events[0].data["error"]["retriable"] is False
+    assert events[0].data["error"]["details"]["provider_code"] == "unauthorized"
 
 
 def test_create_completion_consumes_stream_to_normalized_result(monkeypatch):
@@ -167,7 +211,7 @@ async def test_stream_completion_a_busy_raises_fail_fast():
         events.append(event)
 
     assert events[0].type == "error"
-    assert events[0].data["error"]["code"] == "transport_error"
+    assert events[0].data["error"]["code"] == "session_busy"
 
 
 @pytest.mark.asyncio
