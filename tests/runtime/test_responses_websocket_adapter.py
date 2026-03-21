@@ -23,6 +23,34 @@ def test_session_busy_raises_fail_fast(monkeypatch):
     assert "in-flight" in events[0].data["error"]["message"]
 
 
+def test_busy_session_does_not_clear_existing_in_flight_flag():
+    ai = SimpleNamespace(api_key="x", base_url=None)
+    adapter = ResponsesWebSocketAdapter(ai, session=ResponsesWebSocketSession(mode="inherit"))
+
+    adapter.session.in_flight = True
+    list(adapter.stream_completion(messages=[{"role": "user", "content": "hi"}], model="gpt-4.1"))
+
+    assert adapter.session.in_flight is True
+
+
+def test_request_with_session_applies_continuation_defaults_before_building_input():
+    ai = SimpleNamespace(api_key="x", base_url=None)
+    adapter = ResponsesWebSocketAdapter(ai, session=ResponsesWebSocketSession(mode="inherit"))
+    adapter.session.last_response_id = "resp_prev"
+
+    messages = [
+        {"role": "user", "content": "first"},
+        {"role": "assistant", "content": "reply"},
+        {"role": "user", "content": "continue"},
+    ]
+
+    request = adapter._request_with_session(messages, {"model": "gpt-4.1"}, include_prev=True)
+
+    assert request["previous_response_id"] == "resp_prev"
+    assert request["store"] is True
+    assert len(request["input"]) == 1
+    assert request["input"][0]["content"][0]["text"] == "continue"
+
 def test_previous_response_not_found_retries_once_without_previous(monkeypatch):
     ai = SimpleNamespace(api_key="x", base_url=None)
     adapter = ResponsesWebSocketAdapter(ai, session=ResponsesWebSocketSession(mode="inherit"))

@@ -120,10 +120,10 @@ class ResponsesWebSocketAdapter(ResponsesNormalizationMixin):
         self.session.in_flight = False
 
     def _request_with_session(self, messages, kwargs, include_prev=True):
-        request_kwargs = self.build_responses_request(messages, kwargs)
-        if include_prev and self.session.last_response_id and not request_kwargs.get("previous_response_id"):
-            request_kwargs["previous_response_id"] = self.session.last_response_id
-        return request_kwargs
+        request_options = dict(kwargs)
+        if include_prev and self.session.last_response_id and not request_options.get("previous_response_id"):
+            request_options["previous_response_id"] = self.session.last_response_id
+        return self.build_responses_request(messages, request_options)
 
     def _stream_sync_request(self, messages, kwargs, include_prev=True):
         request_kwargs = self._request_with_session(messages, kwargs, include_prev=include_prev)
@@ -226,9 +226,11 @@ class ResponsesWebSocketAdapter(ResponsesNormalizationMixin):
         self.session.last_model = request_kwargs.get("model")
 
     def stream_completion(self, messages: List[Dict[str, Any]], **kwargs: Any):
+        acquired_in_flight = False
         try:
             with self.session.in_flight_lock:
                 self._begin_in_flight()
+                acquired_in_flight = True
             try:
                 yield from self._stream_sync_request(messages, kwargs, include_prev=True)
             except RuntimeError as exc:
@@ -242,12 +244,15 @@ class ResponsesWebSocketAdapter(ResponsesNormalizationMixin):
             payload = RuntimeErrorPayload(message=str(exc), code="transport_error", retriable=True)
             yield RuntimeStreamEvent(type="error", index=0, data={"error": payload.__dict__})
         finally:
-            self._end_in_flight()
+            if acquired_in_flight:
+                self._end_in_flight()
 
     async def stream_completion_a(self, messages: List[Dict[str, Any]], **kwargs: Any):
+        acquired_in_flight = False
         try:
             with self.session.in_flight_lock:
                 self._begin_in_flight()
+                acquired_in_flight = True
             try:
                 async for event in self._stream_async_request(messages, kwargs, include_prev=True):
                     yield event
@@ -263,7 +268,8 @@ class ResponsesWebSocketAdapter(ResponsesNormalizationMixin):
             payload = RuntimeErrorPayload(message=str(exc), code="transport_error", retriable=True)
             yield RuntimeStreamEvent(type="error", index=0, data={"error": payload.__dict__})
         finally:
-            self._end_in_flight()
+            if acquired_in_flight:
+                self._end_in_flight()
 
     def create_completion(self, messages: List[Dict[str, Any]], **kwargs: Any):
         terminal = None
