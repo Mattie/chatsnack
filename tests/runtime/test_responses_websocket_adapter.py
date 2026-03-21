@@ -73,6 +73,58 @@ def test_create_completion_consumes_stream_to_normalized_result(monkeypatch):
     assert result.metadata["response_id"] == "resp_1"
 
 
+def test_create_completion_preserves_streamed_tool_calls(monkeypatch):
+    ai = SimpleNamespace(api_key="x", base_url=None)
+    adapter = ResponsesWebSocketAdapter(ai, session=ResponsesWebSocketSession(mode="inherit"))
+
+    def fake_stream(messages, **kwargs):
+        yield SimpleNamespace(
+            type="tool_call_delta",
+            index=0,
+            data={"tool_call": {"id": "call_1", "type": "function", "function": {"name": "lookup", "arguments": '{"q"'}}},
+        )
+        yield SimpleNamespace(
+            type="tool_call_delta",
+            index=1,
+            data={"tool_call": {"id": "call_1", "type": "function", "function": {"name": "lookup", "arguments": ': "snack"}'}}},
+        )
+        yield SimpleNamespace(
+            type="completed",
+            index=2,
+            data={
+                "terminal": {
+                    "finish_reason": "completed",
+                    "model": "gpt-4.1",
+                    "usage": {"total_tokens": 5},
+                    "response_text": "",
+                    "metadata": {"response_id": "resp_1"},
+                }
+            },
+        )
+
+    monkeypatch.setattr(adapter, "stream_completion", fake_stream)
+
+    result = adapter.create_completion(messages=[{"role": "user", "content": "hi"}], model="gpt-4.1")
+
+    assert len(result.message.tool_calls) == 1
+    assert result.message.tool_calls[0].id == "call_1"
+    assert result.message.tool_calls[0].function.name == "lookup"
+    assert result.message.tool_calls[0].function.arguments == '{"q": "snack"}'
+
+
+def test_create_completion_raises_on_stream_error_event(monkeypatch):
+    ai = SimpleNamespace(api_key="x", base_url=None)
+    adapter = ResponsesWebSocketAdapter(ai, session=ResponsesWebSocketSession(mode="inherit"))
+
+    def fake_stream(messages, **kwargs):
+        yield SimpleNamespace(type="error", index=0, data={"error": {"message": "busy session", "code": "session_busy"}})
+
+    monkeypatch.setattr(adapter, "stream_completion", fake_stream)
+
+    with pytest.raises(RuntimeError, match="session_busy"):
+        adapter.create_completion(messages=[{"role": "user", "content": "hi"}], model="gpt-4.1")
+
+
 @pytest.mark.asyncio
 async def test_stream_completion_a_busy_raises_fail_fast():
     ai = SimpleNamespace(api_key="x", base_url=None)
@@ -85,3 +137,17 @@ async def test_stream_completion_a_busy_raises_fail_fast():
 
     assert events[0].type == "error"
     assert events[0].data["error"]["code"] == "transport_error"
+
+
+@pytest.mark.asyncio
+async def test_create_completion_a_raises_on_stream_error_event(monkeypatch):
+    ai = SimpleNamespace(api_key="x", base_url=None)
+    adapter = ResponsesWebSocketAdapter(ai, session=ResponsesWebSocketSession(mode="inherit"))
+
+    async def fake_stream(messages, **kwargs):
+        yield SimpleNamespace(type="error", index=0, data={"error": {"message": "busy session", "code": "session_busy"}})
+
+    monkeypatch.setattr(adapter, "stream_completion_a", fake_stream)
+
+    with pytest.raises(RuntimeError, match="session_busy"):
+        await adapter.create_completion_a(messages=[{"role": "user", "content": "hi"}], model="gpt-4.1")

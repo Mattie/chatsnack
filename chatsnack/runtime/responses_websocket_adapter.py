@@ -250,44 +250,106 @@ class ResponsesWebSocketAdapter(ResponsesNormalizationMixin):
 
     def create_completion(self, messages: List[Dict[str, Any]], **kwargs: Any):
         terminal = None
+        response_text_parts: List[str] = []
+        tool_calls_by_id: Dict[str, Dict[str, Any]] = {}
+        stream_error: Optional[Dict[str, Any]] = None
         for event in self.stream_completion(messages, **kwargs):
-            if event.type == "completed":
+            if event.type == "text_delta":
+                response_text_parts.append(event.data.get("text", ""))
+            elif event.type == "tool_call_delta":
+                tool_call = event.data.get("tool_call", {})
+                call_id = tool_call.get("id", "")
+                function = tool_call.get("function", {})
+                existing = tool_calls_by_id.setdefault(
+                    call_id,
+                    {
+                        "type": "function_call",
+                        "call_id": call_id,
+                        "name": function.get("name", ""),
+                        "arguments": "",
+                    },
+                )
+                if function.get("name"):
+                    existing["name"] = function.get("name")
+                existing["arguments"] += function.get("arguments", "")
+            elif event.type == "error":
+                stream_error = event.data.get("error", {})
+            elif event.type == "completed":
                 terminal = event.data.get("terminal", {})
+        if stream_error:
+            raise RuntimeError(stream_error.get("code") or stream_error.get("message") or "streaming response failed")
+        response_text = (terminal or {}).get("response_text")
+        if not response_text:
+            response_text = "".join(response_text_parts)
         response_dict = {
             "id": (terminal or {}).get("metadata", {}).get("response_id") or self.session.last_response_id,
             "status": (terminal or {}).get("finish_reason"),
             "model": (terminal or {}).get("model"),
             "usage": (terminal or {}).get("usage"),
-            "output_text": (terminal or {}).get("response_text", ""),
-            "output": [
+            "output_text": response_text or "",
+            "output": [],
+        }
+        if response_text:
+            response_dict["output"].append(
                 {
                     "type": "message",
                     "role": "assistant",
                     "status": (terminal or {}).get("finish_reason"),
-                    "content": [{"type": "output_text", "text": (terminal or {}).get("response_text", "")}],
+                    "content": [{"type": "output_text", "text": response_text}],
                 }
-            ],
-        }
+            )
+        response_dict["output"].extend(tool_calls_by_id.values())
         return self.normalize_completion(response_dict, kwargs)
 
     async def create_completion_a(self, messages: List[Dict[str, Any]], **kwargs: Any):
         terminal = None
+        response_text_parts: List[str] = []
+        tool_calls_by_id: Dict[str, Dict[str, Any]] = {}
+        stream_error: Optional[Dict[str, Any]] = None
         async for event in self.stream_completion_a(messages, **kwargs):
-            if event.type == "completed":
+            if event.type == "text_delta":
+                response_text_parts.append(event.data.get("text", ""))
+            elif event.type == "tool_call_delta":
+                tool_call = event.data.get("tool_call", {})
+                call_id = tool_call.get("id", "")
+                function = tool_call.get("function", {})
+                existing = tool_calls_by_id.setdefault(
+                    call_id,
+                    {
+                        "type": "function_call",
+                        "call_id": call_id,
+                        "name": function.get("name", ""),
+                        "arguments": "",
+                    },
+                )
+                if function.get("name"):
+                    existing["name"] = function.get("name")
+                existing["arguments"] += function.get("arguments", "")
+            elif event.type == "error":
+                stream_error = event.data.get("error", {})
+            elif event.type == "completed":
                 terminal = event.data.get("terminal", {})
+        if stream_error:
+            raise RuntimeError(stream_error.get("code") or stream_error.get("message") or "streaming response failed")
+        response_text = (terminal or {}).get("response_text")
+        if not response_text:
+            response_text = "".join(response_text_parts)
         response_dict = {
             "id": (terminal or {}).get("metadata", {}).get("response_id") or self.session.last_response_id,
             "status": (terminal or {}).get("finish_reason"),
             "model": (terminal or {}).get("model"),
             "usage": (terminal or {}).get("usage"),
-            "output_text": (terminal or {}).get("response_text", ""),
-            "output": [
+            "output_text": response_text or "",
+            "output": [],
+        }
+        if response_text:
+            response_dict["output"].append(
                 {
                     "type": "message",
                     "role": "assistant",
                     "status": (terminal or {}).get("finish_reason"),
-                    "content": [{"type": "output_text", "text": (terminal or {}).get("response_text", "")}],
+                    "content": [{"type": "output_text", "text": response_text}],
                 }
-            ],
-        }
+            )
+        response_dict["output"].extend(tool_calls_by_id.values())
         return self.normalize_completion(response_dict, kwargs)
