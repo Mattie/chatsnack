@@ -1,3 +1,6 @@
+import sys
+import threading
+import types
 from types import SimpleNamespace
 
 import pytest
@@ -151,3 +154,89 @@ async def test_create_completion_a_raises_on_stream_error_event(monkeypatch):
 
     with pytest.raises(RuntimeError, match="session_busy"):
         await adapter.create_completion_a(messages=[{"role": "user", "content": "hi"}], model="gpt-4.1")
+
+
+@pytest.mark.asyncio
+async def test_connect_async_does_not_reuse_sync_socket(monkeypatch):
+    ai = SimpleNamespace(api_key="x", base_url=None)
+    session = ResponsesWebSocketSession(mode="inherit")
+    adapter = ResponsesWebSocketAdapter(ai, session=session)
+    sync_socket = object()
+    session.sync_socket = sync_socket
+
+    class FakeAsyncSocket:
+        pass
+
+    fake_async_socket = FakeAsyncSocket()
+
+    async def fake_connect(*args, **kwargs):
+        return fake_async_socket
+
+    fake_websockets = types.SimpleNamespace(connect=fake_connect)
+    monkeypatch.setitem(sys.modules, "websockets", fake_websockets)
+
+    ws = await adapter._connect_async()
+
+    assert ws is fake_async_socket
+    assert session.async_socket is fake_async_socket
+    assert session.sync_socket is sync_socket
+
+
+def test_connect_sync_does_not_reuse_async_socket(monkeypatch):
+    ai = SimpleNamespace(api_key="x", base_url=None)
+    session = ResponsesWebSocketSession(mode="inherit")
+    adapter = ResponsesWebSocketAdapter(ai, session=session)
+    async_socket = object()
+    session.async_socket = async_socket
+
+    class FakeSyncSocket:
+        pass
+
+    fake_sync_socket = FakeSyncSocket()
+    fake_websocket = types.SimpleNamespace(create_connection=lambda *args, **kwargs: fake_sync_socket)
+    monkeypatch.setitem(sys.modules, "websocket", fake_websocket)
+
+    ws = adapter._connect_sync()
+
+    assert ws is fake_sync_socket
+    assert session.sync_socket is fake_sync_socket
+    assert session.async_socket is async_socket
+
+
+def test_shared_session_enforces_single_in_flight_across_adapters(monkeypatch):
+    ai = SimpleNamespace(api_key="x", base_url=None)
+    session = ResponsesWebSocketSession(mode="inherit")
+    adapter_a = ResponsesWebSocketAdapter(ai, session=session)
+    adapter_b = ResponsesWebSocketAdapter(ai, session=session)
+
+    gate = threading.Event()
+    proceed = threading.Event()
+
+    def slow_stream(messages, kwargs, include_prev=True):
+        gate.set()
+        proceed.wait(timeout=1.0)
+        yield RuntimeStreamEvent(type="text_delta", index=0, data={"text": "ok"})
+
+    def fast_stream(messages, kwargs, include_prev=True):
+        yield RuntimeStreamEvent(type="text_delta", index=0, data={"text": "nope"})
+
+    monkeypatch.setattr(adapter_a, "_stream_sync_request", slow_stream)
+    monkeypatch.setattr(adapter_b, "_stream_sync_request", fast_stream)
+
+    first_events = []
+    second_events = []
+
+    def run_first():
+        first_events.extend(adapter_a.stream_completion(messages=[{"role": "user", "content": "a"}], model="gpt-4.1"))
+
+    t1 = threading.Thread(target=run_first)
+    t1.start()
+    assert gate.wait(timeout=1.0)
+
+    second_events.extend(adapter_b.stream_completion(messages=[{"role": "user", "content": "b"}], model="gpt-4.1"))
+    proceed.set()
+    t1.join(timeout=1.0)
+
+    assert any(event.type == "text_delta" for event in first_events)
+    assert second_events[0].type == "error"
+    assert "in-flight" in second_events[0].data["error"]["message"]

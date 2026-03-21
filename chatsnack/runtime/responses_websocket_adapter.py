@@ -1,7 +1,7 @@
 import json
 import threading
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 
 from .responses_common import ResponsesNormalizationMixin
@@ -15,7 +15,11 @@ class ResponsesSessionBusyError(RuntimeError):
 @dataclass
 class ResponsesWebSocketSession:
     mode: str
-    socket: Any = None
+    sync_socket: Any = None
+    async_socket: Any = None
+    # Session-wide mutex so inherited sessions enforce a single in-flight call
+    # across every adapter instance that references the same session.
+    in_flight_lock: threading.Lock = field(default_factory=threading.Lock, repr=False)
     connected_at: Optional[float] = None
     expires_at: Optional[float] = None
     last_response_id: Optional[str] = None
@@ -32,18 +36,24 @@ class ResponsesWebSocketAdapter(ResponsesNormalizationMixin):
         self.session = session or ResponsesWebSocketSession(mode="inherit")
         if self.session not in self._GLOBAL_SESSIONS:
             self._GLOBAL_SESSIONS.append(self.session)
-        self._busy_lock = threading.Lock()
 
     @classmethod
     def close_all_sessions(cls):
         for session in list(cls._GLOBAL_SESSIONS):
-            sock = getattr(session, "socket", None)
-            if sock is not None:
+            sync_sock = getattr(session, "sync_socket", None)
+            if sync_sock is not None:
                 try:
-                    sock.close()
+                    sync_sock.close()
                 except Exception:
                     pass
-            session.socket = None
+            async_sock = getattr(session, "async_socket", None)
+            if async_sock is not None:
+                try:
+                    async_sock.close()
+                except Exception:
+                    pass
+            session.sync_socket = None
+            session.async_socket = None
             session.in_flight = False
             session.connected_at = None
             session.expires_at = None
@@ -51,13 +61,20 @@ class ResponsesWebSocketAdapter(ResponsesNormalizationMixin):
         cls._GLOBAL_SESSIONS = []
 
     def close_session(self):
-        sock = getattr(self.session, "socket", None)
-        if sock is not None:
+        sync_sock = getattr(self.session, "sync_socket", None)
+        if sync_sock is not None:
             try:
-                sock.close()
+                sync_sock.close()
             except Exception:
                 pass
-        self.session.socket = None
+        async_sock = getattr(self.session, "async_socket", None)
+        if async_sock is not None:
+            try:
+                async_sock.close()
+            except Exception:
+                pass
+        self.session.sync_socket = None
+        self.session.async_socket = None
         self.session.in_flight = False
 
     def _build_ws_url(self) -> str:
@@ -69,25 +86,25 @@ class ResponsesWebSocketAdapter(ResponsesNormalizationMixin):
         return f"{base.replace('https://', 'wss://')}/v1/responses"
 
     def _connect_sync(self):
-        if self.session.socket is not None:
-            return self.session.socket
+        if self.session.sync_socket is not None:
+            return self.session.sync_socket
         import websocket
 
         headers = [f"Authorization: Bearer {self.ai_client.api_key}"] if getattr(self.ai_client, "api_key", None) else []
         ws = websocket.create_connection(self._build_ws_url(), header=headers)
-        self.session.socket = ws
+        self.session.sync_socket = ws
         self.session.connected_at = time.time()
         self.session.expires_at = self.session.connected_at + 3600
         return ws
 
     async def _connect_async(self):
-        if self.session.socket is not None:
-            return self.session.socket
+        if self.session.async_socket is not None:
+            return self.session.async_socket
         import websockets
 
         headers = {"Authorization": f"Bearer {self.ai_client.api_key}"} if getattr(self.ai_client, "api_key", None) else {}
         ws = await websockets.connect(self._build_ws_url(), additional_headers=headers)
-        self.session.socket = ws
+        self.session.async_socket = ws
         self.session.connected_at = time.time()
         self.session.expires_at = self.session.connected_at + 3600
         return ws
@@ -210,7 +227,7 @@ class ResponsesWebSocketAdapter(ResponsesNormalizationMixin):
 
     def stream_completion(self, messages: List[Dict[str, Any]], **kwargs: Any):
         try:
-            with self._busy_lock:
+            with self.session.in_flight_lock:
                 self._begin_in_flight()
             try:
                 yield from self._stream_sync_request(messages, kwargs, include_prev=True)
@@ -229,7 +246,7 @@ class ResponsesWebSocketAdapter(ResponsesNormalizationMixin):
 
     async def stream_completion_a(self, messages: List[Dict[str, Any]], **kwargs: Any):
         try:
-            with self._busy_lock:
+            with self.session.in_flight_lock:
                 self._begin_in_flight()
             try:
                 async for event in self._stream_async_request(messages, kwargs, include_prev=True):
