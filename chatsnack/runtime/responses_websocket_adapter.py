@@ -50,7 +50,16 @@ class ResponsesWebSocketAdapter(ResponsesNormalizationMixin):
 
     @staticmethod
     def _close_async_socket_sync(async_sock):
-        """Best-effort close of an async websocket from a synchronous context."""
+        """Best-effort close of an async websocket from a synchronous context.
+
+        When called from sync code (e.g. ``close_session()``), the async
+        socket's ``close()`` may return an awaitable.  If an event loop is
+        running we schedule the close as a fire-and-forget task; otherwise we
+        block until the close completes.  Either way the call is best-effort:
+        if the socket is already dead or the loop is unavailable the error is
+        silently suppressed.  Callers who need guaranteed teardown should use
+        the async variant ``close_session_a()`` instead.
+        """
         if async_sock is None:
             return
         close_result = None
@@ -62,6 +71,8 @@ class ResponsesWebSocketAdapter(ResponsesNormalizationMixin):
             try:
                 loop = asyncio.get_event_loop()
                 if loop.is_running():
+                    # Fire-and-forget: the task will complete asynchronously.
+                    # Use close_session_a() for guaranteed teardown.
                     loop.create_task(close_result)
                 else:
                     loop.run_until_complete(close_result)
