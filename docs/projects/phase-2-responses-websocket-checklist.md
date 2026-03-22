@@ -95,6 +95,14 @@ Drop a note into `## Progress Notes` whenever something meaningfully changes.
 Add short dated entries here as work lands.
 
 
+### 2026-03-21 - Phase 2 hardening pass
+- Status: done
+- RFC sections: `Error and retry policy`; `Concurrency and error contract`; `Session edge cases`; `End-User Example Acceptance Criteria`
+- What works for users: `create_completion()` / `create_completion_a()` now raise `ResponsesSessionBusyError` or `ResponsesWebSocketTransportError` with full metadata instead of a generic RuntimeError. Retry after mid-stream `socket_receive_failed` is suppressed once any deltas have been yielded, preventing duplicate content. `close_session_a()` and `close_all_sessions_a()` properly await async socket teardown. `session="new"` descendants are seeded with lineage from the parent session (`last_response_id`, `last_model`, `last_store_value`). Notebook shows direct constructor style with consumable streaming and continuation examples.
+- Caveats: Shutdown still does not wait for an in-flight stream to complete before tearing down the socket.
+- How we checked it: 16 acceptance-level tests in `test_phase2_sessions.py` covering `ask()`, `chat()`, `listen()`, `copy()`, error taxonomy, retry-after-partial, async close, utensil tool flow, and session seeding. All 157 non-live tests pass.
+- Follow-up: End-to-end provider tests remain environment-dependent; graceful stream draining on explicit close.
+
 ### 2026-03-20 - Phase 2 completion pass
 - Status: done
 - RFC sections: `Session parameter`; `How continuation should work`; `How ask(), chat(), listen(), and listen_a() should work`; `Function-calling flow`; `Testing priorities`

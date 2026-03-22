@@ -196,7 +196,8 @@ def test_create_completion_raises_on_stream_error_event(monkeypatch):
 
     monkeypatch.setattr(adapter, "stream_completion", fake_stream)
 
-    with pytest.raises(RuntimeError, match="session_busy"):
+    from chatsnack.runtime.responses_websocket_adapter import ResponsesSessionBusyError
+    with pytest.raises(ResponsesSessionBusyError, match="busy session"):
         adapter.create_completion(messages=[{"role": "user", "content": "hi"}], model="gpt-4.1")
 
 
@@ -224,7 +225,8 @@ async def test_create_completion_a_raises_on_stream_error_event(monkeypatch):
 
     monkeypatch.setattr(adapter, "stream_completion_a", fake_stream)
 
-    with pytest.raises(RuntimeError, match="session_busy"):
+    from chatsnack.runtime.responses_websocket_adapter import ResponsesSessionBusyError
+    with pytest.raises(ResponsesSessionBusyError, match="busy session"):
         await adapter.create_completion_a(messages=[{"role": "user", "content": "hi"}], model="gpt-4.1")
 
 

@@ -16,6 +16,7 @@ from .responses_websocket_adapter import (
     ResponsesSessionBusyError,
     ResponsesWebSocketAdapter,
     ResponsesWebSocketSession,
+    ResponsesWebSocketTransportError,
 )
 
 __all__ = [
@@ -34,4 +35,5 @@ __all__ = [
     "ResponsesWebSocketAdapter",
     "ResponsesWebSocketSession",
     "ResponsesSessionBusyError",
+    "ResponsesWebSocketTransportError",
 ]
