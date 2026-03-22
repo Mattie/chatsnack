@@ -1,6 +1,7 @@
 # Phase 2 Responses WebSocket Checklist
 
 Primary RFC: [phase-2-responses-websocket-rfc.md](../rfcs/phase-2-responses-websocket-rfc.md)
+Corrective RFC: [phase-2a-responses-websocket-sdk-rfc.md](../rfcs/phase-2a-responses-websocket-sdk-rfc.md)
 
 Use this as the running punch list for Phase 2. Check things off, leave short notes, and say what somebody can actually do now. The goal is to make progress easy to scan without having to re-read the whole RFC.
 
@@ -48,6 +49,30 @@ Drop a note into `## Progress Notes` whenever something meaningfully changes.
 - [x] Background thread, worker, or async-task cleanup happens on completion, explicit close, cancellation, and transport/provider errors.
   RFC: `Concurrency and error contract -> Cleanup expectation`; `Proposed refactor -> Lock ownership and lifecycle boundaries -> Shutdown path`
 
+### Phase 2a: Official SDK transport (supersedes raw-socket transport)
+- [x] `ResponsesWebSocketAdapter` uses `client.responses.connect()` / `aclient.responses.connect()` from the official OpenAI SDK instead of raw websocket connections.
+  Phase 2a RFC: `What changes -> 1. Use the SDK connection, not a raw socket`
+- [x] Requests use `connection.response.create(...)` with top-level kwargs instead of nesting under `{"type": "response.create", "response": {...}}`.
+  Phase 2a RFC: `What changes -> 2. Stop nesting the request under response`
+- [x] Server events are consumed as typed SDK objects (`ResponseTextDeltaEvent`, `ResponseCompletedEvent`, etc.) instead of raw JSON parsing.
+  Phase 2a RFC: `What changes -> 3. Let the SDK parse server events`
+- [x] Transport-only fields (`stream`, `background`) are still stripped before calling `connection.response.create(...)`.
+  Phase 2a RFC: `What changes -> 4. Keep stripping transport-only fields`
+- [x] `openai>=2.29.0` is required; adapter fails fast with clear message when SDK lacks `responses.connect()`.
+  Phase 2a RFC: `Required dependency baseline`
+- [x] Raw `websocket-client` dependency removed; only `websockets` kept (needed by SDK's `openai[realtime]` extras).
+  Phase 2a RFC: `Required dependency baseline`
+- [x] `session="inherit"` reuses the same SDK connection across descendant chats; `previous_response_id` used for same-socket continuation.
+  Phase 2a RFC: `Continuation rules -> session="inherit"`
+- [x] `session="new"` opens a fresh SDK connection per lineage step; with `store=False`, omits `previous_response_id` and sends full local context.
+  Phase 2a RFC: `Continuation rules -> session="new"`
+- [x] `previous_response_not_found` triggers one-time fallback to full local context.
+  Phase 2a RFC: `Continuation rules -> Reconnect`
+- [x] No raw WebSocket connections are opened inside chatsnack for Responses mode.
+  Phase 2a RFC: `Guardrails for implementation`
+- [x] No manually-framed `response.create` JSON events are sent.
+  Phase 2a RFC: `Guardrails for implementation`
+
 ### Adapter and event flow
 - [x] Shared Responses request building and normalization live outside the transport-specific adapter.
   RFC: `Proposed refactor -> Extract shared Responses request building`
@@ -61,7 +86,7 @@ Drop a note into `## Progress Notes` whenever something meaningfully changes.
   RFC: `Proposed refactor -> Add a shared event normalizer`
 
 ### Reconnect and retry behavior
-- [x] Reconnect opens a fresh socket lazily and keeps continuation working the way the RFC describes.
+- [x] Reconnect opens a fresh SDK connection lazily and keeps continuation working the way the RFC describes.
   RFC: `How continuation should work -> On reconnect`
 - [x] `previous_response_not_found` falls back to full local context exactly once.
   RFC: `How continuation should work -> On reconnect`; `Error and retry policy`
@@ -81,19 +106,27 @@ Drop a note into `## Progress Notes` whenever something meaningfully changes.
   RFC: `Function-calling flow`
 
 ### Proof that it works
-- [x] The sync and async websocket dependencies sit behind the adapter boundary cleanly.
+- [x] The SDK WebSocket connection sits behind the adapter boundary cleanly.
   RFC: `Recommended dependency direction`
-- [x] Runtime tests cover transport reuse, retry classification, busy-session behavior, shutdown, and cleanup.
+- [x] Runtime tests cover SDK connection management, retry classification, busy-session behavior, shutdown, and cleanup.
   RFC: `Testing priorities -> Runtime tests`
 - [x] Chat integration tests cover session modes, event schemas, lineage edge cases, and explicit shutdown.
   RFC: `Testing priorities -> Chat integration tests`
-- [x] Notebook or example-script coverage shows the Phase 2 acceptance target from a user point of view.
-  RFC: `Suggested implementation order -> Step 9`; `Acceptance target for Phase 2`; `End-User Example Acceptance Criteria`
+- [ ] Notebook or example-script coverage shows the Phase 2a acceptance target (SDK-backed WebSocket examples).
+  Phase 2a RFC: `End-User Example Acceptance Criteria`
 
 ## Progress Notes
 
 Add short dated entries here as work lands.
 
+
+### 2026-03-22 - Phase 2a: SDK transport correction
+- Status: done
+- RFC sections: Phase 2a RFC (entire document); `Required dependency baseline`; `What changes`; `Continuation rules`; `Guardrails for implementation`
+- What works for users: `ResponsesWebSocketAdapter` now uses the official OpenAI SDK `client.responses.connect()` / `aclient.responses.connect()` instead of raw WebSocket connections. Requests go through `connection.response.create(...)` with top-level kwargs — no manual JSON framing or nested `response` wrapper. Server events come back as typed SDK objects. `openai>=2.29.0` is now required and the adapter fails fast with a clear message if the SDK is too old. Raw `websocket-client` dependency removed. All existing public API behavior (`session`, `ask()`, `chat()`, `listen()`, `copy()`, tools) is preserved.
+- Caveats: Notebook examples need updating to demonstrate the SDK-backed path with a live connection. Live tests remain environment-dependent.
+- How we checked it: 45 tests in `test_responses_websocket_adapter.py` + `test_phase2_sessions.py` + `test_responses_adapter.py` all pass. Non-live mixin tests pass. SDK version check test added.
+- Follow-up: Notebook examples need live SDK WebSocket demonstration; end-to-end provider tests remain environment-dependent.
 
 ### 2026-03-21 - Phase 2 hardening pass
 - Status: done
