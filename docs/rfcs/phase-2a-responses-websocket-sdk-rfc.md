@@ -1,7 +1,7 @@
 # Phase 2a RFC: Responses WebSocket via Official OpenAI SDK
 
 ## Status
-Proposed.
+Implemented.
 
 ## Summary
 Phase 2a corrects the transport design for Phase 2.

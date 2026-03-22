@@ -353,43 +353,14 @@ class ResponsesWebSocketAdapter(ResponsesNormalizationMixin):
                 )
                 index += 1
 
-            elif etype == "response.function_call_arguments.delta":
-                yield RuntimeStreamEvent(
-                    type="tool_call_delta", index=index,
-                    data={
-                        "tool_call": {
-                            "id": getattr(event, "item_id", ""),
-                            "type": "function",
-                            "function": {
-                                "name": getattr(event, "name", ""),
-                                "arguments": getattr(event, "delta", ""),
-                            },
-                        }
-                    },
-                )
-                index += 1
-
-            elif etype == "response.function_call_arguments.done":
-                # Emit a final tool-call delta with the full arguments and name
-                yield RuntimeStreamEvent(
-                    type="tool_call_done", index=index,
-                    data={
-                        "tool_call": {
-                            "id": getattr(event, "item_id", ""),
-                            "type": "function",
-                            "function": {
-                                "name": getattr(event, "name", ""),
-                                "arguments": getattr(event, "arguments", ""),
-                            },
-                        }
-                    },
-                )
-                index += 1
-
             elif etype == "response.output_item.done":
                 item = getattr(event, "item", None)
                 item_type = getattr(item, "type", "")
                 if item_type == "function_call":
+                    # Emit the definitive tool call with the correct call_id.
+                    # We deliberately skip response.function_call_arguments.delta
+                    # events because they only carry item_id, not the call_id
+                    # that the API requires for function_call_output matching.
                     yield RuntimeStreamEvent(
                         type="tool_call_delta", index=index,
                         data={
@@ -480,42 +451,14 @@ class ResponsesWebSocketAdapter(ResponsesNormalizationMixin):
                 )
                 index += 1
 
-            elif etype == "response.function_call_arguments.delta":
-                yield RuntimeStreamEvent(
-                    type="tool_call_delta", index=index,
-                    data={
-                        "tool_call": {
-                            "id": getattr(event, "item_id", ""),
-                            "type": "function",
-                            "function": {
-                                "name": getattr(event, "name", ""),
-                                "arguments": getattr(event, "delta", ""),
-                            },
-                        }
-                    },
-                )
-                index += 1
-
-            elif etype == "response.function_call_arguments.done":
-                yield RuntimeStreamEvent(
-                    type="tool_call_done", index=index,
-                    data={
-                        "tool_call": {
-                            "id": getattr(event, "item_id", ""),
-                            "type": "function",
-                            "function": {
-                                "name": getattr(event, "name", ""),
-                                "arguments": getattr(event, "arguments", ""),
-                            },
-                        }
-                    },
-                )
-                index += 1
-
             elif etype == "response.output_item.done":
                 item = getattr(event, "item", None)
                 item_type = getattr(item, "type", "")
                 if item_type == "function_call":
+                    # Emit the definitive tool call with the correct call_id.
+                    # We deliberately skip response.function_call_arguments.delta
+                    # events because they only carry item_id, not the call_id
+                    # that the API requires for function_call_output matching.
                     yield RuntimeStreamEvent(
                         type="tool_call_delta", index=index,
                         data={
