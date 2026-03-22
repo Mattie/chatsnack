@@ -282,6 +282,7 @@ class ChatParams:
 
     response_pattern: Optional[str] = None  # internal usage, not passed to the API
     runtime: Optional[str] = None  # internal runtime selector, not passed to provider API
+    session: Optional[str] = None  # responses transport selector: None | inherit | new
     profile: Optional[dict] = None  # runtime profile/options; forwarded to adapters, stripped before provider API
 
 
@@ -370,6 +371,8 @@ class ChatParams:
             del out["response_pattern"]
         if "runtime" in out:
             del out["runtime"]
+        if "session" in out:
+            del out["session"]
 
         # Convert tool definitions to API format
         if "tools" in out and out["tools"]:
@@ -450,6 +453,19 @@ class ChatParamsMixin:
         if not self.params:
             self.params = ChatParams()
         self.params.response_pattern = value
+
+    
+    @property
+    def session(self) -> Optional[str]:
+        if self.params is None:
+            self.params = ChatParams()
+        return self.params.session
+
+    @session.setter
+    def session(self, value: Optional[str]):
+        if self.params is None:
+            self.params = ChatParams()
+        self.params.session = value
 
     @property
     def stream(self) -> bool:
