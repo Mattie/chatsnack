@@ -293,21 +293,21 @@ def test_no_retry_after_partial_output_emitted(monkeypatch):
 # ---------------------------------------------------------------------------
 
 @pytest.mark.asyncio
-async def test_close_session_a_awaits_async_socket():
-    """close_session_a() should properly await the async socket close."""
+async def test_close_session_a_awaits_async_connection():
+    """close_session_a() should properly await the async connection close."""
     ai = SimpleNamespace(api_key="x", base_url=None)
     adapter = ResponsesWebSocketAdapter(ai, session=ResponsesWebSocketSession(mode="inherit"))
     closed = {"awaited": False}
 
-    class FakeAsyncSocket:
+    class FakeAsyncConnection:
         async def close(self):
             closed["awaited"] = True
 
-    adapter.session.async_socket = FakeAsyncSocket()
+    adapter.session.async_connection = FakeAsyncConnection()
     await adapter.close_session_a()
 
     assert closed["awaited"] is True
-    assert adapter.session.async_socket is None
+    assert adapter.session.async_connection is None
 
 
 # ---------------------------------------------------------------------------
