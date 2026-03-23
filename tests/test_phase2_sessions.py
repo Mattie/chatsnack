@@ -105,6 +105,58 @@ def test_close_session_methods_delegate_to_adapter(monkeypatch):
     assert called == {"single": 1, "all": 1}
 
 
+def test_close_session_via_direct_constructor_kwargs():
+    """close_session() must be reachable via direct constructor kwargs
+    (no ChatParams wrapper), matching the notebook style.
+
+    Regression: older releases raised AttributeError because close_session
+    was not defined on Chat.
+    """
+    snack = Chat("You are a concise snack expert.", runtime="responses", session="inherit")
+    assert hasattr(snack, "close_session") and callable(snack.close_session)
+    # Should not raise
+    snack.close_session()
+
+
+def test_listen_with_direct_constructor_kwargs_and_stream(monkeypatch):
+    """listen() must work when runtime/session/stream are passed as direct
+    constructor kwargs (no ChatParams wrapper).
+
+    Regression: older releases crashed with
+    ``AttributeError: 'NoneType' object has no attribute 'stream'``
+    because listen() accessed self.params.stream directly instead of the
+    guarded self.stream property.
+    """
+    from chatsnack.chat.mixin_query import ChatStreamListener
+    from chatsnack.runtime.types import RuntimeStreamEvent
+
+    chat = Chat("Respond tersely.", runtime="responses", session="inherit", stream=True)
+    # Verify params were populated by the constructor
+    assert chat.params is not None
+    assert chat.stream is True
+
+    def fake_stream(self, messages, **kwargs):
+        yield RuntimeStreamEvent(type="text_delta", index=0, data={"text": "hi"})
+        yield RuntimeStreamEvent(
+            type="completed", index=1,
+            data={
+                "terminal": {
+                    "finish_reason": "completed",
+                    "model": "gpt-4.1",
+                    "usage": {},
+                    "response_text": "hi",
+                    "metadata": {"response_id": "resp_nb"},
+                }
+            },
+        )
+
+    monkeypatch.setattr(ResponsesWebSocketAdapter, "stream_completion", fake_stream)
+    listener = chat.listen("Give one sentence on reusable prompts.")
+    assert isinstance(listener, ChatStreamListener)
+    chunks = list(listener)
+    assert "".join(chunks) == "hi"
+
+
 # ---------------------------------------------------------------------------
 # ask() acceptance through the WebSocket adapter
 # ---------------------------------------------------------------------------
