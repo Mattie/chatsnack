@@ -21,7 +21,7 @@ class ResponsesAdapter(ResponsesNormalizationMixin):
         endpoint = f"{client_name}.responses.create"
         raise RuntimeError(
             "ResponsesAdapter requires an ai_client exposing "
-            f"`{endpoint}`. Inject a compatible OpenAI client (openai>=1.66.0) "
+            f"`{endpoint}`. Inject a compatible OpenAI client (openai>=2.29.0) "
             "or select the chat_completions runtime."
         )
 

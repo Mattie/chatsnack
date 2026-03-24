@@ -1,5 +1,4 @@
 import asyncio
-import json
 import threading
 import time
 from dataclasses import dataclass, field
@@ -7,6 +6,12 @@ from typing import Any, Dict, List, Optional
 
 from .responses_common import ResponsesNormalizationMixin
 from .types import RuntimeErrorPayload, RuntimeStreamEvent, RuntimeTerminalMetadata
+
+# Minimum SDK version string for clear error messages.
+_SDK_VERSION_GUIDANCE = (
+    "Responses WebSocket mode requires openai>=2.29.0 with websocket support. "
+    "Upgrade OpenAI or install openai[realtime]."
+)
 
 
 class ResponsesSessionBusyError(RuntimeError):
@@ -25,14 +30,16 @@ class ResponsesWebSocketTransportError(RuntimeError):
 
 @dataclass
 class ResponsesWebSocketSession:
+    """Tracks a live SDK WebSocket connection and its lifecycle state."""
+
     mode: str
-    sync_socket: Any = None
-    async_socket: Any = None
+    # SDK connection objects returned by client.responses.connect().enter()
+    sync_connection: Any = None
+    async_connection: Any = None
     # Session-wide mutex so inherited sessions enforce a single in-flight call
     # across every adapter instance that references the same session.
     in_flight_lock: threading.Lock = field(default_factory=threading.Lock, repr=False)
     connected_at: Optional[float] = None
-    expires_at: Optional[float] = None
     last_response_id: Optional[str] = None
     in_flight: bool = False
     last_store_value: Optional[bool] = None
@@ -40,6 +47,14 @@ class ResponsesWebSocketSession:
 
 
 class ResponsesWebSocketAdapter(ResponsesNormalizationMixin):
+    """Runtime adapter for the OpenAI Responses API over WebSocket.
+
+    Uses the official OpenAI Python SDK ``client.responses.connect()`` to
+    establish a persistent WebSocket connection, then calls
+    ``connection.response.create(...)`` for each turn.  This adapter does
+    **not** manually build socket JSON or open raw WebSocket connections.
+    """
+
     _GLOBAL_SESSIONS: List[ResponsesWebSocketSession] = []
 
     def __init__(self, ai_client, session: Optional[ResponsesWebSocketSession] = None):
@@ -48,198 +63,194 @@ class ResponsesWebSocketAdapter(ResponsesNormalizationMixin):
         if self.session not in self._GLOBAL_SESSIONS:
             self._GLOBAL_SESSIONS.append(self.session)
 
-    @staticmethod
-    def _close_async_socket_sync(async_sock):
-        """Best-effort close of an async websocket from a synchronous context.
+    # ------------------------------------------------------------------
+    # SDK availability check
+    # ------------------------------------------------------------------
 
-        When called from sync code (e.g. ``close_session()``), the async
-        socket's ``close()`` may return an awaitable.  If an event loop is
-        running we schedule the close as a fire-and-forget task; otherwise we
-        block until the close completes.  Either way the call is best-effort:
-        if the socket is already dead or the loop is unavailable the error is
-        silently suppressed.  Callers who need guaranteed teardown should use
-        the async variant ``close_session_a()`` instead.
-        """
-        if async_sock is None:
+    @staticmethod
+    def _check_sdk_support(client) -> None:
+        """Fail fast if the SDK does not expose ``responses.connect()``."""
+        responses = getattr(client, "responses", None)
+        connect = getattr(responses, "connect", None) if responses else None
+        if not callable(connect):
+            raise RuntimeError(_SDK_VERSION_GUIDANCE)
+
+    # ------------------------------------------------------------------
+    # Connection management – uses SDK context managers
+    # ------------------------------------------------------------------
+
+    def _get_sync_client(self):
+        """Return the synchronous OpenAI client from the ai_client wrapper."""
+        return getattr(self.ai_client, "client", None)
+
+    def _get_async_client(self):
+        """Return the asynchronous OpenAI client from the ai_client wrapper."""
+        return getattr(self.ai_client, "aclient", None)
+
+    def _connect_sync(self):
+        """Return an active sync SDK connection, opening one if needed."""
+        conn = self.session.sync_connection
+        if conn is not None and self._sync_connection_is_usable(conn):
+            return conn
+        self._drop_sync_connection()
+        client = self._get_sync_client()
+        self._check_sdk_support(client)
+        conn = client.responses.connect().enter()
+        self.session.sync_connection = conn
+        self.session.connected_at = time.time()
+        return conn
+
+    async def _connect_async(self):
+        """Return an active async SDK connection, opening one if needed."""
+        conn = self.session.async_connection
+        if conn is not None and self._async_connection_is_usable(conn):
+            return conn
+        await self._drop_async_connection()
+        aclient = self._get_async_client()
+        self._check_sdk_support(aclient)
+        conn = await aclient.responses.connect().enter()
+        self.session.async_connection = conn
+        self.session.connected_at = time.time()
+        return conn
+
+    @staticmethod
+    def _sync_connection_is_usable(conn) -> bool:
+        """Heuristic: check whether the underlying websocket is still open."""
+        inner = getattr(conn, "_connection", None)
+        if inner is None:
+            return True
+        # websockets sync connection exposes a .protocol with state
+        protocol = getattr(inner, "protocol", None)
+        if protocol is not None:
+            state = getattr(protocol, "state", None)
+            if state is not None and str(state).lower() in {"closed", "closing"}:
+                return False
+        return True
+
+    @staticmethod
+    def _async_connection_is_usable(conn) -> bool:
+        """Heuristic: check whether the underlying async websocket is still open."""
+        inner = getattr(conn, "_connection", None)
+        if inner is None:
+            return True
+        closed = getattr(inner, "closed", None)
+        if isinstance(closed, bool):
+            return not closed
+        protocol = getattr(inner, "protocol", None)
+        if protocol is not None:
+            state = getattr(protocol, "state", None)
+            if state is not None and str(state).lower() in {"closed", "closing"}:
+                return False
+        return True
+
+    def _drop_sync_connection(self):
+        """Close and discard the current sync SDK connection."""
+        conn = self.session.sync_connection
+        if conn is not None:
+            try:
+                conn.close()
+            except Exception:
+                pass
+        self.session.sync_connection = None
+        self.session.connected_at = None
+
+    async def _drop_async_connection(self):
+        """Close and discard the current async SDK connection."""
+        conn = self.session.async_connection
+        if conn is not None:
+            try:
+                result = conn.close()
+                if result is not None and hasattr(result, "__await__"):
+                    await result
+            except Exception:
+                pass
+        self.session.async_connection = None
+        self.session.connected_at = None
+
+    # ------------------------------------------------------------------
+    # Session shutdown
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _close_async_connection_sync(conn):
+        """Best-effort close of an async SDK connection from sync context."""
+        if conn is None:
             return
-        close_result = None
         try:
-            close_result = async_sock.close()
+            result = conn.close()
         except Exception:
-            pass
-        if close_result is not None and hasattr(close_result, "__await__"):
+            return
+        if result is not None and hasattr(result, "__await__"):
             try:
                 loop = asyncio.get_event_loop()
                 if loop.is_running():
-                    # Fire-and-forget: the task will complete asynchronously.
-                    # Use close_session_a() for guaranteed teardown.
-                    loop.create_task(close_result)
+                    loop.create_task(result)
                 else:
-                    loop.run_until_complete(close_result)
+                    loop.run_until_complete(result)
             except Exception:
                 pass
+
+    def close_session(self):
+        with self.session.in_flight_lock:
+            self._drop_sync_connection()
+            self._close_async_connection_sync(self.session.async_connection)
+            self.session.async_connection = None
+            self.session.in_flight = False
+
+    async def close_session_a(self):
+        """Async variant that properly awaits connection teardown."""
+        with self.session.in_flight_lock:
+            self._drop_sync_connection()
+            await self._drop_async_connection()
+            self.session.in_flight = False
 
     @classmethod
     def close_all_sessions(cls):
         for session in list(cls._GLOBAL_SESSIONS):
             with session.in_flight_lock:
-                sync_sock = getattr(session, "sync_socket", None)
-                if sync_sock is not None:
+                conn = session.sync_connection
+                if conn is not None:
                     try:
-                        sync_sock.close()
+                        conn.close()
                     except Exception:
                         pass
-                cls._close_async_socket_sync(getattr(session, "async_socket", None))
-                session.sync_socket = None
-                session.async_socket = None
+                cls._close_async_connection_sync(session.async_connection)
+                session.sync_connection = None
+                session.async_connection = None
                 session.in_flight = False
                 session.connected_at = None
-                session.expires_at = None
                 session.last_response_id = None
         cls._GLOBAL_SESSIONS = []
 
     @classmethod
     async def close_all_sessions_a(cls):
-        """Async variant of close_all_sessions that properly awaits socket teardown."""
+        """Async variant of close_all_sessions."""
         for session in list(cls._GLOBAL_SESSIONS):
             with session.in_flight_lock:
-                sync_sock = getattr(session, "sync_socket", None)
-                if sync_sock is not None:
+                conn = session.sync_connection
+                if conn is not None:
                     try:
-                        sync_sock.close()
+                        conn.close()
                     except Exception:
                         pass
-                async_sock = getattr(session, "async_socket", None)
-                if async_sock is not None:
+                async_conn = session.async_connection
+                if async_conn is not None:
                     try:
-                        result = async_sock.close()
+                        result = async_conn.close()
                         if result is not None and hasattr(result, "__await__"):
                             await result
                     except Exception:
                         pass
-                session.sync_socket = None
-                session.async_socket = None
+                session.sync_connection = None
+                session.async_connection = None
                 session.in_flight = False
                 session.connected_at = None
-                session.expires_at = None
                 session.last_response_id = None
         cls._GLOBAL_SESSIONS = []
 
-    def close_session(self):
-        with self.session.in_flight_lock:
-            sync_sock = getattr(self.session, "sync_socket", None)
-            if sync_sock is not None:
-                try:
-                    sync_sock.close()
-                except Exception:
-                    pass
-            self._close_async_socket_sync(getattr(self.session, "async_socket", None))
-            self.session.sync_socket = None
-            self.session.async_socket = None
-            self.session.in_flight = False
-
-    async def close_session_a(self):
-        """Async variant of close_session that properly awaits socket teardown."""
-        with self.session.in_flight_lock:
-            sync_sock = getattr(self.session, "sync_socket", None)
-            if sync_sock is not None:
-                try:
-                    sync_sock.close()
-                except Exception:
-                    pass
-            async_sock = getattr(self.session, "async_socket", None)
-            if async_sock is not None:
-                try:
-                    result = async_sock.close()
-                    if result is not None and hasattr(result, "__await__"):
-                        await result
-                except Exception:
-                    pass
-            self.session.sync_socket = None
-            self.session.async_socket = None
-            self.session.in_flight = False
-
-    def _build_ws_url(self) -> str:
-        base = getattr(self.ai_client, "base_url", None) or "https://api.openai.com/v1"
-        if base.endswith("/"):
-            base = base[:-1]
-        if base.endswith("/v1"):
-            base = base[:-3]
-        return f"{base.replace('https://', 'wss://')}/v1/responses"
-
-    def _connect_sync(self):
-        if self.session.sync_socket is not None and not self._socket_expired() and self._sync_socket_is_usable(self.session.sync_socket):
-            return self.session.sync_socket
-        self._drop_sync_socket()
-        import websocket
-
-        headers = [f"Authorization: Bearer {self.ai_client.api_key}"] if getattr(self.ai_client, "api_key", None) else []
-        ws = websocket.create_connection(self._build_ws_url(), header=headers)
-        self.session.sync_socket = ws
-        self.session.connected_at = time.time()
-        self.session.expires_at = self.session.connected_at + 3600
-        return ws
-
-    async def _connect_async(self):
-        if self.session.async_socket is not None and not self._socket_expired() and self._async_socket_is_usable(self.session.async_socket):
-            return self.session.async_socket
-        await self._drop_async_socket()
-        import websockets
-
-        headers = {"Authorization": f"Bearer {self.ai_client.api_key}"} if getattr(self.ai_client, "api_key", None) else {}
-        ws = await websockets.connect(self._build_ws_url(), additional_headers=headers)
-        self.session.async_socket = ws
-        self.session.connected_at = time.time()
-        self.session.expires_at = self.session.connected_at + 3600
-        return ws
-
-    def _socket_expired(self) -> bool:
-        expires_at = getattr(self.session, "expires_at", None)
-        return bool(expires_at and expires_at <= time.time())
-
-    @staticmethod
-    def _sync_socket_is_usable(sock: Any) -> bool:
-        connected = getattr(sock, "connected", None)
-        if connected is False:
-            return False
-        closed = getattr(sock, "closed", None)
-        if closed is True:
-            return False
-        return True
-
-    @staticmethod
-    def _async_socket_is_usable(sock: Any) -> bool:
-        closed = getattr(sock, "closed", None)
-        if isinstance(closed, bool):
-            return not closed
-        state = getattr(sock, "state", None)
-        if state is None:
-            return True
-        return str(state).lower() not in {"closed", "closing"}
-
-    def _drop_sync_socket(self):
-        sync_sock = getattr(self.session, "sync_socket", None)
-        if sync_sock is not None:
-            try:
-                sync_sock.close()
-            except Exception:
-                pass
-        self.session.sync_socket = None
-        self.session.connected_at = None
-        self.session.expires_at = None
-
-    async def _drop_async_socket(self):
-        async_sock = getattr(self.session, "async_socket", None)
-        if async_sock is not None:
-            try:
-                maybe = async_sock.close()
-                if hasattr(maybe, "__await__"):
-                    await maybe
-            except Exception:
-                pass
-        self.session.async_socket = None
-        self.session.connected_at = None
-        self.session.expires_at = None
+    # ------------------------------------------------------------------
+    # Error helpers
+    # ------------------------------------------------------------------
 
     @staticmethod
     def _is_previous_response_not_found(exc: Exception) -> bool:
@@ -259,155 +270,290 @@ class ResponsesWebSocketAdapter(ResponsesNormalizationMixin):
             return RuntimeErrorPayload(message=str(exc), code="previous_response_not_found", retriable=True)
         return RuntimeErrorPayload(message=str(exc), code="transport_error", retriable=True)
 
+    # ------------------------------------------------------------------
+    # In-flight guards
+    # ------------------------------------------------------------------
+
     def _begin_in_flight(self):
         if self.session.in_flight:
             raise ResponsesSessionBusyError(
-                "Responses WebSocket session already has an in-flight response. Use a separate chat or session='new'."
+                "Responses WebSocket session already has an in-flight response. "
+                "Use a separate chat or session='new'."
             )
         self.session.in_flight = True
 
     def _end_in_flight(self):
         self.session.in_flight = False
 
+    # ------------------------------------------------------------------
+    # Request building helpers
+    # ------------------------------------------------------------------
+
     def _request_with_session(self, messages, kwargs, include_prev=True):
+        """Build a Responses request, injecting session continuation state."""
         request_options = dict(kwargs)
         if include_prev and self.session.last_response_id and not request_options.get("previous_response_id"):
             request_options["previous_response_id"] = self.session.last_response_id
         return self.build_responses_request(messages, request_options)
 
+    @staticmethod
+    def _create_kwargs(request: Dict[str, Any]) -> Dict[str, Any]:
+        """Prepare kwargs for ``connection.response.create(...)``
+        by stripping transport-only fields that should not be sent
+        over the WebSocket event body.
+        """
+        kw = dict(request)
+        kw.pop("stream", None)
+        kw.pop("background", None)
+        return kw
+
+    # ------------------------------------------------------------------
+    # SDK event mapping helpers
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _event_type(event) -> str:
+        """Return the ``type`` string from an SDK event object."""
+        return getattr(event, "type", "") or ""
+
+    @staticmethod
+    def _event_dict(event) -> Dict[str, Any]:
+        """Convert an SDK event to a plain dict for metadata extraction."""
+        if hasattr(event, "model_dump"):
+            return event.model_dump()
+        return {}
+
+    # ------------------------------------------------------------------
+    # Sync streaming over SDK connection
+    # ------------------------------------------------------------------
+
     def _stream_sync_request(self, messages, kwargs, include_prev=True):
+        """Send a request over the sync SDK connection and yield runtime events."""
         request_kwargs = self._request_with_session(messages, kwargs, include_prev=include_prev)
-        payload = self.sanitize_transport_payload(request_kwargs)
-        ws = self._connect_sync()
+        create_kw = self._create_kwargs(request_kwargs)
+        connection = self._connect_sync()
+
         try:
-            ws.send(json.dumps({"type": "response.create", "response": payload}))
+            connection.response.create(**create_kw)
         except Exception as exc:
-            self._drop_sync_socket()
-            raise ResponsesWebSocketTransportError("socket_send_failed", code="socket_send_failed", retriable=True) from exc
+            self._drop_sync_connection()
+            raise ResponsesWebSocketTransportError(
+                "socket_send_failed", code="socket_send_failed", retriable=True,
+            ) from exc
 
         index = 0
         terminal_response = None
-        while True:
-            try:
-                event = json.loads(ws.recv())
-            except Exception as exc:
-                self._drop_sync_socket()
-                raise ResponsesWebSocketTransportError("socket_receive_failed", code="socket_receive_failed", retriable=True) from exc
-            etype = event.get("type")
-            if etype == "response.output_text.delta":
-                yield RuntimeStreamEvent(type="text_delta", index=index, data={"text": event.get("delta", "")})
-                index += 1
-            elif etype == "response.function_call_arguments.delta":
-                yield RuntimeStreamEvent(
-                    type="tool_call_delta",
-                    index=index,
-                    data={
-                        "tool_call": {
-                            "id": event.get("call_id", ""),
-                            "type": "function",
-                            "function": {"name": event.get("name", ""), "arguments": event.get("delta", "")},
-                        }
-                    },
-                )
-                index += 1
-            elif etype == "response.completed":
-                terminal_response = event.get("response", {})
-                usage = terminal_response.get("usage")
-                if usage:
-                    yield RuntimeStreamEvent(type="usage", index=index, data={"usage": usage})
-                    index += 1
-                terminal = RuntimeTerminalMetadata(
-                    finish_reason=terminal_response.get("status"),
-                    model=terminal_response.get("model"),
-                    usage=usage,
-                    response_text=(terminal_response.get("output_text") or ""),
-                    metadata={"response_id": terminal_response.get("id")},
-                )
-                yield RuntimeStreamEvent(type="completed", index=index, data={"terminal": terminal.__dict__})
-                break
-            elif etype in {"error", "response.failed"}:
-                err = event.get("error", {})
-                code = err.get("code") or "response_failed"
-                message = err.get("message") or code
-                if code == "previous_response_not_found":
-                    raise RuntimeError(code)
-                raise ResponsesWebSocketTransportError(
-                    message,
-                    code=("auth_error" if self._is_auth_error_code(code) else code),
-                    retriable=not self._is_auth_error_code(code),
-                    details={"provider_code": code},
-                )
+        try:
+            for event in connection:
+                etype = self._event_type(event)
 
-        self.session.last_response_id = (terminal_response or {}).get("id")
+                if etype == "response.output_text.delta":
+                    yield RuntimeStreamEvent(
+                        type="text_delta", index=index,
+                        data={"text": getattr(event, "delta", "")},
+                    )
+                    index += 1
+
+                elif etype == "response.output_item.done":
+                    item = getattr(event, "item", None)
+                    item_type = getattr(item, "type", "")
+                    if item_type == "function_call":
+                        # Emit the definitive tool call with the correct call_id.
+                        # We deliberately skip response.function_call_arguments.delta
+                        # events because they only carry item_id, not the call_id
+                        # that the API requires for function_call_output matching.
+                        yield RuntimeStreamEvent(
+                            type="tool_call_delta", index=index,
+                            data={
+                                "tool_call": {
+                                    "id": getattr(item, "call_id", ""),
+                                    "type": "function",
+                                    "function": {
+                                        "name": getattr(item, "name", ""),
+                                        "arguments": getattr(item, "arguments", ""),
+                                    },
+                                }
+                            },
+                        )
+                        index += 1
+
+                elif etype == "response.completed":
+                    resp = getattr(event, "response", None)
+                    resp_dict = self._event_dict(resp) if resp else {}
+                    terminal_response = resp_dict
+                    usage = resp_dict.get("usage")
+                    if usage:
+                        yield RuntimeStreamEvent(type="usage", index=index, data={"usage": usage})
+                        index += 1
+                    output_text = ""
+                    if resp is not None:
+                        output_text = getattr(resp, "output_text", "") or ""
+                    terminal = RuntimeTerminalMetadata(
+                        finish_reason=resp_dict.get("status"),
+                        model=resp_dict.get("model"),
+                        usage=usage,
+                        response_text=output_text,
+                        metadata={"response_id": resp_dict.get("id")},
+                    )
+                    yield RuntimeStreamEvent(type="completed", index=index, data={"terminal": terminal.__dict__})
+                    break
+
+                elif etype in {"error", "response.failed"}:
+                    if etype == "error":
+                        code = getattr(event, "code", None) or "response_failed"
+                        message = getattr(event, "message", None) or code
+                    else:
+                        resp = getattr(event, "response", None)
+                        resp_err = getattr(resp, "error", None) if resp else None
+                        code = getattr(resp_err, "code", None) or "response_failed"
+                        message = getattr(resp_err, "message", None) or code
+                    if code == "previous_response_not_found":
+                        raise RuntimeError(code)
+                    raise ResponsesWebSocketTransportError(
+                        message,
+                        code=("auth_error" if self._is_auth_error_code(code) else code),
+                        retriable=not self._is_auth_error_code(code),
+                        details={"provider_code": code},
+                    )
+                # Safely ignore all other lifecycle events (response.created,
+                # response.in_progress, response.content_part.added, etc.)
+        except RuntimeError:
+            raise
+        except Exception as exc:
+            self._drop_sync_connection()
+            raise ResponsesWebSocketTransportError(
+                "socket_receive_failed", code="socket_receive_failed", retriable=True,
+            ) from exc
+
+        if terminal_response is None:
+            self._drop_sync_connection()
+            raise ResponsesWebSocketTransportError(
+                "socket_receive_failed",
+                code="socket_receive_failed",
+                retriable=True,
+                details={"reason": "stream_ended_before_response_completed"},
+            )
+
+        self.session.last_response_id = terminal_response.get("id")
         self.session.last_store_value = request_kwargs.get("store")
         self.session.last_model = request_kwargs.get("model")
+
+    # ------------------------------------------------------------------
+    # Async streaming over SDK connection
+    # ------------------------------------------------------------------
 
     async def _stream_async_request(self, messages, kwargs, include_prev=True):
+        """Send a request over the async SDK connection and yield runtime events."""
         request_kwargs = self._request_with_session(messages, kwargs, include_prev=include_prev)
-        payload = self.sanitize_transport_payload(request_kwargs)
-        ws = await self._connect_async()
+        create_kw = self._create_kwargs(request_kwargs)
+        connection = await self._connect_async()
+
         try:
-            await ws.send(json.dumps({"type": "response.create", "response": payload}))
+            await connection.response.create(**create_kw)
         except Exception as exc:
-            await self._drop_async_socket()
-            raise ResponsesWebSocketTransportError("socket_send_failed", code="socket_send_failed", retriable=True) from exc
+            await self._drop_async_connection()
+            raise ResponsesWebSocketTransportError(
+                "socket_send_failed", code="socket_send_failed", retriable=True,
+            ) from exc
 
         index = 0
         terminal_response = None
-        while True:
-            try:
-                event = json.loads(await ws.recv())
-            except Exception as exc:
-                await self._drop_async_socket()
-                raise ResponsesWebSocketTransportError("socket_receive_failed", code="socket_receive_failed", retriable=True) from exc
-            etype = event.get("type")
-            if etype == "response.output_text.delta":
-                yield RuntimeStreamEvent(type="text_delta", index=index, data={"text": event.get("delta", "")})
-                index += 1
-            elif etype == "response.function_call_arguments.delta":
-                yield RuntimeStreamEvent(
-                    type="tool_call_delta",
-                    index=index,
-                    data={
-                        "tool_call": {
-                            "id": event.get("call_id", ""),
-                            "type": "function",
-                            "function": {"name": event.get("name", ""), "arguments": event.get("delta", "")},
-                        }
-                    },
-                )
-                index += 1
-            elif etype == "response.completed":
-                terminal_response = event.get("response", {})
-                usage = terminal_response.get("usage")
-                if usage:
-                    yield RuntimeStreamEvent(type="usage", index=index, data={"usage": usage})
-                    index += 1
-                terminal = RuntimeTerminalMetadata(
-                    finish_reason=terminal_response.get("status"),
-                    model=terminal_response.get("model"),
-                    usage=usage,
-                    response_text=(terminal_response.get("output_text") or ""),
-                    metadata={"response_id": terminal_response.get("id")},
-                )
-                yield RuntimeStreamEvent(type="completed", index=index, data={"terminal": terminal.__dict__})
-                break
-            elif etype in {"error", "response.failed"}:
-                err = event.get("error", {})
-                code = err.get("code") or "response_failed"
-                message = err.get("message") or code
-                if code == "previous_response_not_found":
-                    raise RuntimeError(code)
-                raise ResponsesWebSocketTransportError(
-                    message,
-                    code=("auth_error" if self._is_auth_error_code(code) else code),
-                    retriable=not self._is_auth_error_code(code),
-                    details={"provider_code": code},
-                )
+        try:
+            async for event in connection:
+                etype = self._event_type(event)
 
-        self.session.last_response_id = (terminal_response or {}).get("id")
+                if etype == "response.output_text.delta":
+                    yield RuntimeStreamEvent(
+                        type="text_delta", index=index,
+                        data={"text": getattr(event, "delta", "")},
+                    )
+                    index += 1
+
+                elif etype == "response.output_item.done":
+                    item = getattr(event, "item", None)
+                    item_type = getattr(item, "type", "")
+                    if item_type == "function_call":
+                        # Emit the definitive tool call with the correct call_id.
+                        # We deliberately skip response.function_call_arguments.delta
+                        # events because they only carry item_id, not the call_id
+                        # that the API requires for function_call_output matching.
+                        yield RuntimeStreamEvent(
+                            type="tool_call_delta", index=index,
+                            data={
+                                "tool_call": {
+                                    "id": getattr(item, "call_id", ""),
+                                    "type": "function",
+                                    "function": {
+                                        "name": getattr(item, "name", ""),
+                                        "arguments": getattr(item, "arguments", ""),
+                                    },
+                                }
+                            },
+                        )
+                        index += 1
+
+                elif etype == "response.completed":
+                    resp = getattr(event, "response", None)
+                    resp_dict = self._event_dict(resp) if resp else {}
+                    terminal_response = resp_dict
+                    usage = resp_dict.get("usage")
+                    if usage:
+                        yield RuntimeStreamEvent(type="usage", index=index, data={"usage": usage})
+                        index += 1
+                    output_text = ""
+                    if resp is not None:
+                        output_text = getattr(resp, "output_text", "") or ""
+                    terminal = RuntimeTerminalMetadata(
+                        finish_reason=resp_dict.get("status"),
+                        model=resp_dict.get("model"),
+                        usage=usage,
+                        response_text=output_text,
+                        metadata={"response_id": resp_dict.get("id")},
+                    )
+                    yield RuntimeStreamEvent(type="completed", index=index, data={"terminal": terminal.__dict__})
+                    break
+
+                elif etype in {"error", "response.failed"}:
+                    if etype == "error":
+                        code = getattr(event, "code", None) or "response_failed"
+                        message = getattr(event, "message", None) or code
+                    else:
+                        resp = getattr(event, "response", None)
+                        resp_err = getattr(resp, "error", None) if resp else None
+                        code = getattr(resp_err, "code", None) or "response_failed"
+                        message = getattr(resp_err, "message", None) or code
+                    if code == "previous_response_not_found":
+                        raise RuntimeError(code)
+                    raise ResponsesWebSocketTransportError(
+                        message,
+                        code=("auth_error" if self._is_auth_error_code(code) else code),
+                        retriable=not self._is_auth_error_code(code),
+                        details={"provider_code": code},
+                    )
+        except RuntimeError:
+            raise
+        except Exception as exc:
+            await self._drop_async_connection()
+            raise ResponsesWebSocketTransportError(
+                "socket_receive_failed", code="socket_receive_failed", retriable=True,
+            ) from exc
+
+        if terminal_response is None:
+            await self._drop_async_connection()
+            raise ResponsesWebSocketTransportError(
+                "socket_receive_failed",
+                code="socket_receive_failed",
+                retriable=True,
+                details={"reason": "stream_ended_before_response_completed"},
+            )
+
+        self.session.last_response_id = terminal_response.get("id")
         self.session.last_store_value = request_kwargs.get("store")
         self.session.last_model = request_kwargs.get("model")
+
+    # ------------------------------------------------------------------
+    # Public streaming entry points with retry logic
+    # ------------------------------------------------------------------
 
     def stream_completion(self, messages: List[Dict[str, Any]], **kwargs: Any):
         acquired_in_flight = False
@@ -433,7 +579,7 @@ class ResponsesWebSocketAdapter(ResponsesNormalizationMixin):
                         continue
                     if isinstance(exc, ResponsesWebSocketTransportError) and exc.retriable and not reopened and not emitted_output:
                         reopened = True
-                        self._drop_sync_socket()
+                        self._drop_sync_connection()
                         continue
                     raise
         except Exception as exc:
@@ -467,7 +613,7 @@ class ResponsesWebSocketAdapter(ResponsesNormalizationMixin):
                         continue
                     if isinstance(exc, ResponsesWebSocketTransportError) and exc.retriable and not reopened and not emitted_output:
                         reopened = True
-                        await self._drop_async_socket()
+                        await self._drop_async_connection()
                         continue
                     raise
         except Exception as exc:
@@ -476,6 +622,10 @@ class ResponsesWebSocketAdapter(ResponsesNormalizationMixin):
         finally:
             if acquired_in_flight:
                 self._end_in_flight()
+
+    # ------------------------------------------------------------------
+    # Error re-raise helper for create_completion paths
+    # ------------------------------------------------------------------
 
     @staticmethod
     def _raise_from_stream_error(error_dict: Dict[str, Any]):
@@ -495,6 +645,10 @@ class ResponsesWebSocketAdapter(ResponsesNormalizationMixin):
         raise ResponsesWebSocketTransportError(
             message, code=code, retriable=retriable, details=details,
         )
+
+    # ------------------------------------------------------------------
+    # Non-streaming completion (consumes stream internally)
+    # ------------------------------------------------------------------
 
     def create_completion(self, messages: List[Dict[str, Any]], **kwargs: Any):
         terminal = None
