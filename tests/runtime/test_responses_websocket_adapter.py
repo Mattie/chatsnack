@@ -293,6 +293,142 @@ def test_create_kwargs_strips_transport_fields():
     assert result["store"] is False
 
 
+def test_stream_sync_request_wraps_iterator_receive_failure(monkeypatch):
+    ai = SimpleNamespace(api_key="x", base_url=None, client=None, aclient=None)
+    session = ResponsesWebSocketSession(mode="inherit")
+    adapter = ResponsesWebSocketAdapter(ai, session=session)
+
+    class SyncConnection:
+        def __init__(self):
+            self.response = SimpleNamespace(create=lambda **kwargs: None)
+
+        def __iter__(self):
+            return self
+
+        def __next__(self):
+            raise Exception("socket closed")
+
+        def close(self):
+            return None
+
+    connection = SyncConnection()
+    session.sync_connection = connection
+    monkeypatch.setattr(adapter, "_connect_sync", lambda: connection)
+
+    with pytest.raises(ResponsesWebSocketTransportError, match="socket_receive_failed") as exc_info:
+        list(adapter._stream_sync_request(messages=[{"role": "user", "content": "hi"}], kwargs={"model": "gpt-4.1"}))
+
+    assert exc_info.value.code == "socket_receive_failed"
+    assert exc_info.value.retriable is True
+
+
+def test_stream_sync_request_fails_fast_when_stream_ends_before_completed(monkeypatch):
+    ai = SimpleNamespace(api_key="x", base_url=None, client=None, aclient=None)
+    session = ResponsesWebSocketSession(mode="inherit")
+    adapter = ResponsesWebSocketAdapter(ai, session=session)
+
+    class SyncConnection:
+        def __init__(self):
+            self.response = SimpleNamespace(create=lambda **kwargs: None)
+            self._events = [SimpleNamespace(type="response.in_progress")]
+
+        def __iter__(self):
+            return self
+
+        def __next__(self):
+            if self._events:
+                return self._events.pop(0)
+            raise StopIteration
+
+        def close(self):
+            return None
+
+    connection = SyncConnection()
+    session.sync_connection = connection
+    monkeypatch.setattr(adapter, "_connect_sync", lambda: connection)
+
+    with pytest.raises(ResponsesWebSocketTransportError, match="socket_receive_failed") as exc_info:
+        list(adapter._stream_sync_request(messages=[{"role": "user", "content": "hi"}], kwargs={"model": "gpt-4.1"}))
+
+    assert exc_info.value.details["reason"] == "stream_ended_before_response_completed"
+
+
+@pytest.mark.asyncio
+async def test_stream_async_request_wraps_iterator_receive_failure(monkeypatch):
+    ai = SimpleNamespace(api_key="x", base_url=None, client=None, aclient=None)
+    session = ResponsesWebSocketSession(mode="inherit")
+    adapter = ResponsesWebSocketAdapter(ai, session=session)
+
+    class AsyncConnection:
+        def __init__(self):
+            async def create(**kwargs):
+                return None
+            self.response = SimpleNamespace(create=create)
+
+        def __aiter__(self):
+            return self
+
+        async def __anext__(self):
+            raise Exception("socket closed")
+
+        async def close(self):
+            return None
+
+    connection = AsyncConnection()
+    session.async_connection = connection
+
+    async def connect_async():
+        return connection
+
+    monkeypatch.setattr(adapter, "_connect_async", connect_async)
+
+    with pytest.raises(ResponsesWebSocketTransportError, match="socket_receive_failed") as exc_info:
+        events = [event async for event in adapter._stream_async_request(messages=[{"role": "user", "content": "hi"}], kwargs={"model": "gpt-4.1"})]
+        assert events == []
+
+    assert exc_info.value.code == "socket_receive_failed"
+    assert exc_info.value.retriable is True
+
+
+@pytest.mark.asyncio
+async def test_stream_async_request_fails_fast_when_stream_ends_before_completed(monkeypatch):
+    ai = SimpleNamespace(api_key="x", base_url=None, client=None, aclient=None)
+    session = ResponsesWebSocketSession(mode="inherit")
+    adapter = ResponsesWebSocketAdapter(ai, session=session)
+
+    class AsyncConnection:
+        def __init__(self):
+            async def create(**kwargs):
+                return None
+            self.response = SimpleNamespace(create=create)
+            self._events = [SimpleNamespace(type="response.in_progress")]
+
+        def __aiter__(self):
+            return self
+
+        async def __anext__(self):
+            if self._events:
+                return self._events.pop(0)
+            raise StopAsyncIteration
+
+        async def close(self):
+            return None
+
+    connection = AsyncConnection()
+    session.async_connection = connection
+
+    async def connect_async():
+        return connection
+
+    monkeypatch.setattr(adapter, "_connect_async", connect_async)
+
+    with pytest.raises(ResponsesWebSocketTransportError, match="socket_receive_failed") as exc_info:
+        events = [event async for event in adapter._stream_async_request(messages=[{"role": "user", "content": "hi"}], kwargs={"model": "gpt-4.1"})]
+        assert events == []
+
+    assert exc_info.value.details["reason"] == "stream_ended_before_response_completed"
+
+
 def test_no_retry_after_partial_output_emitted(monkeypatch):
     """Retriable transport errors should NOT trigger retry if deltas have already been yielded."""
     ai = SimpleNamespace(api_key="x", base_url=None, client=None, aclient=None)

@@ -343,81 +343,98 @@ class ResponsesWebSocketAdapter(ResponsesNormalizationMixin):
 
         index = 0
         terminal_response = None
-        for event in connection:
-            etype = self._event_type(event)
+        try:
+            for event in connection:
+                etype = self._event_type(event)
 
-            if etype == "response.output_text.delta":
-                yield RuntimeStreamEvent(
-                    type="text_delta", index=index,
-                    data={"text": getattr(event, "delta", "")},
-                )
-                index += 1
-
-            elif etype == "response.output_item.done":
-                item = getattr(event, "item", None)
-                item_type = getattr(item, "type", "")
-                if item_type == "function_call":
-                    # Emit the definitive tool call with the correct call_id.
-                    # We deliberately skip response.function_call_arguments.delta
-                    # events because they only carry item_id, not the call_id
-                    # that the API requires for function_call_output matching.
+                if etype == "response.output_text.delta":
                     yield RuntimeStreamEvent(
-                        type="tool_call_delta", index=index,
-                        data={
-                            "tool_call": {
-                                "id": getattr(item, "call_id", ""),
-                                "type": "function",
-                                "function": {
-                                    "name": getattr(item, "name", ""),
-                                    "arguments": getattr(item, "arguments", ""),
-                                },
-                            }
-                        },
+                        type="text_delta", index=index,
+                        data={"text": getattr(event, "delta", "")},
                     )
                     index += 1
 
-            elif etype == "response.completed":
-                resp = getattr(event, "response", None)
-                resp_dict = self._event_dict(resp) if resp else {}
-                terminal_response = resp_dict
-                usage = resp_dict.get("usage")
-                if usage:
-                    yield RuntimeStreamEvent(type="usage", index=index, data={"usage": usage})
-                    index += 1
-                output_text = ""
-                if resp is not None:
-                    output_text = getattr(resp, "output_text", "") or ""
-                terminal = RuntimeTerminalMetadata(
-                    finish_reason=resp_dict.get("status"),
-                    model=resp_dict.get("model"),
-                    usage=usage,
-                    response_text=output_text,
-                    metadata={"response_id": resp_dict.get("id")},
-                )
-                yield RuntimeStreamEvent(type="completed", index=index, data={"terminal": terminal.__dict__})
-                break
+                elif etype == "response.output_item.done":
+                    item = getattr(event, "item", None)
+                    item_type = getattr(item, "type", "")
+                    if item_type == "function_call":
+                        # Emit the definitive tool call with the correct call_id.
+                        # We deliberately skip response.function_call_arguments.delta
+                        # events because they only carry item_id, not the call_id
+                        # that the API requires for function_call_output matching.
+                        yield RuntimeStreamEvent(
+                            type="tool_call_delta", index=index,
+                            data={
+                                "tool_call": {
+                                    "id": getattr(item, "call_id", ""),
+                                    "type": "function",
+                                    "function": {
+                                        "name": getattr(item, "name", ""),
+                                        "arguments": getattr(item, "arguments", ""),
+                                    },
+                                }
+                            },
+                        )
+                        index += 1
 
-            elif etype in {"error", "response.failed"}:
-                if etype == "error":
-                    code = getattr(event, "code", None) or "response_failed"
-                    message = getattr(event, "message", None) or code
-                else:
+                elif etype == "response.completed":
                     resp = getattr(event, "response", None)
-                    resp_err = getattr(resp, "error", None) if resp else None
-                    code = getattr(resp_err, "code", None) or "response_failed"
-                    message = getattr(resp_err, "message", None) or code
-                if code == "previous_response_not_found":
-                    raise RuntimeError(code)
-                raise ResponsesWebSocketTransportError(
-                    message,
-                    code=("auth_error" if self._is_auth_error_code(code) else code),
-                    retriable=not self._is_auth_error_code(code),
-                    details={"provider_code": code},
-                )
-            # Safely ignore all other lifecycle events (response.created,
-            # response.in_progress, response.content_part.added, etc.)
+                    resp_dict = self._event_dict(resp) if resp else {}
+                    terminal_response = resp_dict
+                    usage = resp_dict.get("usage")
+                    if usage:
+                        yield RuntimeStreamEvent(type="usage", index=index, data={"usage": usage})
+                        index += 1
+                    output_text = ""
+                    if resp is not None:
+                        output_text = getattr(resp, "output_text", "") or ""
+                    terminal = RuntimeTerminalMetadata(
+                        finish_reason=resp_dict.get("status"),
+                        model=resp_dict.get("model"),
+                        usage=usage,
+                        response_text=output_text,
+                        metadata={"response_id": resp_dict.get("id")},
+                    )
+                    yield RuntimeStreamEvent(type="completed", index=index, data={"terminal": terminal.__dict__})
+                    break
 
-        self.session.last_response_id = (terminal_response or {}).get("id")
+                elif etype in {"error", "response.failed"}:
+                    if etype == "error":
+                        code = getattr(event, "code", None) or "response_failed"
+                        message = getattr(event, "message", None) or code
+                    else:
+                        resp = getattr(event, "response", None)
+                        resp_err = getattr(resp, "error", None) if resp else None
+                        code = getattr(resp_err, "code", None) or "response_failed"
+                        message = getattr(resp_err, "message", None) or code
+                    if code == "previous_response_not_found":
+                        raise RuntimeError(code)
+                    raise ResponsesWebSocketTransportError(
+                        message,
+                        code=("auth_error" if self._is_auth_error_code(code) else code),
+                        retriable=not self._is_auth_error_code(code),
+                        details={"provider_code": code},
+                    )
+                # Safely ignore all other lifecycle events (response.created,
+                # response.in_progress, response.content_part.added, etc.)
+        except RuntimeError:
+            raise
+        except Exception as exc:
+            self._drop_sync_connection()
+            raise ResponsesWebSocketTransportError(
+                "socket_receive_failed", code="socket_receive_failed", retriable=True,
+            ) from exc
+
+        if terminal_response is None:
+            self._drop_sync_connection()
+            raise ResponsesWebSocketTransportError(
+                "socket_receive_failed",
+                code="socket_receive_failed",
+                retriable=True,
+                details={"reason": "stream_ended_before_response_completed"},
+            )
+
+        self.session.last_response_id = terminal_response.get("id")
         self.session.last_store_value = request_kwargs.get("store")
         self.session.last_model = request_kwargs.get("model")
 
@@ -441,79 +458,96 @@ class ResponsesWebSocketAdapter(ResponsesNormalizationMixin):
 
         index = 0
         terminal_response = None
-        async for event in connection:
-            etype = self._event_type(event)
+        try:
+            async for event in connection:
+                etype = self._event_type(event)
 
-            if etype == "response.output_text.delta":
-                yield RuntimeStreamEvent(
-                    type="text_delta", index=index,
-                    data={"text": getattr(event, "delta", "")},
-                )
-                index += 1
-
-            elif etype == "response.output_item.done":
-                item = getattr(event, "item", None)
-                item_type = getattr(item, "type", "")
-                if item_type == "function_call":
-                    # Emit the definitive tool call with the correct call_id.
-                    # We deliberately skip response.function_call_arguments.delta
-                    # events because they only carry item_id, not the call_id
-                    # that the API requires for function_call_output matching.
+                if etype == "response.output_text.delta":
                     yield RuntimeStreamEvent(
-                        type="tool_call_delta", index=index,
-                        data={
-                            "tool_call": {
-                                "id": getattr(item, "call_id", ""),
-                                "type": "function",
-                                "function": {
-                                    "name": getattr(item, "name", ""),
-                                    "arguments": getattr(item, "arguments", ""),
-                                },
-                            }
-                        },
+                        type="text_delta", index=index,
+                        data={"text": getattr(event, "delta", "")},
                     )
                     index += 1
 
-            elif etype == "response.completed":
-                resp = getattr(event, "response", None)
-                resp_dict = self._event_dict(resp) if resp else {}
-                terminal_response = resp_dict
-                usage = resp_dict.get("usage")
-                if usage:
-                    yield RuntimeStreamEvent(type="usage", index=index, data={"usage": usage})
-                    index += 1
-                output_text = ""
-                if resp is not None:
-                    output_text = getattr(resp, "output_text", "") or ""
-                terminal = RuntimeTerminalMetadata(
-                    finish_reason=resp_dict.get("status"),
-                    model=resp_dict.get("model"),
-                    usage=usage,
-                    response_text=output_text,
-                    metadata={"response_id": resp_dict.get("id")},
-                )
-                yield RuntimeStreamEvent(type="completed", index=index, data={"terminal": terminal.__dict__})
-                break
+                elif etype == "response.output_item.done":
+                    item = getattr(event, "item", None)
+                    item_type = getattr(item, "type", "")
+                    if item_type == "function_call":
+                        # Emit the definitive tool call with the correct call_id.
+                        # We deliberately skip response.function_call_arguments.delta
+                        # events because they only carry item_id, not the call_id
+                        # that the API requires for function_call_output matching.
+                        yield RuntimeStreamEvent(
+                            type="tool_call_delta", index=index,
+                            data={
+                                "tool_call": {
+                                    "id": getattr(item, "call_id", ""),
+                                    "type": "function",
+                                    "function": {
+                                        "name": getattr(item, "name", ""),
+                                        "arguments": getattr(item, "arguments", ""),
+                                    },
+                                }
+                            },
+                        )
+                        index += 1
 
-            elif etype in {"error", "response.failed"}:
-                if etype == "error":
-                    code = getattr(event, "code", None) or "response_failed"
-                    message = getattr(event, "message", None) or code
-                else:
+                elif etype == "response.completed":
                     resp = getattr(event, "response", None)
-                    resp_err = getattr(resp, "error", None) if resp else None
-                    code = getattr(resp_err, "code", None) or "response_failed"
-                    message = getattr(resp_err, "message", None) or code
-                if code == "previous_response_not_found":
-                    raise RuntimeError(code)
-                raise ResponsesWebSocketTransportError(
-                    message,
-                    code=("auth_error" if self._is_auth_error_code(code) else code),
-                    retriable=not self._is_auth_error_code(code),
-                    details={"provider_code": code},
-                )
+                    resp_dict = self._event_dict(resp) if resp else {}
+                    terminal_response = resp_dict
+                    usage = resp_dict.get("usage")
+                    if usage:
+                        yield RuntimeStreamEvent(type="usage", index=index, data={"usage": usage})
+                        index += 1
+                    output_text = ""
+                    if resp is not None:
+                        output_text = getattr(resp, "output_text", "") or ""
+                    terminal = RuntimeTerminalMetadata(
+                        finish_reason=resp_dict.get("status"),
+                        model=resp_dict.get("model"),
+                        usage=usage,
+                        response_text=output_text,
+                        metadata={"response_id": resp_dict.get("id")},
+                    )
+                    yield RuntimeStreamEvent(type="completed", index=index, data={"terminal": terminal.__dict__})
+                    break
 
-        self.session.last_response_id = (terminal_response or {}).get("id")
+                elif etype in {"error", "response.failed"}:
+                    if etype == "error":
+                        code = getattr(event, "code", None) or "response_failed"
+                        message = getattr(event, "message", None) or code
+                    else:
+                        resp = getattr(event, "response", None)
+                        resp_err = getattr(resp, "error", None) if resp else None
+                        code = getattr(resp_err, "code", None) or "response_failed"
+                        message = getattr(resp_err, "message", None) or code
+                    if code == "previous_response_not_found":
+                        raise RuntimeError(code)
+                    raise ResponsesWebSocketTransportError(
+                        message,
+                        code=("auth_error" if self._is_auth_error_code(code) else code),
+                        retriable=not self._is_auth_error_code(code),
+                        details={"provider_code": code},
+                    )
+        except RuntimeError:
+            raise
+        except Exception as exc:
+            await self._drop_async_connection()
+            raise ResponsesWebSocketTransportError(
+                "socket_receive_failed", code="socket_receive_failed", retriable=True,
+            ) from exc
+
+        if terminal_response is None:
+            await self._drop_async_connection()
+            raise ResponsesWebSocketTransportError(
+                "socket_receive_failed",
+                code="socket_receive_failed",
+                retriable=True,
+                details={"reason": "stream_ended_before_response_completed"},
+            )
+
+        self.session.last_response_id = terminal_response.get("id")
         self.session.last_store_value = request_kwargs.get("store")
         self.session.last_model = request_kwargs.get("model")
 
