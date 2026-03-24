@@ -284,6 +284,7 @@ class ChatParams:
     runtime: Optional[str] = None  # internal runtime selector, not passed to provider API
     session: Optional[str] = None  # responses transport selector: None | inherit | new
     profile: Optional[dict] = None  # runtime profile/options; forwarded to adapters, stripped before provider API
+    responses: Optional[dict] = None  # Phase 3: Responses API nested config (text, reasoning, include, store, export_state, etc.)
 
 
     """
@@ -373,6 +374,8 @@ class ChatParams:
             del out["runtime"]
         if "session" in out:
             del out["session"]
+        if "responses" in out:
+            del out["responses"]
 
         # Convert tool definitions to API format
         if "tools" in out and out["tools"]:
