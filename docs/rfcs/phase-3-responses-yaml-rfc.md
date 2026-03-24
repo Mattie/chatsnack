@@ -9,7 +9,7 @@ We are moving chatsnack toward the Responses API while keeping the YAML centered
 The main principle is simple:
 
 - `messages:` remains the only primary YAML transcript surface
-- `params:` carries runtime configuration, tool availability, and optional exported continuation state
+- `params:` carries runtime configuration such as model, runtime, session, tool availability, and optional exported continuation state
 - a message stays `role: text` whenever a plain string is enough
 - a message expands into a small block only when that turn carries meaningful extra information
 - import/export should do the heavy lifting for files, images, and provider-shaped details
@@ -24,6 +24,7 @@ Phase 3 is example-driven. We are aiming for a small set of strong flows that fe
 Target flows for Phase 3:
 
 - plain text Responses chats
+- saved transport mode via `params.session` when we want WebSocket behavior to round-trip cleanly
 - `system` plus `user` plus `assistant` turns, with `developer` accepted as an alias on load
 - reasoning summaries and encrypted reasoning folded into assistant turns
 - user image attachments
@@ -31,7 +32,7 @@ Target flows for Phase 3:
 - image generation outputs
 - generated files from tools such as code interpreter
 - existing chatsnack local tool-call and tool-response formatting
-- continuation via `params.responses.state` when state export is explicitly enabled
+- continuation metadata via `params.responses.state` when state export is explicitly enabled
 
 Areas we can leave outside the main Phase 3 YAML contract:
 
@@ -106,8 +107,6 @@ params:
   model: gpt-5.4
   runtime: responses
   responses:
-    store: true
-    export_state: true
     text:
       format:
         type: text
@@ -118,22 +117,18 @@ params:
     include:
       - reasoning.encrypted_content
       - web_search_call.action.sources
-    state:
-      response_id: resp_123
-      previous_response_id: resp_122
-      status: completed
 
 messages:
   - system: Support the user's request.
   - user: What's the current population of Nigeria?
   - assistant:
+      text: |
+        Nigeria's current population is about 242.4 million; Wikipedia's
+        Demographics of Nigeria page lists 242,431,841 (2026 est.).
       reasoning: |
         Searching Wikipedia for population data.
         Clarifying the estimate and final phrasing.
       encrypted_content: gAAAAAB...trimmed...
-      text: |
-        Nigeria's current population is about 242.4 million; Wikipedia's
-        Demographics of Nigeria page lists 242,431,841 (2026 est.).
       sources:
         - title: Demographics of Nigeria
           url: https://en.wikipedia.org/wiki/Demographics_of_Nigeria
@@ -160,14 +155,120 @@ Expanded assistant form:
 ```yaml
 messages:
   - assistant:
-      reasoning: Looking for the most recent source-backed estimate.
       text: Nigeria's current population is about 242.4 million.
+      reasoning: Looking for the most recent source-backed estimate.
       sources:
         - title: Demographics of Nigeria
           url: https://en.wikipedia.org/wiki/Demographics_of_Nigeria
 ```
 
 We only expand a message when we need to preserve meaningful structure.
+
+## Normalization rules for expanded turn blocks
+
+Phase 3 should make mixed-content turns canonical on load so save behavior stays predictable.
+
+### Internal normalization
+
+- every loaded message is normalized internally to an expanded object form, even when the source YAML used a scalar `role: text` form
+- a scalar source turn becomes the same internal shape as `role: { text: ... }`
+- save may collapse that turn back to scalar form only when `text` is the only canonical field that remains after normalization
+
+### Canonical field ordering
+
+Expanded `user` and `assistant` blocks should save fields in this order:
+
+1. `text`
+2. `reasoning`
+3. `encrypted_content`
+4. `sources`
+5. `images`
+6. `files`
+7. `tool_calls`
+8. `provider_extras`
+
+### Validation rules
+
+- `system` turns are text-only after normalization
+- `user` turns may contain `text`, `images`, `files`, and `provider_extras`
+- `assistant` turns may contain `text`, `reasoning`, `encrypted_content`, `sources`, `images`, `files`, `tool_calls`, and `provider_extras`
+- `tool` turns keep the existing chatsnack `tool:` message shape and are outside this expanded-block ordering rule
+- empty canonical fields are omitted on save; serializers should not emit placeholder empty lists or `text: ""` unless a future feature requires that distinction explicitly
+
+### Mixed-content serialization
+
+- if any non-text canonical field is present, the serializer writes the turn as an expanded mapping
+- mixed turns keep all canonical data in one block rather than splitting attachments or reasoning into separate synthetic messages
+- attachments, reasoning, and sources are folded into the same expanded turn and emitted in canonical field order
+
+### Unknown provider extras
+
+- unknown top-level fields on an expanded turn should be moved into `provider_extras` on load rather than dropped silently
+- explicitly authored `provider_extras` should survive round-trip saves
+- provider-derived extras may be omitted in authoring fidelity, should survive continuation fidelity when useful, and should survive diagnostic fidelity when available, following the fidelity rules below
+
+### Round-trip guarantees
+
+- after one load and canonical save, repeated save cycles with the same fidelity mode should be idempotent in message ordering and field ordering
+- pure text turns may collapse back to scalar form on save
+- mixed-content turns should remain expanded after canonicalization
+- continuation and diagnostic fidelity should preserve non-canonical data that has a defined home such as `provider_extras` or `params.responses.provider_dump`
+
+### Ambiguous-case examples
+
+Example: assistant text plus attachments and reasoning always saves as one expanded block.
+
+```yaml
+messages:
+  - assistant:
+      text: I created a cleaned CSV and a chart.
+      reasoning: Grouped the rows before generating the chart.
+      files:
+        - file_id: file_csv_123
+          filename: sales-cleaned.csv
+      images:
+        - file_id: file_img_456
+          filename: sales-chart.png
+```
+
+Example: a source file that arrives with fields out of order is re-saved in canonical order.
+
+```yaml
+# loaded source
+messages:
+  - assistant:
+      images:
+        - file_id: file_img_456
+      text: Generated one chart.
+      reasoning: Summarized the table first.
+
+# canonical save
+messages:
+  - assistant:
+      text: Generated one chart.
+      reasoning: Summarized the table first.
+      images:
+        - file_id: file_img_456
+```
+
+Example: unknown provider fields are preserved through `provider_extras`.
+
+```yaml
+# loaded source
+messages:
+  - assistant:
+      text: Here is the answer.
+      debug_trace:
+        cache_hit: true
+
+# canonical internal home and save target when fidelity keeps extras
+messages:
+  - assistant:
+      text: Here is the answer.
+      provider_extras:
+        debug_trace:
+          cache_hit: true
+```
 
 ## `system` stays canonical, `developer` loads as an alias
 
@@ -180,6 +281,21 @@ Recommended behavior:
 - runtime compilation may map `system` to `developer` where provider compatibility requires it
 
 This keeps our saved assets aligned with existing chatsnack ergonomics while allowing Responses-native role handling.
+
+## Normative parsing and save-order rules
+
+Phase 3 should make the `system` and `developer` alias behavior deterministic.
+
+Required rules:
+
+- if a transcript contains only `system`, load it as normal and save it back as `system`
+- if a transcript contains only `developer`, load it into the canonical internal `system` role and save it back as `system`
+- if a transcript contains both `system` and `developer`, load both turns as separate internal `system` turns in the same relative order they appeared in the file
+- load never collapses adjacent alias turns into one message just because their canonical internal role is the same
+- save preserves turn order exactly as loaded or edited, with each aliased turn emitted as its own `system` entry
+- load followed by save produces deterministic ordering and canonical role spelling even when the source file mixed aliases
+
+Internally, the role label is normalized to one canonical role for chatsnack's message model. The turn boundaries remain distinct.
 
 ## Fillings stay inline in message text
 
@@ -232,20 +348,26 @@ That includes:
 
 - `model`
 - `runtime`
+- `session`
 - `tools`
 - `params.responses.text`
 - `params.responses.reasoning`
 - `params.responses.include`
 - `params.responses.store`
 - `params.responses.export_state`
+- `params.responses.export_diagnostics`
 - `params.responses.state`
+- `params.responses.provider_dump`
 
 Example:
+
+`session` stays a top-level chatsnack runtime switch because Phase 2a made it the public transport selector. Nested `params.responses` holds Responses-specific request and export options.
 
 ```yaml
 params:
   model: gpt-5.4
   runtime: responses
+  session: inherit
   tools:
     - type: web_search
       user_location:
@@ -297,7 +419,7 @@ There are two execution paths under that surface:
 - local function tools, including utensils, keep the existing chatsnack function-tool model
 - provider-native Responses tools start as raw dict pass-through definitions
 
-That split matters because provider-native tools such as `web_search`, `image_generation`, `code_interpreter`, and `mcp` run server-side. They do not go through the local `auto_execute` and `auto_feed` loop the same way a local utensil does.
+That split matters because provider-native tools such as `web_search`, `image_generation`, `code_interpreter`, and `mcp` run server-side. They do not go through the local `auto_execute` and `auto_feed` loop the same way a local utensil does. Saved YAML should still treat `params.tools` as durable tool availability for the chat, and the runtime may resend those tools on each provider turn so behavior stays stable across HTTP Responses and WebSocket Responses.
 
 Recommended Phase 3 direction:
 
@@ -329,9 +451,40 @@ Recommended behavior:
 
 - `export_state` absent or false: do not serialize `state`
 - `export_state: true`: serialize `response_id`, `previous_response_id`, `status`, and optional usage
-- if `state` is present on load, hydrate it into the chat object
+- if `state` is present on load, hydrate it into chat runtime metadata
+- if a later run has a compatible session and store policy, the runtime may continue from the exported ids directly
+- if a later run is on a fresh connection without persisted state, the runtime may need full local context replay even when exported ids are present
 
-This keeps authoring assets clean by default while still allowing durable continuation snapshots when we want them.
+Phase 2a makes the continuation rules narrower than a plain `response_id` snapshot. Same-socket continuation with `session: inherit` can work with `store: false` while the live connection exists. Fresh-connection or reloaded-chat continuation depends on persisted state or full local context replay. `params.responses.state` is useful runtime metadata and a best-effort continuation hint. It does not guarantee that a reloaded file can continue from `response_id` alone in every mode.
+
+## Fidelity levels
+
+Phase 3 should make the export fidelity explicit so we can keep default YAML readable while still offering deeper persistence when we need it.
+
+The three levels are:
+
+- Authoring fidelity: the default readable YAML for prompt assets and notebook reuse
+- Continuation fidelity: enabled by `params.responses.export_state: true` so continuation metadata survives a save/load cycle
+- Diagnostic fidelity: optional raw-provider export mode, recommended as `params.responses.export_diagnostics: true`, for debugging, replay research, or provider-specific inspection
+
+Non-canonical but still valuable turn-level fields should land in `assistant.provider_extras` when they belong to a specific assistant turn. Completed provider response snapshots should land in `params.responses.provider_dump` in diagnostic mode. Diagnostic fidelity should stay out of raw WebSocket event transcripts and session transport logs so saved YAML remains deterministic and readable.
+
+| Responses concept | Authoring fidelity | Continuation fidelity | Diagnostic fidelity | YAML home |
+| --- | --- | --- | --- | --- |
+| assistant text | MUST persist | MUST persist | MUST persist | scalar `assistant:` or `assistant.text` |
+| system or developer instruction turns | MUST persist | MUST persist | MUST persist | canonical `system` entries in `messages:` |
+| user text, images, and files | MUST persist | MUST persist | MUST persist | `user`, `user.images`, `user.files` |
+| local function tool calls and tool outputs | MUST persist | MUST persist | MUST persist | existing `assistant.tool_calls` and `tool:` shapes |
+| reasoning summary | SHOULD persist when available | SHOULD persist when available | SHOULD persist when available | `assistant.reasoning` |
+| encrypted reasoning content | MAY be dropped | SHOULD persist when available | MUST persist when available | `assistant.encrypted_content` |
+| source links and citations | SHOULD persist when available | SHOULD persist when available | SHOULD persist when available | `assistant.sources` |
+| generated images and files | MUST persist | MUST persist | MUST persist | `assistant.images` and `assistant.files` |
+| response continuation state (`response_id`, `previous_response_id`, `status`, `usage`) | MAY be dropped | MUST persist | MUST persist | `params.responses.state` |
+| provider-native tool internals | MAY be dropped | MAY be dropped | MUST persist when available | `assistant.provider_extras` |
+| completed provider response snapshot | MAY be dropped | MAY be dropped | MUST persist | `params.responses.provider_dump` |
+| other non-canonical provider metadata | MAY be dropped | SHOULD persist when useful | MUST persist when available | `assistant.provider_extras` |
+
+These rules let us keep the default file shaped like chatsnack while still giving advanced exports a clear place to put extra fidelity.
 
 ## Attachments, files, and generated assets
 
@@ -348,6 +501,7 @@ On `user` or `assistant` blocks we can support:
 - `encrypted_content`
 - `sources`
 - `tool_calls`
+- `provider_extras`
 
 ### `images`
 
@@ -433,10 +587,10 @@ Reasoning stays attached to the assistant turn it explains.
 ```yaml
 messages:
   - assistant:
+      text: Here is the answer.
       reasoning: |
         Searching the provided material and composing the answer.
       encrypted_content: gAAAAAB...trimmed...
-      text: Here is the answer.
 ```
 
 ### Web search
@@ -515,13 +669,17 @@ messages:
 | user file attachment | `user.files` | accepts `path`, `url`, or `file_id` |
 | image generation output | `assistant.images` | serializer should surface stable image refs |
 | generated file output | `assistant.files` | serializer should surface stable file refs |
+| provider-native tool internals | `assistant.provider_extras` | optional in readable modes, required in diagnostic mode when available |
+| completed provider response snapshot | `params.responses.provider_dump` | diagnostic fidelity only; excludes raw WebSocket event transcripts |
 | provider-native tool availability | `params.tools` | raw dict pass-through first for `web_search`, `mcp`, `code_interpreter`, `image_generation` |
 | local function tool availability | `params.tools` | keep current utensil/function-tool model |
 | local function call request | existing `assistant.tool_calls` shape | keep current chatsnack formatting |
 | local function/tool output | existing `tool:` message shape | keep current chatsnack formatting |
 | `include` request option | `params.responses.include` | advanced option |
+| `session` | `params.session` | chatsnack transport mode: unset, `inherit`, or `new` |
 | `store` | `params.responses.store` | response persistence |
 | `export_state` | `params.responses.export_state` | gates serialization of runtime continuation state |
+| `export_diagnostics` | `params.responses.export_diagnostics` | gates diagnostic fidelity fields |
 | `text.*` options | `params.responses.text` | output controls |
 | `reasoning.*` options | `params.responses.reasoning` | reasoning controls |
 | `response_id` | `params.responses.state.response_id` | continuation state when export is enabled |
@@ -537,6 +695,7 @@ messages:
 params:
   model: gpt-5.4
   runtime: responses
+  session: inherit
 
 messages:
   - system: Respond tersely.
@@ -648,13 +807,13 @@ messages:
       Restrict sourced claims to en.wikipedia.org.
   - user: What's the current population of Nigeria?
   - assistant:
+      text: |
+        Nigeria's current population is about 242.4 million; Wikipedia's
+        Demographics of Nigeria page lists 242,431,841 (2026 est.).
       reasoning: |
         Searching Wikipedia for population data.
         Clarifying the estimate and final phrasing.
       encrypted_content: gAAAAAB...trimmed...
-      text: |
-        Nigeria's current population is about 242.4 million; Wikipedia's
-        Demographics of Nigeria page lists 242,431,841 (2026 est.).
       sources:
         - title: Demographics of Nigeria
           url: https://en.wikipedia.org/wiki/Demographics_of_Nigeria
@@ -666,7 +825,9 @@ messages:
 params:
   model: gpt-5.4
   runtime: responses
+  session: new
   responses:
+    store: true
     export_state: true
     state:
       response_id: resp_latest
@@ -678,16 +839,63 @@ messages:
   - user: Add one more paragraph.
 ```
 
+## Serializer and parser targets
+
+### `chatsnack/yamlformat.py`
+
+The serializer target should:
+
+- emit the canonical `system` key on save
+- round-trip `params.session` cleanly when it is set
+- preserve message ordering exactly, including separate turns that loaded as `system` and `developer`
+- support the three fidelity levels with deterministic field ordering for each mode
+- collapse text-only turns back to scalar form only when no other canonical turn fields remain
+- write mixed-content turns as expanded mappings in the canonical field order from this RFC
+- write `params.responses.state` only when `export_state: true`
+- write `params.responses.provider_dump` only when `export_diagnostics: true`
+- place turn-scoped non-canonical data into `assistant.provider_extras` instead of spilling raw provider shapes into the main transcript
+
+### `chatsnack/chat/mixin_messages.py`
+
+The parser target should:
+
+- accept `developer` as an alias for `system`
+- normalize scalar turns into the same internal expanded-turn object shape used for mixed-content blocks
+- normalize both roles to the canonical internal `system` role while preserving separate turn boundaries
+- preserve transcript ordering exactly when both aliases appear in the same file
+- move unknown expanded-turn fields into `provider_extras` instead of dropping them silently
+- avoid accidental merging of adjacent turns that happen to share the same canonical internal role after normalization
+- hydrate `assistant.provider_extras`, `params.responses.state`, and optional `params.responses.provider_dump` when those fields are present
+
+## Tests
+
+Phase 3 should add serializer and parser tests that cover:
+
+- deterministic round-trip output for authoring fidelity exports
+- deterministic round-trip output for continuation fidelity exports with `export_state: true`
+- deterministic round-trip output for diagnostic fidelity exports when `export_diagnostics: true`
+- round-trip behavior for `params.session` when it is unset, `inherit`, and `new`
+- scalar text turns expanding internally and collapsing back to scalar form when no extra fields exist
+- mixed-content turns saving in canonical field order and staying expanded after canonicalization
+- loading a mixed `system` and `developer` transcript without collapsing turn count
+- saving a mixed-alias transcript back out as ordered `system` turns
+- preserving assistant turn ordering and data placement for `reasoning`, `encrypted_content`, `sources`, generated assets, and `provider_extras`
+- moving unknown top-level expanded-turn fields into `provider_extras` on load
+- keeping non-canonical provider-native tool internals out of the main transcript unless diagnostic fidelity is enabled
+- keeping diagnostic provider dumps to completed response data rather than raw WebSocket event transcripts
+- checking the main save/load examples across `chat_completions`, HTTP `responses`, and WebSocket `responses` where the user-facing YAML should behave the same
+
 ## Implementation sketch
 
 1. Introduce a normalized internal turn model that bridges YAML import/export and richer Responses data without changing the author-facing YAML contract.
-2. Keep `system` canonical on save, accept `developer` on load, and let runtime compilation map roles for provider compatibility.
-3. Extend `ChatParams` with a nested `responses` object that can hold `text`, `reasoning`, `include`, `store`, `export_state`, and `state`.
+2. Keep `system` canonical on save, accept `developer` on load, normalize both to one internal role, and preserve distinct turn boundaries and ordering.
+3. Add `session` to top-level params and allow `params.responses` to begin as a nested dict-shaped config surface that can hold `text`, `reasoning`, `include`, `store`, `export_state`, `export_diagnostics`, `state`, and `provider_dump`. Typed wrappers can follow later if they prove useful.
 4. Keep `params.tools` as the single authoring surface, with local function tools preserving the existing utensil path and provider-native tools starting as raw dict pass-through.
-5. Add turn-level `images` and `files` support for `user` and `assistant` messages.
-6. Extend the Responses adapter so reasoning summaries, encrypted reasoning content, web search sources, image generation outputs, and generated files can be folded into the nearest assistant turn when we serialize YAML.
-7. Add import/export helpers that translate local paths, URLs, file ids, and generated assets into the simple YAML forms above.
-8. Use the worked examples in this RFC as the acceptance targets for Phase 3 notebook usability.
+5. Add turn-level `images`, `files`, and `provider_extras` support for `user` and `assistant` messages where appropriate.
+6. Extend the Responses adapter so reasoning summaries, encrypted reasoning content, web search sources, image generation outputs, generated files, and useful provider extras can be folded into the nearest assistant turn when we serialize YAML, while whole-response diagnostic dumps stay scoped to completed response snapshots.
+7. Update `chatsnack/yamlformat.py` and `chatsnack/chat/mixin_messages.py` to enforce the fidelity rules and deterministic alias normalization behavior in this RFC.
+8. Add import/export helpers that translate local paths, URLs, file ids, and generated assets into the simple YAML forms above.
+9. Use the worked examples and round-trip tests in this RFC as the acceptance targets for Phase 3 notebook usability, with cross-runtime checks limited to the overlapping YAML contract rather than every Responses-only field.
 
 ## References
 
@@ -723,7 +931,25 @@ Acceptance criteria:
 - a plain assistant answer stays in scalar form
 - the file works as a reusable prompt asset without runtime state noise
 
-### Example 2: Loading `developer` as an alias
+### Example 2: Saving an explicit transport choice
+
+```yaml
+params:
+  runtime: responses
+  session: inherit
+
+messages:
+  - system: Keep the reply short.
+  - user: Give me one sentence on reusable prompts.
+```
+
+Acceptance criteria:
+
+- `params.session` can be saved explicitly when we want a WebSocket transport choice to round-trip
+- if `session` is omitted in a different file, normal HTTP Responses remains the default
+- the saved prompt still reads like a normal chatsnack chat asset
+
+### Example 3: Loading `developer` as an alias
 
 ```yaml
 messages:
@@ -738,7 +964,7 @@ Acceptance criteria:
 - a later save exports the canonical `system` key
 - runtime compilation can still map to provider-compatible roles as needed
 
-### Example 3: Provider-native tool configuration
+### Example 4: Provider-native tool configuration
 
 ```yaml
 params:
@@ -761,7 +987,7 @@ Acceptance criteria:
 - provider-native tools stay available to the Responses runtime
 - the YAML authoring surface stays the same for end users
 
-### Example 4: Local function tool history
+### Example 5: Local function tool history
 
 ```yaml
 messages:
@@ -784,12 +1010,14 @@ Acceptance criteria:
 - tool outputs remain attached to the matching `tool_call_id`
 - follow-up assistant text can stay scalar when no extra structure is needed
 
-### Example 5: Explicit continuation snapshot export
+### Example 6: Explicit continuation snapshot export
 
 ```yaml
 params:
   runtime: responses
+  session: new
   responses:
+    store: true
     export_state: true
     state:
       response_id: resp_latest
@@ -806,9 +1034,11 @@ Acceptance criteria:
 - runtime state is omitted unless `export_state: true` is present
 - when exported, `response_id`, `previous_response_id`, and `status` serialize in `params.responses.state`
 - the file can be reloaded with the same continuation metadata
+- direct continuation from the exported ids depends on the saved session and store policy
+- fresh-connection recovery may still replay full local context when persisted state is unavailable
 - users who want clean authoring assets can leave `export_state` unset
 
-### Example 6: Attachments and generated outputs
+### Example 7: Attachments and generated outputs
 
 ```yaml
 messages:
@@ -832,3 +1062,6 @@ Acceptance criteria:
 - generated files and images land on the assistant turn
 - the serializer handles upload and export mechanics behind the scenes
 - the saved file remains understandable without a raw provider dump
+
+
+

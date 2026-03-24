@@ -23,6 +23,8 @@ Drop a note into `## Progress Notes` whenever something meaningfully changes.
 ### Basic YAML shape
 - [ ] `messages:` stays the main transcript surface and `params:` stays the config/runtime surface.
   RFC: `Summary`; `Canonical YAML shape`
+- [ ] `params.session` round-trips cleanly when it is set, and stays omitted in the simplest saved assets when we want the default HTTP Responses path.
+  RFC: `Phase 3 scope`; `What belongs in params`; `Mapping rules`; `End-User Example Acceptance Criteria`
 - [ ] We have a normalized internal turn model without changing the author-facing YAML contract.
   RFC: `Internal modeling boundary`
 - [ ] The canonical YAML examples save out in the shape the RFC promises.
@@ -57,9 +59,13 @@ Drop a note into `## Progress Notes` whenever something meaningfully changes.
   RFC: `Fidelity levels -> Authoring fidelity`
 - [ ] Continuation fidelity keeps continuation state when `export_state: true` is on.
   RFC: `Runtime state export should be explicit`; `Fidelity levels -> Continuation fidelity`
+- [ ] Exported continuation state is treated as runtime metadata plus a best-effort continuation hint, with fresh-connection fallback still following the saved `session` and `store` policy.
+  RFC: `Runtime state export should be explicit`
 - [ ] Diagnostic fidelity keeps provider dumps and provider extras when enabled.
   RFC: `Fidelity levels -> Diagnostic fidelity`
 - [ ] `assistant.provider_extras` and `params.responses.provider_dump` are used for the non-canonical fields the RFC calls out.
+  RFC: `Fidelity levels`; `Mapping rules`
+- [ ] Diagnostic fidelity keeps completed response snapshots without turning YAML into a WebSocket event log.
   RFC: `Fidelity levels`; `Mapping rules`
 
 ### Params and tools
@@ -89,6 +95,8 @@ Drop a note into `## Progress Notes` whenever something meaningfully changes.
   RFC: `Serializer and parser targets -> chatsnack/chat/mixin_messages.py`
 - [ ] Round-trip tests cover authoring, continuation, and diagnostic fidelity modes.
   RFC: `Tests`
+- [ ] Cross-runtime save/load checks cover the main YAML contract across `chat_completions`, HTTP `responses`, and WebSocket `responses` where user-facing behavior should stay the same.
+  RFC: `Tests`; `Implementation sketch`
 - [ ] Tests cover mixed-role transcripts, mixed-content ordering, and no accidental role collapse.
   RFC: `Tests`
 - [ ] Worked examples and end-user acceptance examples are actually true in notebook or fixture coverage.
