@@ -86,5 +86,5 @@ class AiClient:
         raise RuntimeError(
             "Responses runtime requires OpenAI clients with Responses endpoints. Missing: "
             + ", ".join(missing)
-            + ". Upgrade the `openai` package to >=1.66.0 and/or inject compatible clients."
+            + ". Upgrade the `openai` package to >=2.29.0 and/or inject compatible clients."
         )

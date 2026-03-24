@@ -327,9 +327,9 @@ class ChatQueryMixin(ChatMessagesMixin, ChatParamsMixin):
             )
 
     def _runtime_supports_continuation(self) -> bool:
-        from ..runtime import ResponsesAdapter
+        from ..runtime import ResponsesAdapter, ResponsesWebSocketAdapter
         runtime = getattr(self, "runtime", None)
-        return isinstance(runtime, ResponsesAdapter)
+        return isinstance(runtime, (ResponsesAdapter, ResponsesWebSocketAdapter))
 
     def _normalize_runtime_metadata(self, normalized_response) -> Dict[str, object]:
         metadata = {}

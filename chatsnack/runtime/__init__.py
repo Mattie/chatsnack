@@ -12,6 +12,12 @@ from .types import (
 )
 from .chat_completions_adapter import ChatCompletionsAdapter
 from .responses_adapter import ResponsesAdapter
+from .responses_websocket_adapter import (
+    ResponsesSessionBusyError,
+    ResponsesWebSocketAdapter,
+    ResponsesWebSocketSession,
+    ResponsesWebSocketTransportError,
+)
 
 __all__ = [
     "EVENT_SCHEMA_VERSION",
@@ -26,4 +32,8 @@ __all__ = [
     "RuntimeErrorPayload",
     "ChatCompletionsAdapter",
     "ResponsesAdapter",
+    "ResponsesWebSocketAdapter",
+    "ResponsesWebSocketSession",
+    "ResponsesSessionBusyError",
+    "ResponsesWebSocketTransportError",
 ]

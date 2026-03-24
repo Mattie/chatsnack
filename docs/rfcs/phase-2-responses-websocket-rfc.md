@@ -1,7 +1,7 @@
 # Phase 2 RFC: Responses API WebSocket Support for Chatsnack
 
 ## Status
-Proposed.
+Completed (implemented on March 20, 2026).
 
 ## Summary
 Phase 2 should deliver true WebSocket support for the Responses API in chatsnack.
