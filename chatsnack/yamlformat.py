@@ -98,9 +98,11 @@ def _canonical_expanded_block(content_dict, role):
     for field_name in CANONICAL_FIELD_ORDER:
         if field_name in content_dict:
             ordered[field_name] = content_dict[field_name]
-    # Add any remaining fields not in canonical order (shouldn't happen after normalization).
+    # Add any remaining fields not in canonical order (defensive; shouldn't
+    # happen after normalization, but log a warning if it does).
     for key in content_dict:
         if key not in ordered:
+            log.warning(f"Unexpected field '{key}' outside canonical order on {role} turn")
             ordered[key] = content_dict[key]
     return ordered
 
@@ -159,7 +161,10 @@ def _normalize_message_on_save(msg, fidelity):
     # System turns are text-only after normalization.
     if role == CANONICAL_SYSTEM_ROLE:
         if isinstance(content, dict):
-            return {role: content.get("text", "")}
+            text_val = content.get("text")
+            if text_val is None:
+                log.warning("Expanded system message missing 'text' field; emitting empty string")
+            return {role: text_val or ""}
         return {role: content}
 
     # Tool and include pass through unchanged.

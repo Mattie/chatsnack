@@ -657,6 +657,46 @@ class TestNormalizedTurn:
         result = turn.to_message_dict(fidelity="diagnostic")
         assert result["assistant"]["provider_extras"]["internal"] is True
 
+    def test_normalize_messages_empty_list(self):
+        from chatsnack.chat.turns import normalize_messages
+        assert normalize_messages([]) == []
+
+    def test_normalize_messages_mixed(self):
+        from chatsnack.chat.turns import normalize_messages
+        turns = normalize_messages([
+            {"developer": "Instruction."},
+            {"user": "Question?"},
+            {"assistant": {"text": "Answer.", "reasoning": "Thinking."}},
+        ])
+        assert len(turns) == 3
+        assert turns[0].role == "system"
+        assert turns[0].text == "Instruction."
+        assert turns[1].role == "user"
+        assert turns[2].reasoning == "Thinking."
+
+    def test_denormalize_messages_round_trip(self):
+        from chatsnack.chat.turns import normalize_messages, denormalize_messages
+        original = [
+            {"system": "Be helpful."},
+            {"user": "Question."},
+            {"assistant": "Answer."},
+        ]
+        turns = normalize_messages(original)
+        result = denormalize_messages(turns)
+        assert result == original
+
+    def test_denormalize_messages_fidelity(self):
+        from chatsnack.chat.turns import NormalizedTurn, denormalize_messages
+        turns = [NormalizedTurn(
+            role="assistant",
+            text="Answer.",
+            provider_extras={"internal": True},
+        )]
+        authoring = denormalize_messages(turns, fidelity="authoring")
+        assert authoring[0] == {"assistant": "Answer."}
+        diagnostic = denormalize_messages(turns, fidelity="diagnostic")
+        assert "provider_extras" in diagnostic[0]["assistant"]
+
 
 # ═══════════════════════════════════════════════════════════════════════════
 # 7. Round-trip stability
