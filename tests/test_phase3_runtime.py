@@ -664,3 +664,360 @@ class TestProviderNativeToolPassthrough:
             {"type": "web_search"},
             {"type": "function", "function": {"name": "my_func"}},
         ]
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# 7. AttachmentResolver – local path upload, caching, integration
+# ═══════════════════════════════════════════════════════════════════════════
+
+class TestAttachmentResolver:
+    """Tests for the shared AttachmentResolver that auto-uploads local paths."""
+
+    def test_url_entries_pass_through_unchanged(self):
+        """url: entries should not trigger upload or resolution."""
+        from chatsnack.runtime.attachment_resolver import AttachmentResolver
+        resolver = AttachmentResolver(ai_client=None)
+        entry = {"url": "https://example.com/photo.png"}
+        result = resolver.resolve_attachment(entry, kind="image")
+        assert result == entry
+
+    def test_file_id_entries_pass_through_unchanged(self):
+        """file_id: entries should not trigger upload or resolution."""
+        from chatsnack.runtime.attachment_resolver import AttachmentResolver
+        resolver = AttachmentResolver(ai_client=None)
+        entry = {"file_id": "file_abc123"}
+        result = resolver.resolve_attachment(entry, kind="file")
+        assert result == entry
+
+    def test_path_entry_without_ai_client_warns_and_skips(self):
+        """path: entry with no ai_client should warn and return None."""
+        from chatsnack.runtime.attachment_resolver import AttachmentResolver
+        resolver = AttachmentResolver(ai_client=None)
+        with warnings.catch_warnings(record=True) as w:
+            warnings.simplefilter("always")
+            result = resolver.resolve_attachment({"path": "/tmp/test.png"}, kind="image")
+        assert result is None
+        assert any("no ai_client" in str(x.message) for x in w)
+
+    def test_path_entry_nonexistent_file_warns_and_skips(self, tmp_path):
+        """path: entry for a file that doesn't exist should warn and return None."""
+        from chatsnack.runtime.attachment_resolver import AttachmentResolver
+        fake_client = SimpleNamespace(
+            upload_file=lambda path, purpose="assistants": "file_123",
+        )
+        resolver = AttachmentResolver(ai_client=fake_client)
+        with warnings.catch_warnings(record=True) as w:
+            warnings.simplefilter("always")
+            result = resolver.resolve_attachment(
+                {"path": str(tmp_path / "nonexistent.png")}, kind="image",
+            )
+        assert result is None
+        assert any("file not found" in str(x.message) for x in w)
+
+    def test_path_entry_uploads_and_returns_file_id(self, tmp_path):
+        """path: entry for a real file should upload and return file_id."""
+        from chatsnack.runtime.attachment_resolver import AttachmentResolver
+        test_file = tmp_path / "data.csv"
+        test_file.write_text("a,b,c\n1,2,3\n")
+
+        upload_calls = []
+        def fake_upload(path, purpose="assistants"):
+            upload_calls.append(path)
+            return "file_uploaded_xyz"
+
+        fake_client = SimpleNamespace(upload_file=fake_upload)
+        resolver = AttachmentResolver(ai_client=fake_client)
+        result = resolver.resolve_attachment({"path": str(test_file)}, kind="file")
+        assert result == {"file_id": "file_uploaded_xyz"}
+        assert len(upload_calls) == 1
+
+    def test_upload_cache_prevents_re_upload(self, tmp_path):
+        """Same file should only be uploaded once (cache hit on second call)."""
+        from chatsnack.runtime.attachment_resolver import AttachmentResolver
+        test_file = tmp_path / "image.png"
+        test_file.write_bytes(b"\x89PNG\r\n")
+
+        upload_count = [0]
+        def fake_upload(path, purpose="assistants"):
+            upload_count[0] += 1
+            return "file_cached_abc"
+
+        fake_client = SimpleNamespace(upload_file=fake_upload)
+        resolver = AttachmentResolver(ai_client=fake_client)
+
+        r1 = resolver.resolve_attachment({"path": str(test_file)}, kind="image")
+        r2 = resolver.resolve_attachment({"path": str(test_file)}, kind="image")
+        assert r1 == {"file_id": "file_cached_abc"}
+        assert r2 == {"file_id": "file_cached_abc"}
+        assert upload_count[0] == 1  # Only uploaded once
+
+    def test_cache_invalidated_when_file_changes(self, tmp_path):
+        """Changing the file content (and mtime) should trigger a new upload."""
+        from chatsnack.runtime.attachment_resolver import AttachmentResolver
+        import time as _time
+        test_file = tmp_path / "data.csv"
+        test_file.write_text("v1")
+
+        upload_count = [0]
+        def fake_upload(path, purpose="assistants"):
+            upload_count[0] += 1
+            return f"file_v{upload_count[0]}"
+
+        fake_client = SimpleNamespace(upload_file=fake_upload)
+        resolver = AttachmentResolver(ai_client=fake_client)
+
+        r1 = resolver.resolve_attachment({"path": str(test_file)}, kind="file")
+        assert r1 == {"file_id": "file_v1"}
+
+        # Modify file (size + mtime change)
+        _time.sleep(0.05)
+        test_file.write_text("v2 with more content")
+
+        r2 = resolver.resolve_attachment({"path": str(test_file)}, kind="file")
+        assert r2 == {"file_id": "file_v2"}
+        assert upload_count[0] == 2
+
+    def test_upload_failure_warns_and_skips(self, tmp_path):
+        """If upload raises, should warn and return None (not crash)."""
+        from chatsnack.runtime.attachment_resolver import AttachmentResolver
+        test_file = tmp_path / "bad.csv"
+        test_file.write_text("data")
+
+        def failing_upload(path, purpose="assistants"):
+            raise RuntimeError("API quota exceeded")
+
+        fake_client = SimpleNamespace(upload_file=failing_upload)
+        resolver = AttachmentResolver(ai_client=fake_client)
+
+        with warnings.catch_warnings(record=True) as w:
+            warnings.simplefilter("always")
+            result = resolver.resolve_attachment({"path": str(test_file)}, kind="file")
+
+        assert result is None
+        assert any("upload failed" in str(x.message) for x in w)
+
+    def test_resolve_messages_resolves_paths_in_batch(self, tmp_path):
+        """resolve_messages should resolve all local path entries in a message list."""
+        from chatsnack.runtime.attachment_resolver import AttachmentResolver
+
+        img_file = tmp_path / "photo.png"
+        img_file.write_bytes(b"\x89PNG")
+        csv_file = tmp_path / "data.csv"
+        csv_file.write_text("a,b\n1,2")
+
+        upload_map = {}
+        def fake_upload(path, purpose="assistants"):
+            fid = f"file_{len(upload_map)}"
+            upload_map[path] = fid
+            return fid
+
+        fake_client = SimpleNamespace(upload_file=fake_upload)
+        resolver = AttachmentResolver(ai_client=fake_client)
+
+        messages = [
+            {
+                "role": "user",
+                "content": "Describe and analyze.",
+                "images": [{"path": str(img_file)}, {"url": "https://example.com/x.png"}],
+                "files": [{"path": str(csv_file)}, {"file_id": "file_existing"}],
+            },
+        ]
+
+        resolved = resolver.resolve_messages(messages)
+        assert len(resolved) == 1
+        msg = resolved[0]
+        # image: path resolved to file_id, url passes through
+        assert msg["images"][0].get("file_id") is not None
+        assert msg["images"][1] == {"url": "https://example.com/x.png"}
+        # file: path resolved to file_id, existing file_id passes through
+        assert msg["files"][0].get("file_id") is not None
+        assert msg["files"][1] == {"file_id": "file_existing"}
+        # Original messages should be unmodified
+        assert messages[0]["images"][0] == {"path": str(img_file)}
+        assert messages[0]["files"][0] == {"path": str(csv_file)}
+
+    def test_adapter_resolves_before_building_request(self, tmp_path):
+        """Full integration: ResponsesAdapter should resolve paths before building input."""
+        test_file = tmp_path / "report.pdf"
+        test_file.write_text("PDF content here")
+
+        captured = {}
+        def create(**kwargs):
+            captured.update(kwargs)
+            return _FakeObj({"id": "resp_upload", "status": "completed", "model": "gpt-5.4", "output": []})
+
+        def fake_upload(path, purpose="assistants"):
+            return "file_uploaded_pdf"
+
+        ai = SimpleNamespace(
+            client=SimpleNamespace(responses=SimpleNamespace(create=create)),
+            upload_file=fake_upload,
+        )
+        adapter = ResponsesAdapter(ai)
+
+        adapter.create_completion(
+            messages=[{
+                "role": "user",
+                "content": "Summarize this PDF.",
+                "files": [{"path": str(test_file)}],
+            }],
+            model="gpt-5.4",
+        )
+
+        content_parts = captured["input"][0]["content"]
+        file_parts = [p for p in content_parts if p["type"] == "input_file"]
+        assert len(file_parts) == 1
+        assert file_parts[0]["file_id"] == "file_uploaded_pdf"
+
+    def test_adapter_resolves_images_before_building_request(self, tmp_path):
+        """Full integration: ResponsesAdapter should resolve image paths to file_id."""
+        test_img = tmp_path / "photo.png"
+        test_img.write_bytes(b"\x89PNG\r\n")
+
+        captured = {}
+        def create(**kwargs):
+            captured.update(kwargs)
+            return _FakeObj({"id": "resp_img_upload", "status": "completed", "model": "gpt-5.4", "output": []})
+
+        def fake_upload(path, purpose="assistants"):
+            return "file_uploaded_img"
+
+        ai = SimpleNamespace(
+            client=SimpleNamespace(responses=SimpleNamespace(create=create)),
+            upload_file=fake_upload,
+        )
+        adapter = ResponsesAdapter(ai)
+
+        adapter.create_completion(
+            messages=[{
+                "role": "user",
+                "content": "Describe this image.",
+                "images": [{"path": str(test_img)}],
+            }],
+            model="gpt-5.4",
+        )
+
+        content_parts = captured["input"][0]["content"]
+        img_parts = [p for p in content_parts if p["type"] == "input_image"]
+        assert len(img_parts) == 1
+        assert img_parts[0]["file_id"] == "file_uploaded_img"
+
+    def test_adapter_mixed_path_and_file_id(self, tmp_path):
+        """Adapter resolves path entries while passing through existing file_id entries."""
+        test_file = tmp_path / "data.csv"
+        test_file.write_text("col1,col2\n1,2")
+
+        captured = {}
+        def create(**kwargs):
+            captured.update(kwargs)
+            return _FakeObj({"id": "resp_mixed", "status": "completed", "model": "gpt-5.4", "output": []})
+
+        def fake_upload(path, purpose="assistants"):
+            return "file_from_upload"
+
+        ai = SimpleNamespace(
+            client=SimpleNamespace(responses=SimpleNamespace(create=create)),
+            upload_file=fake_upload,
+        )
+        adapter = ResponsesAdapter(ai)
+
+        adapter.create_completion(
+            messages=[{
+                "role": "user",
+                "content": "Analyze both files.",
+                "files": [
+                    {"file_id": "file_existing_123"},
+                    {"path": str(test_file)},
+                ],
+            }],
+            model="gpt-5.4",
+        )
+
+        content_parts = captured["input"][0]["content"]
+        file_parts = [p for p in content_parts if p["type"] == "input_file"]
+        assert len(file_parts) == 2
+        file_ids = {p["file_id"] for p in file_parts}
+        assert "file_existing_123" in file_ids
+        assert "file_from_upload" in file_ids
+
+    def test_original_messages_not_mutated(self, tmp_path):
+        """The resolver must not mutate the original message dicts (YAML preservation)."""
+        test_file = tmp_path / "keep_path.csv"
+        test_file.write_text("data")
+
+        def fake_upload(path, purpose="assistants"):
+            return "file_resolved"
+
+        captured = {}
+        def create(**kwargs):
+            captured.update(kwargs)
+            return _FakeObj({"id": "resp_no_mutate", "status": "completed", "model": "gpt-5.4", "output": []})
+
+        ai = SimpleNamespace(
+            client=SimpleNamespace(responses=SimpleNamespace(create=create)),
+            upload_file=fake_upload,
+        )
+        adapter = ResponsesAdapter(ai)
+
+        original_msg = {
+            "role": "user",
+            "content": "Check this.",
+            "files": [{"path": str(test_file)}],
+        }
+        import copy
+        original_snapshot = copy.deepcopy(original_msg)
+
+        adapter.create_completion(messages=[original_msg], model="gpt-5.4")
+
+        # Original should be completely untouched
+        assert original_msg == original_snapshot
+
+
+class TestAttachmentResolverAsync:
+    """Async tests for AttachmentResolver."""
+
+    @pytest.mark.asyncio
+    async def test_async_path_upload_and_cache(self, tmp_path):
+        """Async resolve should upload and cache like the sync path."""
+        from chatsnack.runtime.attachment_resolver import AttachmentResolver
+        test_file = tmp_path / "async_test.csv"
+        test_file.write_text("async data")
+
+        upload_count = [0]
+        async def fake_upload_async(path, purpose="assistants"):
+            upload_count[0] += 1
+            return "file_async_123"
+
+        fake_client = SimpleNamespace(upload_file_async=fake_upload_async)
+        resolver = AttachmentResolver(ai_client=fake_client)
+
+        r1 = await resolver.resolve_attachment_async({"path": str(test_file)}, kind="file")
+        assert r1 == {"file_id": "file_async_123"}
+
+        r2 = await resolver.resolve_attachment_async({"path": str(test_file)}, kind="file")
+        assert r2 == {"file_id": "file_async_123"}
+        assert upload_count[0] == 1  # Cached
+
+    @pytest.mark.asyncio
+    async def test_async_resolve_messages(self, tmp_path):
+        """Async resolve_messages should resolve all paths."""
+        from chatsnack.runtime.attachment_resolver import AttachmentResolver
+        test_file = tmp_path / "async_batch.csv"
+        test_file.write_text("batch data")
+
+        async def fake_upload_async(path, purpose="assistants"):
+            return "file_async_batch"
+
+        fake_client = SimpleNamespace(upload_file_async=fake_upload_async)
+        resolver = AttachmentResolver(ai_client=fake_client)
+
+        messages = [{
+            "role": "user",
+            "content": "Process.",
+            "files": [{"path": str(test_file)}],
+        }]
+
+        resolved = await resolver.resolve_messages_async(messages)
+        assert resolved[0]["files"][0] == {"file_id": "file_async_batch"}
+        # Original untouched
+        assert messages[0]["files"][0] == {"path": str(test_file)}

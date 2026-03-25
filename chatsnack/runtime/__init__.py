@@ -10,6 +10,7 @@ from .types import (
     RuntimeStreamEvent,
     RuntimeTerminalMetadata,
 )
+from .attachment_resolver import AttachmentResolver
 from .chat_completions_adapter import ChatCompletionsAdapter
 from .responses_adapter import ResponsesAdapter
 from .responses_websocket_adapter import (
@@ -30,6 +31,7 @@ __all__ = [
     "RuntimeStreamEvent",
     "RuntimeTerminalMetadata",
     "RuntimeErrorPayload",
+    "AttachmentResolver",
     "ChatCompletionsAdapter",
     "ResponsesAdapter",
     "ResponsesWebSocketAdapter",

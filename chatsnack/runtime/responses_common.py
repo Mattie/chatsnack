@@ -1,6 +1,7 @@
 import warnings
 from typing import Any, Dict, List, Optional, Tuple
 
+from .attachment_resolver import AttachmentResolver
 from .types import (
     NormalizedAssistantMessage,
     NormalizedCompletionResult,
