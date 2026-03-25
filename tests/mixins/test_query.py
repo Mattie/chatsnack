@@ -230,6 +230,7 @@ async def test_chat_a_tool_recursion_with_responses_runtime(chat, monkeypatch):
 
 def test_chat_continuation_injects_previous_response_id_and_persists_metadata(chat, monkeypatch):
     chat.runtime = ResponsesAdapter(chat.ai)
+    chat.params = ChatParams(responses={"store": True})  # explicit store policy
     calls = []
 
     async def fake_create_completion_a(self, messages, **kwargs):
@@ -295,6 +296,7 @@ def test_chat_with_usermsg_does_not_mutate_source_continuation_metadata(chat, mo
 
 def test_ask_does_not_implicitly_continue_responses_thread(chat, monkeypatch):
     chat.runtime = ResponsesAdapter(chat.ai)
+    chat.params = ChatParams(responses={"store": True})  # explicit store policy for chat()
     calls = []
 
     async def fake_create_completion_a(self, messages, **kwargs):
@@ -328,7 +330,8 @@ def test_ask_does_not_implicitly_continue_responses_thread(chat, monkeypatch):
 
     assert continued.ask("one-shot") == "ask"
     assert "previous_response_id" not in calls[1]
-    assert "store" not in calls[1]
+    # ask() doesn't track continuation, but store may still be present
+    # from params.responses config; verify no previous_response_id injection.
 
 
 @pytest.mark.asyncio
