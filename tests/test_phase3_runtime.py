@@ -731,6 +731,26 @@ class TestAttachmentResolver:
         assert result == {"file_id": "file_uploaded_xyz"}
         assert len(upload_calls) == 1
 
+    def test_image_path_upload_uses_vision_purpose(self, tmp_path):
+        """Image uploads should use the Files API vision purpose."""
+        from chatsnack.runtime.attachment_resolver import AttachmentResolver
+        test_file = tmp_path / "photo.png"
+        test_file.write_bytes(b"\x89PNG\r\n")
+
+        upload_calls = []
+
+        def fake_upload(path, purpose="assistants"):
+            upload_calls.append((path, purpose))
+            return "file_uploaded_img"
+
+        fake_client = SimpleNamespace(upload_file=fake_upload)
+        resolver = AttachmentResolver(ai_client=fake_client)
+
+        result = resolver.resolve_attachment({"path": str(test_file)}, kind="image")
+
+        assert result == {"file_id": "file_uploaded_img"}
+        assert upload_calls == [(str(test_file), "vision")]
+
     def test_upload_cache_prevents_re_upload(self, tmp_path):
         """Same file should only be uploaded once (cache hit on second call)."""
         from chatsnack.runtime.attachment_resolver import AttachmentResolver
@@ -738,8 +758,10 @@ class TestAttachmentResolver:
         test_file.write_bytes(b"\x89PNG\r\n")
 
         upload_count = [0]
+        upload_purposes = []
         def fake_upload(path, purpose="assistants"):
             upload_count[0] += 1
+            upload_purposes.append(purpose)
             return "file_cached_abc"
 
         fake_client = SimpleNamespace(upload_file=fake_upload)
@@ -750,6 +772,7 @@ class TestAttachmentResolver:
         assert r1 == {"file_id": "file_cached_abc"}
         assert r2 == {"file_id": "file_cached_abc"}
         assert upload_count[0] == 1  # Only uploaded once
+        assert upload_purposes == ["vision"]
 
     def test_cache_invalidated_when_file_changes(self, tmp_path):
         """Changing the file content (and mtime) should trigger a new upload."""
@@ -875,11 +898,13 @@ class TestAttachmentResolver:
         test_img.write_bytes(b"\x89PNG\r\n")
 
         captured = {}
+        upload_purposes = []
         def create(**kwargs):
             captured.update(kwargs)
             return _FakeObj({"id": "resp_img_upload", "status": "completed", "model": "gpt-5.4", "output": []})
 
         def fake_upload(path, purpose="assistants"):
+            upload_purposes.append(purpose)
             return "file_uploaded_img"
 
         ai = SimpleNamespace(
@@ -901,6 +926,7 @@ class TestAttachmentResolver:
         img_parts = [p for p in content_parts if p["type"] == "input_image"]
         assert len(img_parts) == 1
         assert img_parts[0]["file_id"] == "file_uploaded_img"
+        assert upload_purposes == ["vision"]
 
     def test_adapter_mixed_path_and_file_id(self, tmp_path):
         """Adapter resolves path entries while passing through existing file_id entries."""

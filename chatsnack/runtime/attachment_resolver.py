@@ -61,13 +61,24 @@ class AttachmentResolver:
     # Upload helpers
     # ------------------------------------------------------------------
 
-    def _upload_sync(self, path: str) -> str:
-        """Upload *path* via the Files API (sync) and return the file_id."""
-        return self.ai_client.upload_file(os.path.abspath(path))
+    @staticmethod
+    def _upload_purpose(kind: str) -> str:
+        """Return the OpenAI Files API purpose for an attachment kind."""
+        return "vision" if kind == "image" else "assistants"
 
-    async def _upload_async(self, path: str) -> str:
+    def _upload_sync(self, path: str, kind: str) -> str:
+        """Upload *path* via the Files API (sync) and return the file_id."""
+        return self.ai_client.upload_file(
+            os.path.abspath(path),
+            purpose=self._upload_purpose(kind),
+        )
+
+    async def _upload_async(self, path: str, kind: str) -> str:
         """Upload *path* via the Files API (async) and return the file_id."""
-        return await self.ai_client.upload_file_async(os.path.abspath(path))
+        return await self.ai_client.upload_file_async(
+            os.path.abspath(path),
+            purpose=self._upload_purpose(kind),
+        )
 
     # ------------------------------------------------------------------
     # Public API – resolve a single attachment dict
@@ -114,7 +125,7 @@ class AttachmentResolver:
             return {"file_id": cached}
 
         try:
-            file_id = self._upload_sync(path)
+            file_id = self._upload_sync(path, kind)
         except Exception as exc:
             warnings.warn(
                 f"Skipping local-path {kind} '{path}': upload failed ({exc}).",
@@ -159,7 +170,7 @@ class AttachmentResolver:
             return {"file_id": cached}
 
         try:
-            file_id = await self._upload_async(path)
+            file_id = await self._upload_async(path, kind)
         except Exception as exc:
             warnings.warn(
                 f"Skipping local-path {kind} '{path}': upload failed ({exc}).",

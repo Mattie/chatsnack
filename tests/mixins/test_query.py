@@ -816,10 +816,17 @@ def _make_live_phase3_responses_chat(*, session=None) -> "Chat":
 
 
 def _write_test_png(path: str) -> None:
-    """Write a tiny valid PNG for live image-attachment tests."""
+    """Write a small but non-trivial valid PNG for live image-attachment tests.
+
+    A slightly larger fixture is less brittle with provider-side validation than
+    the previous 1x1 image while still keeping the test asset tiny.
+    """
     png_b64 = (
-        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8"
-        "/x8AAwMCAO7Z0uoAAAAASUVORK5CYII="
+        "iVBORw0KGgoAAAANSUhEUgAAAAgAAAAICAYAAADED76LAAAAoElEQVR42g3K0QAE"
+        "MQxF0SAMQhAGIQhFeAhFCEIRgjAIQViEmNzt+T5mZrg9hDmyl7SgbNEmxjZm/uDuhL"
+        "/Ig/RFuWjfjOcN4Xi8RASKRYao2HQkE+cGvbiC0EISqU0paR1GdUMGnotIodxkJpWH"
+        "zmLyu6EWXiJqo0qyDlVF18dU39DCexOdqA/ZRfVHdzP9u2E2PknMQVPkfNQ0PT9mh"
+        "j/jRpPBG+li2wAAAABJRU5ErkJggg=="
     )
     with open(path, "wb") as fh:
         fh.write(base64.b64decode(png_b64))
@@ -827,8 +834,9 @@ def _write_test_png(path: str) -> None:
 
 @_skip_no_key
 def test_live_responses_continuation_ownership_gpt54():
-    """Live multi-turn continuation should be owned internally for Responses runtime on gpt-5.4."""
+    """HTTP Responses continuation should work live when the first response is stored."""
     chat = _make_live_responses_gpt54_chat()
+    chat.params.responses = {"store": True}
 
     first = chat.chat("Return exactly: TURN_ONE_OK")
     first_messages = first.get_messages()
@@ -1023,11 +1031,12 @@ def test_live_phase3_provider_native_web_search_tool():
 
 @_skip_no_key
 def test_live_phase3_websocket_attachment_and_session_continuation(tmp_path):
-    """WebSocket Responses should handle attachment turns and continuation live."""
+    """WebSocket Responses should handle attachment turns and store=False continuation live."""
     file_path = tmp_path / "ws-attachment.txt"
     file_path.write_text("websocket attachment")
 
     chat = _make_live_phase3_responses_chat(session="inherit")
+    chat.params.responses = {"store": False}
     chat.messages = [{"user": {"files": [{"path": str(file_path)}]}}]
 
     first = chat.chat("Reply exactly WS_FILE_OK if the previous user turn included a file attachment.")

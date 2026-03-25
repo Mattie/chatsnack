@@ -203,6 +203,9 @@ Add short dated entries here as work lands.
   - WebSocket continuation tests now cover attachment-only suffix turns (`previous_response_id` + attachment input item)
   - WebSocket request tests now cover provider-native tool passthrough on the SDK event-body path
   - `Chat.copy()` / JSON message import now preserve attachment-only expanded turns instead of failing on empty text content
+- Follow-up refinement:
+  - HTTP live continuation coverage now sets `responses.store: true` before the first turn, matching the provider continuation contract for `previous_response_id`
+  - Image-path uploads now use the Files API `purpose="vision"` while regular files continue using the model-input file path
 - Caveats:
   - Live tests require both `OPENAI_API_KEY` and `CHATSNACK_RUN_LIVE_TESTS` to be set, so they are safe in CI/sandbox environments with blocked network egress
 - How we checked it: `pytest -q tests/runtime/ tests/test_phase2_sessions.py tests/test_phase3_runtime.py tests/test_phase3_yaml.py tests/mixins/test_query.py` → 206 passed, 20 skipped
