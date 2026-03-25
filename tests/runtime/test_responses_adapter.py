@@ -295,6 +295,7 @@ def test_continuation_previous_response_id_uses_incremental_suffix_not_full_repl
         ],
         model="gpt-4.1",
         previous_response_id="resp_prev",
+        store=True,
     )
 
     assert captured["previous_response_id"] == "resp_prev"

@@ -526,22 +526,24 @@ class TestParamsAndTools:
         assert "reasoning.encrypted_content" in r["include"]
 
     def test_provider_native_tool_raw_dict_passthrough(self):
-        """params.tools should accept raw provider-native tool dicts."""
-        chat = Chat(name="phase3_native_tools")
-        chat.params = ChatParams(
+        """params.tools should accept raw provider-native tool dicts like web_search."""
+        params = ChatParams(
             model="gpt-5.4",
             runtime="responses",
         )
-        # Inject raw provider-native tool dicts directly into messages for save
-        chat.messages = [
-            {"system": "Support the user's request."},
-            {"user": "Research the topic."},
-        ]
-        chat.save()
+        params.set_tools([
+            {"type": "web_search"},
+            {"type": "function", "function": {"name": "lookup", "parameters": {}}},
+        ])
 
-        # Verify round-trip of the basic structure
-        loaded = Chat(name="phase3_native_tools")
-        assert len(loaded.messages) == 2
+        result = params.get_tools()
+        assert len(result) == 2
+        types = [t["type"] for t in result]
+        assert "web_search" in types
+        assert "function" in types
+        # web_search should NOT have a function wrapper
+        ws = [t for t in result if t["type"] == "web_search"][0]
+        assert "function" not in ws
 
     def test_local_function_tool_history_format(self):
         """Existing chatsnack tool call format should be preserved."""

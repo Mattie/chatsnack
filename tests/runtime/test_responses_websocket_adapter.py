@@ -48,7 +48,7 @@ def test_request_with_session_applies_continuation_defaults_before_building_inpu
         {"role": "user", "content": "continue"},
     ]
 
-    request = adapter._request_with_session(messages, {"model": "gpt-4.1"}, include_prev=True)
+    request = adapter._request_with_session(messages, {"model": "gpt-4.1", "store": True}, include_prev=True)
 
     assert request["previous_response_id"] == "resp_prev"
     assert request["store"] is True

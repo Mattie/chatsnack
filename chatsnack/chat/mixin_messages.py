@@ -319,8 +319,15 @@ class ChatMessagesMixin:
                 elif api_role == "tool" and isinstance(content, dict) and "tool_call_id" in content and "content" in content:
                     new_messages.append({"role": api_role, "content": content["content"], "tool_call_id": content["tool_call_id"]})
                 elif isinstance(content, dict) and "text" in content:
-                    # Expanded turn block (Phase 3) – extract the text for the API message.
-                    new_messages.append({"role": api_role, "content": content.get("text")})
+                    # Expanded turn block (Phase 3) – build the API message.
+                    # Carry through images and files metadata alongside the text
+                    # so runtime adapters can build multi-part input items.
+                    api_msg = {"role": api_role, "content": content.get("text")}
+                    if content.get("images"):
+                        api_msg["images"] = content["images"]
+                    if content.get("files"):
+                        api_msg["files"] = content["files"]
+                    new_messages.append(api_msg)
                 else:
                     new_messages.append({"role": api_role, "content": content})
 
