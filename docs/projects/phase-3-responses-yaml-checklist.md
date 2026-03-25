@@ -158,7 +158,7 @@ Add short dated entries here as work lands.
   - Round-trip stability verified
 - Caveats:
   - Cross-runtime live tests require API access
-  - Serializer heavy-lifting for automatic uploads (local path → file_id) is deferred to runtime integration
+  - Automatic local-path upload via `AttachmentResolver` is implemented and wired into both adapters
   - Typed wrappers for `params.responses` fields can follow later if useful
 - How we checked it: 52 tests in `tests/test_phase3_yaml.py`, all existing tests still passing
 - Follow-up: Runtime adapter integration for folding reasoning/sources/images from Responses API output into YAML turns; notebook examples; typed `params.responses` wrappers if needed
@@ -173,3 +173,24 @@ Add short dated entries here as work lands.
   - `store` policy respects the explicit `params.responses.store` value – no more auto-enable for continuation (preserves Phase 2a store=false WebSocket continuation)
   - Provider-native tool dicts (web_search, code_interpreter, image_generation, mcp) pass through unchanged via `set_tools()`/`get_tools()` – no longer wrapped in invalid function-tool schema
 - How we checked it: 23 new tests in `tests/test_phase3_runtime.py`, updated 2 existing continuation tests for new store policy
+
+### 2026-03-25 – Attachment-only turns, previous_response_id production path
+- Status: done
+- What works for users:
+  - `get_messages()` now handles attachment-only expanded turns (images/files with no text key)
+  - `_normalize_runtime_metadata()` preserves `previous_response_id` as a top-level key, completing the full production flow from adapter through to `params.responses.state`
+- How we checked it: 6 new tests in `tests/test_phase3_runtime.py` (29 total runtime tests)
+
+### 2026-03-25 – Local file upload via AttachmentResolver
+- Status: done
+- RFC section: `Serializer heavy lifting`
+- What works for users:
+  - Local `path:` entries in `user.images` and `user.files` are automatically uploaded via the OpenAI Files API before the Responses request is built
+  - Upload results are cached in memory by `(absolute_path, size, mtime_ns, kind)` so repeated prompts do not re-upload the same asset during a session or notebook run
+  - Cache invalidates when file content changes (size or mtime differs)
+  - Both HTTP Responses and WebSocket Responses adapters share the same `AttachmentResolver` instance and upload path
+  - Original `path:` entries in YAML are never mutated – the resolver returns new dicts for the API call
+  - `url:` and `file_id:` entries pass through unchanged
+  - Upload failures warn and skip gracefully (no crash)
+  - New `upload_file()` and `upload_file_async()` helpers on `AiClient`
+- How we checked it: 15 new tests in `tests/test_phase3_runtime.py` (44 total runtime tests) covering unit, caching, integration, async, and YAML preservation

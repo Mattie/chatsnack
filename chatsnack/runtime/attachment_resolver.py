@@ -110,7 +110,7 @@ class AttachmentResolver:
 
         cached = self._get_cached(cache_key)
         if cached:
-            logger.debug("Cache hit for {kind} upload: {path} → {fid}", kind=kind, path=path, fid=cached)
+            logger.debug("Cache hit for {kind} upload: {name} → {fid}", kind=kind, name=os.path.basename(path), fid=cached)
             return {"file_id": cached}
 
         try:
@@ -123,7 +123,7 @@ class AttachmentResolver:
             return None
 
         self._set_cached(cache_key, file_id)
-        logger.debug("Uploaded {kind}: {path} → {fid}", kind=kind, path=path, fid=file_id)
+        logger.debug("Uploaded {kind}: {name} → {fid}", kind=kind, name=os.path.basename(path), fid=file_id)
         return {"file_id": file_id}
 
     async def resolve_attachment_async(self, entry: Dict[str, Any], kind: str) -> Optional[Dict[str, Any]]:
@@ -155,7 +155,7 @@ class AttachmentResolver:
 
         cached = self._get_cached(cache_key)
         if cached:
-            logger.debug("Cache hit for {kind} upload: {path} → {fid}", kind=kind, path=path, fid=cached)
+            logger.debug("Cache hit for {kind} upload: {name} → {fid}", kind=kind, name=os.path.basename(path), fid=cached)
             return {"file_id": cached}
 
         try:
@@ -168,7 +168,7 @@ class AttachmentResolver:
             return None
 
         self._set_cached(cache_key, file_id)
-        logger.debug("Uploaded {kind}: {path} → {fid}", kind=kind, path=path, fid=file_id)
+        logger.debug("Uploaded {kind}: {name} → {fid}", kind=kind, name=os.path.basename(path), fid=file_id)
         return {"file_id": file_id}
 
     # ------------------------------------------------------------------
