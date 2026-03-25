@@ -177,6 +177,54 @@ def test_ask_through_websocket_returns_text(monkeypatch):
     assert result == "pong"
 
 
+def test_ask_through_websocket_preserves_attachment_only_turn_metadata(monkeypatch):
+    """WebSocket ask() should pass attachment-only expanded turns through to the runtime."""
+    chat = Chat(runtime="responses", session="inherit")
+    chat.messages = [{"user": {"files": [{"file_id": "file_phase3"}]}}]
+    captured = {}
+
+    async def fake_create_completion_a(self, messages, **kwargs):
+        captured["messages"] = messages
+        return SimpleNamespace(
+            message=SimpleNamespace(content="ok", tool_calls=[]),
+            metadata={"response_id": "resp_attach"},
+        )
+
+    monkeypatch.setattr(ResponsesWebSocketAdapter, "create_completion_a", fake_create_completion_a)
+
+    result = chat.ask("Acknowledge the earlier attachment.")
+
+    assert result == "ok"
+    assert captured["messages"][0] == {
+        "role": "user",
+        "content": "",
+        "files": [{"file_id": "file_phase3"}],
+    }
+
+
+def test_ask_through_websocket_passes_provider_native_tools(monkeypatch):
+    """WebSocket ask() should forward provider-native tools unchanged."""
+    chat = Chat(runtime="responses", session="inherit")
+    chat.params.set_tools([{"type": "web_search"}])
+    chat.params.tool_choice = "required"
+    captured = {}
+
+    async def fake_create_completion_a(self, messages, **kwargs):
+        captured["kwargs"] = kwargs
+        return SimpleNamespace(
+            message=SimpleNamespace(content="tool ok", tool_calls=[]),
+            metadata={"response_id": "resp_tool"},
+        )
+
+    monkeypatch.setattr(ResponsesWebSocketAdapter, "create_completion_a", fake_create_completion_a)
+
+    result = chat.ask("Search if needed.")
+
+    assert result == "tool ok"
+    assert captured["kwargs"]["tools"] == [{"type": "web_search"}]
+    assert captured["kwargs"]["tool_choice"] == "required"
+
+
 # ---------------------------------------------------------------------------
 # chat() acceptance through the WebSocket adapter + continuation metadata
 # ---------------------------------------------------------------------------

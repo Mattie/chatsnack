@@ -148,8 +148,22 @@ class ChatMessagesMixin:
                     # Standard message types (user, system)
                     if escape and isinstance(content, str):
                         content = content.replace("{", "{{").replace("}", "}}")
-                    
-                    if content and role:
+
+                    attachments = {}
+                    if message.get("images"):
+                        attachments["images"] = message["images"]
+                    if message.get("files"):
+                        attachments["files"] = message["files"]
+
+                    if role and attachments:
+                        # Attachment-only turns are valid in Phase 3, so we keep
+                        # the expanded structure even when there is no text field.
+                        expanded = {}
+                        if content:
+                            expanded["text"] = content
+                        expanded.update(attachments)
+                        self.messages.append({role: expanded})
+                    elif content and role:
                         # Generic role handling
                         self.messages.append({role: content})
                     else:
