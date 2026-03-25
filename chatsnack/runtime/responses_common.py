@@ -1,3 +1,4 @@
+import warnings
 from typing import Any, Dict, List, Optional, Tuple
 
 from .types import (
@@ -85,9 +86,13 @@ class ResponsesNormalizationMixin:
                 elif img.get("file_id"):
                     content_parts.append({"type": "input_image", "file_id": img["file_id"]})
                 elif img.get("path"):
-                    # Local path: best-effort pass-through; a future upload step
-                    # should resolve this to a file_id before the request fires.
-                    content_parts.append({"type": "input_image", "file_id": img["path"]})
+                    # Local paths require an upload step that chatsnack does not
+                    # yet perform.  Silently dropping them would hide authoring
+                    # errors, so we warn and skip.
+                    warnings.warn(
+                        f"Skipping local-path image '{img['path']}': upload to file_id is not yet implemented. Use a url or file_id entry instead.",
+                        stacklevel=2,
+                    )
 
         # Phase 3: files on user turns → input_file items.
         for f in message.get("files") or []:
@@ -95,9 +100,12 @@ class ResponsesNormalizationMixin:
                 if f.get("file_id"):
                     content_parts.append({"type": "input_file", "file_id": f["file_id"]})
                 elif f.get("path"):
-                    # Local path: best-effort pass-through; a future upload step
-                    # should resolve this to a file_id before the request fires.
-                    content_parts.append({"type": "input_file", "file_id": f["path"]})
+                    # Local paths require an upload step that chatsnack does not
+                    # yet perform.  Warn and skip.
+                    warnings.warn(
+                        f"Skipping local-path file '{f['path']}': upload to file_id is not yet implemented. Use a file_id entry instead.",
+                        stacklevel=2,
+                    )
 
         # Fall back to at least one input_text part even if empty.
         if not content_parts:

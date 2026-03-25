@@ -8,6 +8,7 @@ without being wrapped in function-tool schema.
 All tests are offline (no live API calls).
 """
 
+import warnings
 from types import SimpleNamespace
 
 import pytest
@@ -226,6 +227,101 @@ class TestExpandedTurnsProduceMixedContent:
         content_parts = captured["input"][0]["content"]
         assert len(content_parts) == 1
         assert content_parts[0] == {"type": "input_text", "text": "Hello"}
+
+    def test_local_path_image_skipped_with_warning(self):
+        """A user image with only path: should be skipped (not sent as file_id)."""
+        captured = {}
+
+        def create(**kwargs):
+            captured.update(kwargs)
+            return _FakeObj({"id": "resp_skip", "status": "completed", "model": "gpt-5.4", "output": []})
+
+        ai = SimpleNamespace(client=SimpleNamespace(responses=SimpleNamespace(create=create)))
+        adapter = ResponsesAdapter(ai)
+
+        with warnings.catch_warnings(record=True) as w:
+            warnings.simplefilter("always")
+            adapter.create_completion(
+                messages=[{
+                    "role": "user",
+                    "content": "Describe this image.",
+                    "images": [{"path": "/tmp/photo.png"}],
+                }],
+                model="gpt-5.4",
+            )
+
+        # The local-path image should NOT appear in the input.
+        content_parts = captured["input"][0]["content"]
+        assert all(p["type"] != "input_image" for p in content_parts), \
+            "Local-path image should be skipped, not sent as input_image"
+        # Only the text part should remain.
+        assert len(content_parts) == 1
+        assert content_parts[0] == {"type": "input_text", "text": "Describe this image."}
+        # A warning should have been emitted.
+        path_warnings = [x for x in w if "photo.png" in str(x.message)]
+        assert len(path_warnings) == 1
+
+    def test_local_path_file_skipped_with_warning(self):
+        """A user file with only path: should be skipped (not sent as file_id)."""
+        captured = {}
+
+        def create(**kwargs):
+            captured.update(kwargs)
+            return _FakeObj({"id": "resp_skip2", "status": "completed", "model": "gpt-5.4", "output": []})
+
+        ai = SimpleNamespace(client=SimpleNamespace(responses=SimpleNamespace(create=create)))
+        adapter = ResponsesAdapter(ai)
+
+        with warnings.catch_warnings(record=True) as w:
+            warnings.simplefilter("always")
+            adapter.create_completion(
+                messages=[{
+                    "role": "user",
+                    "content": "Summarize this file.",
+                    "files": [{"path": "./data/sales.csv"}],
+                }],
+                model="gpt-5.4",
+            )
+
+        content_parts = captured["input"][0]["content"]
+        assert all(p["type"] != "input_file" for p in content_parts), \
+            "Local-path file should be skipped, not sent as input_file"
+        assert len(content_parts) == 1
+        assert content_parts[0] == {"type": "input_text", "text": "Summarize this file."}
+        path_warnings = [x for x in w if "sales.csv" in str(x.message)]
+        assert len(path_warnings) == 1
+
+    def test_mixed_file_id_and_local_path_keeps_file_id_only(self):
+        """When a turn has both file_id and path entries, only file_id should be sent."""
+        captured = {}
+
+        def create(**kwargs):
+            captured.update(kwargs)
+            return _FakeObj({"id": "resp_mix", "status": "completed", "model": "gpt-5.4", "output": []})
+
+        ai = SimpleNamespace(client=SimpleNamespace(responses=SimpleNamespace(create=create)))
+        adapter = ResponsesAdapter(ai)
+
+        with warnings.catch_warnings(record=True) as w:
+            warnings.simplefilter("always")
+            adapter.create_completion(
+                messages=[{
+                    "role": "user",
+                    "content": "Analyze these.",
+                    "files": [
+                        {"file_id": "file_real_123"},
+                        {"path": "./local/data.csv"},
+                    ],
+                }],
+                model="gpt-5.4",
+            )
+
+        content_parts = captured["input"][0]["content"]
+        file_parts = [p for p in content_parts if p["type"] == "input_file"]
+        assert len(file_parts) == 1
+        assert file_parts[0]["file_id"] == "file_real_123"
+        path_warnings = [x for x in w if "data.csv" in str(x.message)]
+        assert len(path_warnings) == 1
 
 
 # ═══════════════════════════════════════════════════════════════════════════
