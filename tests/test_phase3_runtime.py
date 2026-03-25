@@ -369,6 +369,34 @@ class TestGetMessagesCarriesAssets:
         assert "images" not in msgs[0]
         assert "files" not in msgs[0]
 
+    def test_attachment_only_turn_without_text(self):
+        """Expanded turn with images but no text key should still carry through."""
+        from chatsnack import Chat
+        chat = Chat(name="p3_attach_only")
+        chat.messages = [
+            {"user": {
+                "images": [{"url": "https://example.com/photo.png"}],
+            }},
+        ]
+        msgs = chat.get_messages()
+        assert msgs[0]["role"] == "user"
+        assert msgs[0]["content"] == ""
+        assert msgs[0]["images"] == [{"url": "https://example.com/photo.png"}]
+
+    def test_attachment_only_files_without_text(self):
+        """Expanded turn with files but no text key should still carry through."""
+        from chatsnack import Chat
+        chat = Chat(name="p3_files_only")
+        chat.messages = [
+            {"user": {
+                "files": [{"file_id": "file_xyz"}],
+            }},
+        ]
+        msgs = chat.get_messages()
+        assert msgs[0]["role"] == "user"
+        assert msgs[0]["content"] == ""
+        assert msgs[0]["files"] == [{"file_id": "file_xyz"}]
+
 
 # ═══════════════════════════════════════════════════════════════════════════
 # 4. Runtime metadata bridges into params.responses.state
@@ -378,7 +406,8 @@ class TestRuntimeMetadataBridgesToState:
 
     def test_metadata_written_when_export_state_enabled(self):
         """_set_last_runtime_metadata should populate params.responses.state
-        when export_state is true."""
+        when export_state is true.  previous_response_id is a top-level metadata
+        key (matching the production normalize_completion output)."""
         from chatsnack import Chat
         chat = Chat(name="p3_meta_bridge")
         chat.params = ChatParams(
@@ -387,13 +416,15 @@ class TestRuntimeMetadataBridgesToState:
             responses={"export_state": True, "store": True},
         )
 
+        # Simulate the shape that _normalize_runtime_metadata produces from
+        # normalize_completion: previous_response_id is top-level.
         chat._set_last_runtime_metadata({
             "response_id": "resp_abc123",
+            "previous_response_id": "resp_prev",
             "usage": {"total_tokens": 42},
             "assistant_phase": "completed",
             "provider_extras": {
                 "status": "completed",
-                "previous_response_id": "resp_prev",
             },
         })
 
@@ -435,6 +466,43 @@ class TestRuntimeMetadataBridgesToState:
         })
 
         assert chat.params.responses is None
+
+    def test_production_flow_previous_response_id_reaches_state(self):
+        """End-to-end: normalize_completion → _normalize_runtime_metadata →
+        _set_last_runtime_metadata → _sync_runtime_metadata_to_params.
+        Verifies previous_response_id survives the full production path."""
+        from chatsnack import Chat
+        from chatsnack.runtime.responses_common import ResponsesNormalizationMixin
+
+        mixin = ResponsesNormalizationMixin()
+        # Simulate a Responses API result with a previous_response_id in request_kwargs
+        fake_response = {
+            "id": "resp_new_456",
+            "status": "completed",
+            "model": "gpt-5.4",
+            "output": [
+                {"type": "message", "role": "assistant",
+                 "content": [{"type": "output_text", "text": "Hello"}]},
+            ],
+        }
+        request_kwargs = {"previous_response_id": "resp_old_123", "model": "gpt-5.4"}
+        result = mixin.normalize_completion(fake_response, request_kwargs)
+
+        # Wire through the chat's metadata pipeline
+        chat = Chat(name="p3_e2e_prev_id")
+        chat.params = ChatParams(
+            model="gpt-5.4",
+            runtime="responses",
+            responses={"export_state": True, "store": True},
+        )
+        normalized_meta = chat._normalize_runtime_metadata(result)
+        chat._set_last_runtime_metadata(normalized_meta)
+
+        state = chat.params.responses.get("state")
+        assert state is not None
+        assert state["response_id"] == "resp_new_456"
+        assert state["status"] == "completed"
+        assert state["previous_response_id"] == "resp_old_123"
 
 
 # ═══════════════════════════════════════════════════════════════════════════

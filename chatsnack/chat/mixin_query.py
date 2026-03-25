@@ -347,6 +347,7 @@ class ChatQueryMixin(ChatMessagesMixin, ChatParamsMixin):
 
         return {
             "response_id": metadata.get("response_id"),
+            "previous_response_id": metadata.get("previous_response_id"),
             "usage": getattr(normalized_response, "usage", None) if normalized_response is not None else None,
             "assistant_phase": metadata.get("assistant_phase"),
             "provider_extras": metadata.get("provider_extras"),
@@ -355,6 +356,7 @@ class ChatQueryMixin(ChatMessagesMixin, ChatParamsMixin):
     def _set_last_runtime_metadata(self, metadata: Optional[Dict[str, object]] = None):
         empty = {
             "response_id": None,
+            "previous_response_id": None,
             "usage": None,
             "assistant_phase": None,
             "provider_extras": None,

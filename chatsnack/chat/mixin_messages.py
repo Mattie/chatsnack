@@ -318,11 +318,14 @@ class ChatMessagesMixin:
                     ]})
                 elif api_role == "tool" and isinstance(content, dict) and "tool_call_id" in content and "content" in content:
                     new_messages.append({"role": api_role, "content": content["content"], "tool_call_id": content["tool_call_id"]})
-                elif isinstance(content, dict) and "text" in content:
+                elif isinstance(content, dict) and (
+                    "text" in content or "images" in content or "files" in content
+                ):
                     # Expanded turn block (Phase 3) – build the API message.
                     # Carry through images and files metadata alongside the text
                     # so runtime adapters can build multi-part input items.
-                    api_msg = {"role": api_role, "content": content.get("text")}
+                    # Attachment-only turns (no text) are also valid.
+                    api_msg = {"role": api_role, "content": content.get("text", "")}
                     if content.get("images"):
                         api_msg["images"] = content["images"]
                     if content.get("files"):
