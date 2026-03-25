@@ -85,7 +85,9 @@ class ResponsesNormalizationMixin:
                 elif img.get("file_id"):
                     content_parts.append({"type": "input_image", "file_id": img["file_id"]})
                 elif img.get("path"):
-                    content_parts.append({"type": "input_image", "image_url": img["path"]})
+                    # Local path: best-effort pass-through; a future upload step
+                    # should resolve this to a file_id before the request fires.
+                    content_parts.append({"type": "input_image", "file_id": img["path"]})
 
         # Phase 3: files on user turns → input_file items.
         for f in message.get("files") or []:
@@ -93,7 +95,9 @@ class ResponsesNormalizationMixin:
                 if f.get("file_id"):
                     content_parts.append({"type": "input_file", "file_id": f["file_id"]})
                 elif f.get("path"):
-                    content_parts.append({"type": "input_file", "filename": f["path"]})
+                    # Local path: best-effort pass-through; a future upload step
+                    # should resolve this to a file_id before the request fires.
+                    content_parts.append({"type": "input_file", "file_id": f["path"]})
 
         # Fall back to at least one input_text part even if empty.
         if not content_parts:

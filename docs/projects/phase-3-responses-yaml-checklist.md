@@ -160,5 +160,16 @@ Add short dated entries here as work lands.
   - Cross-runtime live tests require API access
   - Serializer heavy-lifting for automatic uploads (local path → file_id) is deferred to runtime integration
   - Typed wrappers for `params.responses` fields can follow later if useful
-- How we checked it: 48 tests in `tests/test_phase3_yaml.py`, all existing tests still passing
+- How we checked it: 52 tests in `tests/test_phase3_yaml.py`, all existing tests still passing
 - Follow-up: Runtime adapter integration for folding reasoning/sources/images from Responses API output into YAML turns; notebook examples; typed `params.responses` wrappers if needed
+
+### 2026-03-25 – Runtime-boundary wiring
+- Status: done
+- RFC sections: `What belongs in params`; `Mapping rules`; `Implementation sketch`; `Fidelity levels`; `params.tools stays the single authoring surface`
+- What works for users:
+  - `params.responses` config (text, reasoning, include, store, etc.) now reaches the Responses API at request time via `_get_responses_api_options()` and merged kwargs
+  - Expanded user turns with images/files produce `input_image` and `input_file` content parts in the Responses request, not just flattened text
+  - Runtime metadata (response_id, status) automatically written into `params.responses.state` when `export_state: true` – live state export, not just hand-authored round-trip
+  - `store` policy respects the explicit `params.responses.store` value – no more auto-enable for continuation (preserves Phase 2a store=false WebSocket continuation)
+  - Provider-native tool dicts (web_search, code_interpreter, image_generation, mcp) pass through unchanged via `set_tools()`/`get_tools()` – no longer wrapped in invalid function-tool schema
+- How we checked it: 23 new tests in `tests/test_phase3_runtime.py`, updated 2 existing continuation tests for new store policy
