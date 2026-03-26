@@ -143,3 +143,63 @@ class TestPhase3ANaturalAttachmentsSteerUnit:
     def test_dict_with_multiple_sources_is_rejected(self):
         with pytest.raises(ValueError, match="ambiguous sources"):
             Chat._prepare_query_vars("x", files=[{"path": "a", "url": "b"}])
+
+    # ------------------------------------------------------------------
+    # Merge behaviour: existing __user must not be overwritten
+    # ------------------------------------------------------------------
+
+    def test_existing_user_string_merged_when_no_explicit_usermsg(self):
+        """__call__ puts text in __user then delegates; files must not drop it."""
+        payload = Chat._prepare_query_vars(
+            None,  # usermsg=None — mimics __call__ → chat() delegation
+            files=["report.csv"],
+            __user="Summarize this file.",
+        )
+        assert payload["__user"] == {
+            "text": "Summarize this file.",
+            "files": [{"path": "report.csv"}],
+        }
+
+    def test_existing_user_dict_merged_with_new_attachments(self):
+        """A pre-existing expanded __user dict is extended with new attachments."""
+        payload = Chat._prepare_query_vars(
+            None,
+            images=["chart.png"],
+            __user={"text": "Describe this.", "files": [{"file_id": "file_1"}]},
+        )
+        assert payload["__user"] == {
+            "text": "Describe this.",
+            "files": [{"file_id": "file_1"}],
+            "images": [{"path": "chart.png"}],
+        }
+
+    def test_explicit_usermsg_wins_over_existing_user_string(self):
+        """Explicit usermsg overwrites the text from a pre-existing __user string."""
+        payload = Chat._prepare_query_vars(
+            "Explicit text",
+            files=["data.csv"],
+            __user="Old text",
+        )
+        assert payload["__user"]["text"] == "Explicit text"
+        assert payload["__user"]["files"] == [{"path": "data.csv"}]
+
+    def test_call_operator_with_files_preserves_text(self, monkeypatch):
+        """chat("hello", files=[...]) via __call__ must deliver text + attachment."""
+        chat = Chat(runtime_selector="responses")
+        captured = {}
+
+        async def fake_create_completion_a(self, messages, **kwargs):
+            captured["messages"] = messages
+            return SimpleNamespace(
+                message=SimpleNamespace(content="got it", tool_calls=[]),
+                metadata={"response_id": "r1", "provider_extras": {"status": "completed"}},
+            )
+
+        monkeypatch.setattr(type(chat.runtime), "create_completion_a", fake_create_completion_a)
+
+        # __call__ is a shortcut for .chat(); it sets __user then delegates
+        result = chat("hello via __call__", files=["data.csv"])
+        user_msg = captured["messages"][-1]
+        assert user_msg["role"] == "user"
+        assert user_msg["content"] == "hello via __call__"
+        assert user_msg["files"] == [{"path": "data.csv"}]

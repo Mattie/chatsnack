@@ -228,7 +228,17 @@ class ChatQueryMixin(ChatMessagesMixin, ChatParamsMixin):
             return prepared
 
         if attachments:
-            user_block = {}
+            # Merge into any pre-existing __user payload (e.g. set by __call__)
+            # rather than replacing it, so callers like chat("hi", files=[...])
+            # don't silently lose the text that __call__ already put in __user.
+            existing = prepared.pop("__user", None)
+            if isinstance(existing, dict):
+                user_block = dict(existing)
+            elif isinstance(existing, str) and existing:
+                user_block = {"text": existing}
+            else:
+                user_block = {}
+            # Explicit usermsg always wins over any existing __user text.
             if usermsg is not None:
                 user_block["text"] = usermsg
             user_block.update(attachments)
