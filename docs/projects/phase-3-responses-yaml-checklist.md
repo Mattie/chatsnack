@@ -102,6 +102,25 @@ Drop a note into `## Progress Notes` whenever something meaningfully changes.
   RFC: `Tool formatting stays close to current chatsnack`; `Mapping rules`
   _Done. Existing `assistant.tool_calls` and `tool:` shapes are unchanged. Verified in `test_local_function_tool_history_format`, `test_example5_local_function_tool_history`._
 
+
+### Natural attachment call-site ergonomics (Phase 3A planned)
+- [ ] Add `files=` / `images=` convenience kwargs across query methods: `ask`, `ask_a`, `chat`, `chat_a`, `listen`, `listen_a`.
+  RFC alignment: `Design goals`; `Attachments, files, and generated assets`
+  _Plan documented in `docs/projects/phase-3-natural-attachments-plan.md`._
+- [ ] Normalize path/dict convenience inputs into canonical expanded user-turn `files`/`images` blocks at query-call boundary.
+  RFC alignment: `Messages stay scalar-first`; `Normalization rules for expanded turn blocks`
+  _Planned via shared normalization path to avoid sync/async/listen drift._
+- [ ] Bonus: support file-object attachment inputs for `files=` using resolver-compatible temp-path handling.
+  RFC alignment: `Serializer heavy lifting`; `Design goals`
+  _Planned as bonus scope after path/dict behavior is green._
+- [ ] Add 3HTDD Goal/Steer/Unit tests including method-parity coverage for `listen` and `_a` equivalents.
+  Project alignment: `3HTDD.md`
+  _Planned coverage in mixin + runtime tests._
+- [ ] Update README with terse natural-attachment examples in chatsnack voice.
+  Project alignment: `README.md`; `PHILOSOPHY.md`
+- [ ] Update `GettingStartedWithChatsnack.ipynb` with a concise “Natural Attachments” section (1–2 cells).
+  Project alignment: notebook-first demonstration style
+
 ### Files, images, reasoning, and sources
 - [x] `images` and `files` work for the supported user and assistant turns.
   RFC: `Attachments, files, and generated assets`
@@ -209,3 +228,14 @@ Add short dated entries here as work lands.
 - Caveats:
   - Live tests require both `OPENAI_API_KEY` and `CHATSNACK_RUN_LIVE_TESTS` to be set, so they are safe in CI/sandbox environments with blocked network egress
 - How we checked it: `pytest -q tests/runtime/ tests/test_phase2_sessions.py tests/test_phase3_runtime.py tests/test_phase3_yaml.py tests/mixins/test_query.py` → 206 passed, 20 skipped
+
+
+### 2026-03-26 – Phase 3A plan drafted for natural attachment query ergonomics
+- Status: planned (Phase 3A)
+- RFC sections: `Design goals`; `Messages stay scalar-first`; `Attachments, files, and generated assets`
+- What this enables for users:
+  - More natural attachment usage across `ask/chat/listen` plus async `_a` equivalents with terse `files=` and `images=` kwargs
+  - Preserves the same Phase 3 YAML shape (expanded user turns when needed)
+  - Includes a bonus path for file-object inputs, not only filesystem paths
+- Planning artifact: `docs/projects/phase-3-natural-attachments-plan.md`
+- Follow-up: implement helper + query wiring + tests + README + Getting Started notebook cells
