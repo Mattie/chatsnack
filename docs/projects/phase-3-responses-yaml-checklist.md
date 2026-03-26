@@ -104,21 +104,21 @@ Drop a note into `## Progress Notes` whenever something meaningfully changes.
 
 
 ### Natural attachment call-site ergonomics (Phase 3A planned)
-- [ ] Add `files=` / `images=` convenience kwargs across query methods: `ask`, `ask_a`, `chat`, `chat_a`, `listen`, `listen_a`.
+- [x] Add `files=` / `images=` convenience kwargs across query methods: `ask`, `ask_a`, `chat`, `chat_a`, `listen`, `listen_a`.
   RFC alignment: `Design goals`; `Attachments, files, and generated assets`
-  _Plan documented in `docs/projects/phase-3-natural-attachments-plan.md`._
-- [ ] Normalize path/dict convenience inputs into canonical expanded user-turn `files`/`images` blocks at query-call boundary.
+  _Done. `ChatQueryMixin` now routes all six query entrypoints through shared `_prepare_query_vars(...)` and supports `files=` / `images=` kwargs._
+- [x] Normalize path/dict convenience inputs into canonical expanded user-turn `files`/`images` blocks at query-call boundary.
   RFC alignment: `Messages stay scalar-first`; `Normalization rules for expanded turn blocks`
-  _Planned via shared normalization path to avoid sync/async/listen drift._
-- [ ] Bonus: support file-object attachment inputs for `files=` using resolver-compatible temp-path handling.
+  _Done. `chatsnack/runtime/attachment_inputs.py` normalizes path + canonical dict forms into expanded user-turn attachments._
+- [x] Bonus: support file-object attachment inputs for `files=` using resolver-compatible temp-path handling.
   RFC alignment: `Serializer heavy lifting`; `Design goals`
-  _Planned as bonus scope after path/dict behavior is green._
-- [ ] Add 3HTDD Goal/Steer/Unit tests including method-parity coverage for `listen` and `_a` equivalents.
+  _Done. File objects are materialized to temp-backed canonical `{path, filename}` entries for resolver upload flow._
+- [x] Add 3HTDD Goal/Steer/Unit tests including method-parity coverage for `listen` and `_a` equivalents.
   Project alignment: `3HTDD.md`
-  _Planned coverage in mixin + runtime tests._
-- [ ] Update README with terse natural-attachment examples in chatsnack voice.
+  _Done. Added `tests/mixins/test_query_attachments.py` with Goal/Steer/Unit-style coverage across sync/async/listen paths plus error behavior._
+- [x] Update README with terse natural-attachment examples in chatsnack voice.
   Project alignment: `README.md`; `PHILOSOPHY.md`
-- [ ] Update `GettingStartedWithChatsnack.ipynb` with a concise “Natural Attachments” section (1–2 cells).
+- [x] Update `GettingStartedWithChatsnack.ipynb` with a concise “Natural Attachments” section (1–2 cells).
   Project alignment: notebook-first demonstration style
 
 ### Files, images, reasoning, and sources
@@ -239,3 +239,14 @@ Add short dated entries here as work lands.
   - Includes a bonus path for file-object inputs, not only filesystem paths
 - Planning artifact: `docs/projects/phase-3-natural-attachments-plan.md`
 - Follow-up: implement helper + query wiring + tests + README + Getting Started notebook cells
+
+### 2026-03-26 – Phase 3A implemented: natural attachment query ergonomics
+- Status: done
+- RFC sections: `Design goals`; `Attachments, files, and generated assets`; `Messages stay scalar-first`
+- What works for users:
+  - `ask`, `ask_a`, `chat`, `chat_a`, `listen`, and `listen_a` now accept `files=` and `images=` directly
+  - Paths and canonical dict inputs normalize into expanded user turns at query boundary through one shared path
+  - `files=` supports file objects, materializing temp-backed path entries with filename metadata
+  - Sync/async/listen parity is covered, including streaming `listen` + `listen_a` call paths
+- How we checked it: targeted mixin tests for natural attachments and full `tests/mixins` run
+- Caveats: file-object support currently applies to `files=` only (intentional); `images=` file objects are rejected with concise errors
