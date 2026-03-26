@@ -1,5 +1,7 @@
+import warnings
 from typing import Any, Dict, List, Optional, Tuple
 
+from .attachment_resolver import AttachmentResolver
 from .types import (
     NormalizedAssistantMessage,
     NormalizedCompletionResult,
@@ -71,11 +73,50 @@ class ResponsesNormalizationMixin:
         if role not in {"system", "developer", "user", "assistant"}:
             role = "user"
 
+        # Build content parts – start with text, then images and files.
+        content_parts: List[Dict[str, Any]] = []
+        text = self._coerce_text(content)
+        if text:
+            content_parts.append({"type": "input_text", "text": text})
+
+        # Phase 3: images on user/assistant turns → input_image items.
+        for img in message.get("images") or []:
+            if isinstance(img, dict):
+                if img.get("url"):
+                    content_parts.append({"type": "input_image", "image_url": img["url"]})
+                elif img.get("file_id"):
+                    content_parts.append({"type": "input_image", "file_id": img["file_id"]})
+                elif img.get("path"):
+                    # Local paths require an upload step that chatsnack does not
+                    # yet perform.  Silently dropping them would hide authoring
+                    # errors, so we warn and skip.
+                    warnings.warn(
+                        f"Skipping local-path image '{img['path']}': upload to file_id is not yet implemented. Use a url or file_id entry instead.",
+                        stacklevel=2,
+                    )
+
+        # Phase 3: files on user turns → input_file items.
+        for f in message.get("files") or []:
+            if isinstance(f, dict):
+                if f.get("file_id"):
+                    content_parts.append({"type": "input_file", "file_id": f["file_id"]})
+                elif f.get("path"):
+                    # Local paths require an upload step that chatsnack does not
+                    # yet perform.  Warn and skip.
+                    warnings.warn(
+                        f"Skipping local-path file '{f['path']}': upload to file_id is not yet implemented. Use a file_id entry instead.",
+                        stacklevel=2,
+                    )
+
+        # Fall back to at least one input_text part even if empty.
+        if not content_parts:
+            content_parts.append({"type": "input_text", "text": ""})
+
         return [
             {
                 "type": "message",
                 "role": role,
-                "content": [{"type": "input_text", "text": self._coerce_text(content)}],
+                "content": content_parts,
             }
         ]
 
@@ -130,10 +171,10 @@ class ResponsesNormalizationMixin:
         if options.get("previous_response_id"):
             input_messages = self._select_continuation_messages(messages)
         options["input"] = self._map_messages_to_input(input_messages)
-        if options.get("previous_response_id") and "store" not in options:
-            options["store"] = True
-        else:
-            options.setdefault("store", False)
+        # Default store to False.  Callers (or params.responses.store from the
+        # YAML config) can set it explicitly.  Phase 2a WebSocket continuation
+        # with store=False is valid and must not be overridden.
+        options.setdefault("store", False)
         return options
 
     @staticmethod

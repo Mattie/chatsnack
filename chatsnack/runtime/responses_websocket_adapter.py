@@ -4,6 +4,7 @@ import time
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 
+from .attachment_resolver import AttachmentResolver
 from .responses_common import ResponsesNormalizationMixin
 from .types import RuntimeErrorPayload, RuntimeStreamEvent, RuntimeTerminalMetadata
 
@@ -59,6 +60,7 @@ class ResponsesWebSocketAdapter(ResponsesNormalizationMixin):
 
     def __init__(self, ai_client, session: Optional[ResponsesWebSocketSession] = None):
         self.ai_client = ai_client
+        self.attachment_resolver = AttachmentResolver(ai_client)
         self.session = session or ResponsesWebSocketSession(mode="inherit")
         if self.session not in self._GLOBAL_SESSIONS:
             self._GLOBAL_SESSIONS.append(self.session)
@@ -556,6 +558,7 @@ class ResponsesWebSocketAdapter(ResponsesNormalizationMixin):
     # ------------------------------------------------------------------
 
     def stream_completion(self, messages: List[Dict[str, Any]], **kwargs: Any):
+        resolved = self.attachment_resolver.resolve_messages(messages)
         acquired_in_flight = False
         try:
             with self.session.in_flight_lock:
@@ -567,7 +570,7 @@ class ResponsesWebSocketAdapter(ResponsesNormalizationMixin):
             emitted_output = False
             while True:
                 try:
-                    for event in self._stream_sync_request(messages, retry_kwargs, include_prev=include_prev):
+                    for event in self._stream_sync_request(resolved, retry_kwargs, include_prev=include_prev):
                         if event.type in ("text_delta", "tool_call_delta"):
                             emitted_output = True
                         yield event
@@ -590,6 +593,7 @@ class ResponsesWebSocketAdapter(ResponsesNormalizationMixin):
                 self._end_in_flight()
 
     async def stream_completion_a(self, messages: List[Dict[str, Any]], **kwargs: Any):
+        resolved = await self.attachment_resolver.resolve_messages_async(messages)
         acquired_in_flight = False
         try:
             with self.session.in_flight_lock:
@@ -601,7 +605,7 @@ class ResponsesWebSocketAdapter(ResponsesNormalizationMixin):
             emitted_output = False
             while True:
                 try:
-                    async for event in self._stream_async_request(messages, retry_kwargs, include_prev=include_prev):
+                    async for event in self._stream_async_request(resolved, retry_kwargs, include_prev=include_prev):
                         if event.type in ("text_delta", "tool_call_delta"):
                             emitted_output = True
                         yield event

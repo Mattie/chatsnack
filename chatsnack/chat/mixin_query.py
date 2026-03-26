@@ -304,6 +304,15 @@ class ChatQueryMixin(ChatMessagesMixin, ChatParamsMixin):
         kwargs = {}
         if hasattr(self, 'params') and self.params is not None:
             kwargs = self.params._get_non_none_params()
+
+            # Phase 3: merge provider-facing Responses options (text, reasoning,
+            # include, store, …) into the request kwargs so they reach the
+            # Responses API.  These are lower-priority than explicit kwargs.
+            responses_opts = self.params._get_responses_api_options()
+            if responses_opts:
+                merged = responses_opts.copy()
+                merged.update(kwargs)
+                kwargs = merged
         
         # Add tools if available
         if hasattr(self, 'get_tools'):
@@ -338,6 +347,7 @@ class ChatQueryMixin(ChatMessagesMixin, ChatParamsMixin):
 
         return {
             "response_id": metadata.get("response_id"),
+            "previous_response_id": metadata.get("previous_response_id"),
             "usage": getattr(normalized_response, "usage", None) if normalized_response is not None else None,
             "assistant_phase": metadata.get("assistant_phase"),
             "provider_extras": metadata.get("provider_extras"),
@@ -346,6 +356,7 @@ class ChatQueryMixin(ChatMessagesMixin, ChatParamsMixin):
     def _set_last_runtime_metadata(self, metadata: Optional[Dict[str, object]] = None):
         empty = {
             "response_id": None,
+            "previous_response_id": None,
             "usage": None,
             "assistant_phase": None,
             "provider_extras": None,
@@ -354,10 +365,47 @@ class ChatQueryMixin(ChatMessagesMixin, ChatParamsMixin):
             empty.update(metadata)
         self._last_runtime_metadata = empty
 
+        # Phase 3: when export_state is enabled, bridge live runtime metadata
+        # into params.responses.state so it persists on save.
+        self._sync_runtime_metadata_to_params(empty)
+
     def _clone_runtime_metadata_to(self, other):
         source = getattr(self, "_last_runtime_metadata", None) or {}
         if hasattr(other, "_set_last_runtime_metadata"):
             other._set_last_runtime_metadata(source.copy())
+
+    def _sync_runtime_metadata_to_params(self, metadata: Dict[str, object]):
+        """Write runtime metadata into params.responses.state when export_state is true.
+
+        This bridges the live continuation metadata from adapter responses into
+        the YAML-persistent params surface, so that ``chat.save()`` serializes
+        the current response_id, previous_response_id, and status when the
+        user has opted into explicit state export.
+        """
+        params = getattr(self, "params", None)
+        if params is None:
+            return
+        responses_cfg = getattr(params, "responses", None)
+        if not isinstance(responses_cfg, dict) or not responses_cfg.get("export_state"):
+            return
+
+        state = {}
+        if metadata.get("response_id"):
+            state["response_id"] = metadata["response_id"]
+        provider_extras = metadata.get("provider_extras")
+        if isinstance(provider_extras, dict):
+            if provider_extras.get("status"):
+                state["status"] = provider_extras["status"]
+        # Carry forward previous_response_id if we have one.
+        prev_id = metadata.get("previous_response_id")
+        if prev_id is None:
+            # Check if it was in a nested metadata dict (from normalize_runtime_metadata).
+            prev_id = (metadata.get("provider_extras") or {}).get("previous_response_id")
+        if prev_id:
+            state["previous_response_id"] = prev_id
+
+        if state:
+            params.responses["state"] = state
 
     def _set_runtime_metadata_from_response(self, response):
         """Extract and store runtime metadata from an adapter response object."""
@@ -382,8 +430,10 @@ class ChatQueryMixin(ChatMessagesMixin, ChatParamsMixin):
         adapter = getattr(self, "runtime", None)
         if adapter is not None:
             request_kwargs = kwargs.copy()
-            if track_continuation and self._runtime_supports_continuation() and "store" not in request_kwargs:
-                request_kwargs["store"] = True
+            # Phase 3: do NOT auto-enable store=True for continuation.
+            # Let the explicit params.responses.store value flow through
+            # from the YAML config.  Phase 2a WebSocket continuation with
+            # store=False is a valid and important path.
             if (
                 track_continuation
                 and self._runtime_supports_continuation()

@@ -269,6 +269,7 @@ class ChatParams:
     
     # Tool-related parameters with proper dataclass typing
     tools: Optional[List[ToolDefinition]] = None
+    native_tools: Optional[List[dict]] = None  # Phase 3: provider-native tool dicts (web_search, code_interpreter, etc.)
     tool_choice: Optional[str] = None
     auto_execute: Optional[bool] = None  
     auto_feed: Optional[bool] = True  # Whether to automatically feed tool results back to the model
@@ -284,6 +285,7 @@ class ChatParams:
     runtime: Optional[str] = None  # internal runtime selector, not passed to provider API
     session: Optional[str] = None  # responses transport selector: None | inherit | new
     profile: Optional[dict] = None  # runtime profile/options; forwarded to adapters, stripped before provider API
+    responses: Optional[dict] = None  # Phase 3: Responses API nested config (text, reasoning, include, store, export_state, etc.)
 
 
     """
@@ -359,6 +361,8 @@ class ChatParams:
         # Remove tools and tool_choice as they are handled by the utensil_params
         if "tools" in out:
             del out["tools"]
+        if "native_tools" in out:
+            del out["native_tools"]
         if "tool_choice" in out:
             del out["tool_choice"]
         if "auto_execute" in out:
@@ -373,6 +377,8 @@ class ChatParams:
             del out["runtime"]
         if "session" in out:
             del out["session"]
+        if "responses" in out:
+            del out["responses"]
 
         # Convert tool definitions to API format
         if "tools" in out and out["tools"]:
@@ -380,25 +386,77 @@ class ChatParams:
 
         return out
 
+    # Keys in params.responses that are chatsnack-internal only and must
+    # never be forwarded to the provider Responses API.
+    _RESPONSES_INTERNAL_KEYS = frozenset({
+        "export_state",
+        "export_diagnostics",
+        "state",
+        "provider_dump",
+    })
+
+    def _get_responses_api_options(self) -> Dict:
+        """Extract provider-facing options from ``params.responses``.
+
+        Keys like ``text``, ``reasoning``, ``include``, and ``store``
+        are forwarded to the Responses API.  chatsnack-internal keys
+        (``export_state``, ``state``, ``provider_dump``, …) are stripped.
+        """
+        if not self.responses or not isinstance(self.responses, dict):
+            return {}
+        return {
+            k: v
+            for k, v in self.responses.items()
+            if k not in self._RESPONSES_INTERNAL_KEYS and v is not None
+        }
+
     # Helper method to add a tool from a dictionary
     def add_tool_from_dict(self, tool_dict: Dict) -> None:
         """Add a tool definition from an API-format dictionary"""
-        tool = ToolDefinition.from_dict(tool_dict)
-        if not self.tools:
-            self.tools = []
-        self.tools.append(tool)
+        if self._is_native_tool(tool_dict):
+            if not self.native_tools:
+                self.native_tools = []
+            self.native_tools.append(tool_dict)
+        else:
+            tool = ToolDefinition.from_dict(tool_dict)
+            if not self.tools:
+                self.tools = []
+            self.tools.append(tool)
 
-    # Add this method
     def set_tools(self, tools_list: List[Dict]) -> None:
-        """Set the tools list from API-format dictionaries"""
-        self.tools = [ToolDefinition.from_dict(tool_dict) for tool_dict in tools_list]
+        """Set the tools list from API-format dictionaries.
 
-    # Add this method near the set_tools method
+        Provider-native tools (``web_search``, ``code_interpreter``, etc.)
+        are stored as raw dicts and passed through unchanged.  Function
+        tools are wrapped in ToolDefinition as before.
+        """
+        function_tools = []
+        native_tools = []
+        for tool_dict in tools_list:
+            if self._is_native_tool(tool_dict):
+                native_tools.append(tool_dict)
+            else:
+                function_tools.append(ToolDefinition.from_dict(tool_dict))
+        self.tools = function_tools or None
+        self.native_tools = native_tools or None
+
     def get_tools(self) -> List[Dict]:
-        """Get the tools list in API-format dictionaries"""
-        if not self.tools:
-            return []
-        return [tool.to_dict() for tool in self.tools]
+        """Get the tools list in API-format dictionaries.
+
+        Combines function tools and provider-native tools into a single list.
+        """
+        result = []
+        if self.tools:
+            result.extend(tool.to_dict() for tool in self.tools)
+        if self.native_tools:
+            result.extend(self.native_tools)
+        return result
+
+    @staticmethod
+    def _is_native_tool(tool_dict: Dict) -> bool:
+        """Return True if the tool dict is a provider-native tool (not a function tool)."""
+        tool_type = tool_dict.get("type", "function")
+        return tool_type != "function"
 
 class ChatParamsMixin:
     params: Optional[ChatParams] = None
