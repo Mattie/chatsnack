@@ -10,6 +10,7 @@ from datafiles import datafile
 from ..asynchelpers import aformatter
 from ..fillings import filling_machine
 from ..runtime import EVENT_SCHEMA_VERSION
+from ..runtime.attachment_inputs import normalize_attachment_inputs
 
 from .mixin_messages import ChatMessagesMixin
 from .mixin_params import ChatParamsMixin, DEFAULT_MODEL_FALLBACK
@@ -212,6 +213,41 @@ class ChatStreamListener:
 
 
 class ChatQueryMixin(ChatMessagesMixin, ChatParamsMixin):
+    @staticmethod
+    def _prepare_query_vars(usermsg=None, files=None, images=None, **additional_vars):
+        """Build query vars with a canonical ``__user`` payload.
+
+        Phase 3A centralizes natural attachment ergonomics so every query
+        entrypoint (sync/async/listen) routes through the same normalization
+        logic and produces the same expanded user-turn shape.
+        """
+        prepared = dict(additional_vars)
+        attachments = normalize_attachment_inputs(files=files, images=images)
+
+        if usermsg is None and not attachments:
+            return prepared
+
+        if attachments:
+            # Merge into any pre-existing __user payload (e.g. set by __call__)
+            # rather than replacing it, so callers like chat("hi", files=[...])
+            # don't silently lose the text that __call__ already put in __user.
+            existing = prepared.pop("__user", None)
+            if isinstance(existing, dict):
+                user_block = dict(existing)
+            elif isinstance(existing, str) and existing:
+                user_block = {"text": existing}
+            else:
+                user_block = {}
+            # Explicit usermsg always wins over any existing __user text.
+            if usermsg is not None:
+                user_block["text"] = usermsg
+            user_block.update(attachments)
+            prepared["__user"] = user_block
+        elif usermsg is not None:
+            prepared["__user"] = usermsg
+
+        return prepared
+
     @staticmethod
     def _tool_response_to_dict(response) -> dict:
         """Convert a response message with tool calls to a plain dictionary.
@@ -516,31 +552,28 @@ class ChatQueryMixin(ChatMessagesMixin, ChatParamsMixin):
             additional_vars["__user"] = usermsg
         return self.chat(**additional_vars)
  
-    def ask(self, usermsg=None, **additional_vars) -> str:
+    def ask(self, usermsg=None, files=None, images=None, **additional_vars) -> str:
         """
         Executes the internal chat query as-is and returns only the string response.
         If usermsg is passed in, it will be added as a user message to the chat before executing the query. ⭐
         """
-        if usermsg is not None:
-            additional_vars["__user"] = usermsg
+        additional_vars = self._prepare_query_vars(usermsg, files=files, images=images, **additional_vars)
         return self._run_sync(self.ask_a(**additional_vars), "ask")
-    async def ask_a(self, usermsg=None, **additional_vars) -> str:
+    async def ask_a(self, usermsg=None, files=None, images=None, **additional_vars) -> str:
         """ Executes the query as-is, async version of ask()"""
         if self.stream:
             raise Exception("Cannot use ask() with a stream")
-        if usermsg is not None:
-            additional_vars["__user"] = usermsg
+        additional_vars = self._prepare_query_vars(usermsg, files=files, images=images, **additional_vars)
         _, response = await self._submit_for_response_and_prompt(**additional_vars)
         # filter the response if we have a pattern
         response = self.filter_by_pattern(response)
         return response
-    def listen(self, usermsg=None, events=False, event_schema="legacy", **additional_vars) -> ChatStreamListener:
+    def listen(self, usermsg=None, events=False, event_schema="legacy", files=None, images=None, **additional_vars) -> ChatStreamListener:
         """
         Executes the internal chat query as-is and returns a listener object that can be iterated on for the text.
         If usermsg is passed in, it will be added as a user message to the chat before executing the query. ⭐
         """
-        if usermsg is not None:
-            additional_vars["__user"] = usermsg
+        additional_vars = self._prepare_query_vars(usermsg, files=files, images=images, **additional_vars)
         _, response = self._run_sync(self._submit_for_response_and_prompt(**additional_vars), "listen")
         if self.stream:
             # response is a ChatStreamListener so lets start it
@@ -548,12 +581,11 @@ class ChatQueryMixin(ChatMessagesMixin, ChatParamsMixin):
             response.event_schema = event_schema
             response.start()
         return response
-    async def listen_a(self, usermsg=None, async_listen=True, events=False, event_schema="legacy", **additional_vars) -> ChatStreamListener:
+    async def listen_a(self, usermsg=None, async_listen=True, events=False, event_schema="legacy", files=None, images=None, **additional_vars) -> ChatStreamListener:
         """ Executes the query as-is, async version of listen()"""
         if not self.stream:
             raise Exception("Cannot use listen() without a stream")
-        if usermsg is not None:
-            additional_vars["__user"] = usermsg
+        additional_vars = self._prepare_query_vars(usermsg, files=files, images=images, **additional_vars)
         _, response = await self._submit_for_response_and_prompt(**additional_vars)
         if self.stream:
             # response is a ChatStreamListener so lets start it
@@ -561,19 +593,17 @@ class ChatQueryMixin(ChatMessagesMixin, ChatParamsMixin):
             response.event_schema = event_schema
             await response.start_a()
         return response
-    def chat(self, usermsg=None, **additional_vars) -> object:
+    def chat(self, usermsg=None, files=None, images=None, **additional_vars) -> object:
         """ 
         Executes the query as-is and returns a new Chat for continuation 
         If usermsg is passed in, it will be added as a user message to the chat before executing the query. ⭐
         """
-        if usermsg is not None:
-            additional_vars["__user"] = usermsg
+        additional_vars = self._prepare_query_vars(usermsg, files=files, images=images, **additional_vars)
         return self._run_sync(self.chat_a(**additional_vars), "chat")
         
-    async def chat_a(self, usermsg=None, **additional_vars) -> object:
+    async def chat_a(self, usermsg=None, files=None, images=None, **additional_vars) -> object:
         """Executes the query as-is, and returns a ChatPrompt object that contains the response. Async version of chat()"""
-        if usermsg is not None:
-            additional_vars["__user"] = usermsg
+        additional_vars = self._prepare_query_vars(usermsg, files=files, images=images, **additional_vars)
             
         if self.stream:
             raise Exception("Cannot use chat() with a stream")
