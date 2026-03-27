@@ -249,29 +249,58 @@ class ChatQueryMixin(ChatMessagesMixin, ChatParamsMixin):
         return prepared
 
     @staticmethod
-    def _tool_response_to_dict(response) -> dict:
-        """Convert a response message with tool calls to a plain dictionary.
-
-        Uses ``model_dump()`` when available (e.g. Pydantic models), and falls
-        back to a manual construction otherwise.
-        """
-        if hasattr(response, "model_dump"):
-            return response.model_dump()
+    def _serialize_tool_call(id: str, type: str, function_name: str, function_arguments: str) -> dict:
         return {
-            "role": "assistant",
-            "content": response.content,
-            "tool_calls": [
-                {
-                    "id": tc.id,
-                    "type": tc.type,
-                    "function": {
-                        "name": tc.function.name if tc.function else "",
-                        "arguments": tc.function.arguments if tc.function else "",
-                    },
-                }
-                for tc in response.tool_calls
-            ],
+            "id": id,
+            "type": type,
+            "function": {
+                "name": function_name,
+                "arguments": function_arguments,
+            },
         }
+
+    @staticmethod
+    def _tool_response_to_dict(response) -> dict:
+        """Convert a tool-bearing assistant response into canonical turn shape.
+
+        This preserves the assistant text plus any richer normalized fields so
+        tool-call responses can round-trip through chatsnack chat state/YAML
+        without discarding reasoning, sources, files, images, or encrypted
+        content.
+        """
+        out = {}
+        text = response.content if hasattr(response, "content") else None
+        if text:
+            out["text"] = text
+        for field in ("reasoning", "sources", "images", "files", "encrypted_content"):
+            value = getattr(response, field, None)
+            if value:
+                out[field] = value
+        tool_calls = []
+        for tc in response.tool_calls:
+            if isinstance(tc, dict):
+                function = tc.get("function", {}) or {}
+                tool_calls.append(
+                    ChatQueryMixin._serialize_tool_call(
+                        id=tc.get("id", ""),
+                        type=tc.get("type", "function"),
+                        function_name=function.get("name", ""),
+                        function_arguments=function.get("arguments", ""),
+                    )
+                )
+                continue
+
+            function = getattr(tc, "function", None)
+            tool_calls.append(
+                ChatQueryMixin._serialize_tool_call(
+                    id=getattr(tc, "id", ""),
+                    type=getattr(tc, "type", "function"),
+                    function_name=function.name if function else "",
+                    function_arguments=function.arguments if function else "",
+                )
+            )
+        out["tool_calls"] = tool_calls
+        return out
 
     @staticmethod
     def _assistant_response_to_turn(response_message) -> object:

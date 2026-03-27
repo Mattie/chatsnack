@@ -69,7 +69,7 @@ def normalize_attachment_inputs(
 
     norm_images = _normalize_bucket(images, bucket="images")
     if norm_images:
-        normalized["images"] = norm_images
+        normalized.setdefault("images", []).extend(norm_images)
 
     return normalized
 

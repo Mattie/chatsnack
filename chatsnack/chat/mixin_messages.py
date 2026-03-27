@@ -319,7 +319,7 @@ class ChatMessagesMixin:
                     new_messages.extend(include_chatprompt.get_messages())
                 elif api_role == "assistant" and isinstance(content, dict) and "tool_calls" in content:
                     logger.trace(f"Assistant message found with tool calls: {pprint.pformat(content)}")
-                    new_messages.append({"role": api_role, "content": content.get('content'), "tool_calls": [
+                    new_messages.append({"role": api_role, "content": content.get('text', content.get('content')), "tool_calls": [
                         {
                             "id": tool_call.get("id", ""),
                             "type": tool_call.get("type", "function"),

@@ -13,6 +13,14 @@ from chatsnack.runtime.attachment_inputs import (
 
 
 class TestPhase3ANaturalAttachmentsGoal:
+    @staticmethod
+    def _tool_call(name="lookup", arguments='{"q": "snack"}', call_id="call_1"):
+        return SimpleNamespace(
+            id=call_id,
+            type="function",
+            function=SimpleNamespace(name=name, arguments=arguments),
+        )
+
     def test_ask_accepts_files_and_images_and_sends_expanded_user_turn(self, monkeypatch):
         chat = Chat(runtime_selector="responses")
 
@@ -72,6 +80,45 @@ class TestPhase3ANaturalAttachmentsGoal:
                 "images": [{"file_id": "file_img"}],
                 "files": [{"file_id": "file_doc"}],
                 "encrypted_content": "enc",
+            }
+        }
+
+    def test_chat_persists_rich_assistant_fields_when_tool_calls_present(self, monkeypatch):
+        chat = Chat(runtime_selector="responses")
+        chat.auto_execute = False
+
+        async def fake_create_completion_a(self, messages, **kwargs):
+            return SimpleNamespace(
+                message=SimpleNamespace(
+                    content="processed",
+                    tool_calls=[TestPhase3ANaturalAttachmentsGoal._tool_call()],
+                    reasoning="why",
+                    sources=[{"type": "url_citation", "url": "https://example.com"}],
+                    images=[{"file_id": "file_img"}],
+                    files=[{"file_id": "file_doc"}],
+                    encrypted_content="enc",
+                ),
+                metadata={"response_id": "resp_1", "provider_extras": {"status": "completed"}},
+            )
+
+        monkeypatch.setattr(type(chat.runtime), "create_completion_a", fake_create_completion_a)
+
+        out = chat.chat("review image", images=["img/plot.png"])
+        assert out.messages[-1] == {
+            "assistant": {
+                "text": "processed",
+                "reasoning": "why",
+                "sources": [{"type": "url_citation", "url": "https://example.com"}],
+                "images": [{"file_id": "file_img"}],
+                "files": [{"file_id": "file_doc"}],
+                "encrypted_content": "enc",
+                "tool_calls": [
+                    {
+                        "id": "call_1",
+                        "type": "function",
+                        "function": {"name": "lookup", "arguments": '{"q": "snack"}'},
+                    }
+                ],
             }
         }
 
@@ -160,6 +207,18 @@ class TestPhase3ANaturalAttachmentsSteerUnit:
     def test_files_bucket_routes_image_extensions_into_images(self):
         payload = Chat._prepare_query_vars("hello", files=["photo.png", "notes.csv"])
         assert payload["__user"]["images"] == [{"path": "photo.png"}]
+        assert payload["__user"]["files"] == [{"path": "notes.csv"}]
+
+    def test_files_bucket_merges_routed_images_with_explicit_images(self):
+        payload = Chat._prepare_query_vars(
+            "hello",
+            files=["photo.png", "notes.csv"],
+            images=["extra.jpg"],
+        )
+        assert payload["__user"]["images"] == [
+            {"path": "photo.png"},
+            {"path": "extra.jpg"},
+        ]
         assert payload["__user"]["files"] == [{"path": "notes.csv"}]
 
     def test_no_attachment_path_is_unchanged(self):
