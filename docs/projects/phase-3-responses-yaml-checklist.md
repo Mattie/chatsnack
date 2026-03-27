@@ -145,9 +145,9 @@ Drop a note into `## Progress Notes` whenever something meaningfully changes.
 - [x] Round-trip tests cover authoring, continuation, and diagnostic fidelity modes.
   RFC: `Tests`
   _Done. 48 tests in `tests/test_phase3_yaml.py` cover all three fidelity modes._
-- [ ] Cross-runtime save/load checks cover the main YAML contract across `chat_completions`, HTTP `responses`, and WebSocket `responses` where user-facing behavior should stay the same.
+- [x] Cross-runtime save/load checks cover the main YAML contract across `chat_completions`, HTTP `responses`, and WebSocket `responses` where user-facing behavior should stay the same.
   RFC: `Tests`; `Implementation sketch`
-  _Partial. YAML contract tests are in place. Live cross-runtime checks depend on API access._
+  _Done. Added runtime parity coverage for rich assistant field folding on both HTTP and WebSocket adapter paths and chat-level persistence assertions._
 - [x] Tests cover mixed-role transcripts, mixed-content ordering, and no accidental role collapse.
   RFC: `Tests`
   _Done. `TestRoleAliasing` and `TestMixedTurnsAndNormalization` classes cover these._
@@ -180,7 +180,7 @@ Add short dated entries here as work lands.
   - Automatic local-path upload via `AttachmentResolver` is implemented and wired into both adapters
   - Typed wrappers for `params.responses` fields can follow later if useful
 - How we checked it: 52 tests in `tests/test_phase3_yaml.py`, all existing tests still passing
-- Follow-up: Runtime adapter integration for folding reasoning/sources/images from Responses API output into YAML turns; notebook examples; typed `params.responses` wrappers if needed
+- Follow-up: Notebook examples; typed `params.responses` wrappers if needed
 
 ### 2026-03-25 – Runtime-boundary wiring
 - Status: done

@@ -30,6 +30,11 @@ class NormalizedToolCall:
 class NormalizedAssistantMessage:
     role: str = "assistant"
     content: Optional[str] = None
+    reasoning: Optional[str] = None
+    encrypted_content: Optional[str] = None
+    sources: List[Dict[str, Any]] = field(default_factory=list)
+    images: List[Dict[str, Any]] = field(default_factory=list)
+    files: List[Dict[str, Any]] = field(default_factory=list)
     tool_calls: List[NormalizedToolCall] = field(default_factory=list)
 
 

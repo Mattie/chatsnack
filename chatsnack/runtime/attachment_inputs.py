@@ -5,6 +5,7 @@ This helper keeps that normalization logic in one place so sync/async/listen
 entrypoints all produce the same canonical expanded user-turn shape.
 """
 
+import atexit
 import os
 import tempfile
 import uuid
@@ -13,6 +14,32 @@ from typing import Any, Dict, List, Optional
 
 _ALLOWED_SOURCE_KEYS = {"path", "file_id", "url"}
 _ALLOWED_OPTIONAL_KEYS = {"filename"}
+_IMAGE_SUFFIXES = {".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".tiff", ".tif", ".heic"}
+_MATERIALIZED_TEMP_PATHS: set[str] = set()
+
+
+def cleanup_unresolved_materialized_paths() -> None:
+    """Best-effort cleanup of any materialized temp files that were never resolved.
+
+    Temp files in ``_MATERIALIZED_TEMP_PATHS`` are normally removed by
+    :class:`~chatsnack.runtime.attachment_resolver.AttachmentResolver` after
+    each upload attempt.  This function handles paths that were never passed
+    through the resolver — for example when a non-Responses runtime is used or
+    when an exception occurs before resolution.  It is registered as an
+    ``atexit`` handler so paths are cleaned up at interpreter shutdown even if
+    callers never invoke it explicitly.
+    """
+    for path in list(_MATERIALIZED_TEMP_PATHS):
+        try:
+            if os.path.exists(path):
+                os.remove(path)
+        except OSError:
+            pass
+        finally:
+            _MATERIALIZED_TEMP_PATHS.discard(path)
+
+
+atexit.register(cleanup_unresolved_materialized_paths)
 
 
 def normalize_attachment_inputs(
@@ -28,11 +55,21 @@ def normalize_attachment_inputs(
 
     norm_files = _normalize_bucket(files, bucket="files")
     if norm_files:
-        normalized["files"] = norm_files
+        file_entries: List[Dict[str, Any]] = []
+        image_entries: List[Dict[str, Any]] = []
+        for entry in norm_files:
+            if _looks_like_image_entry(entry):
+                image_entries.append(entry)
+            else:
+                file_entries.append(entry)
+        if file_entries:
+            normalized["files"] = file_entries
+        if image_entries:
+            normalized.setdefault("images", []).extend(image_entries)
 
     norm_images = _normalize_bucket(images, bucket="images")
     if norm_images:
-        normalized["images"] = norm_images
+        normalized.setdefault("images", []).extend(norm_images)
 
     return normalized
 
@@ -105,6 +142,17 @@ def _normalize_dict_entry(entry: Dict[str, Any], bucket: str) -> Dict[str, Any]:
     return out
 
 
+def _looks_like_image_entry(entry: Dict[str, Any]) -> bool:
+    """Classify a normalized attachment entry as image-like or generic file."""
+    if not isinstance(entry, dict):
+        return False
+    candidate = entry.get("path") or entry.get("url") or entry.get("filename")
+    if not isinstance(candidate, str):
+        return False
+    _, suffix = os.path.splitext(candidate.lower())
+    return suffix in _IMAGE_SUFFIXES
+
+
 def _looks_like_file_obj(value: Any) -> bool:
     return hasattr(value, "read") and callable(value.read)
 
@@ -135,4 +183,13 @@ def _materialize_file_obj(file_obj: Any, filename: Optional[str]) -> Dict[str, A
     with tmp:
         tmp.write(bytes(data))
 
+    _MATERIALIZED_TEMP_PATHS.add(tmp.name)
     return {"path": tmp.name, "filename": name}
+
+
+def is_materialized_tempfile(entry: Dict[str, Any]) -> bool:
+    """Return True when an attachment entry points at a chatsnack temp file."""
+    if not isinstance(entry, dict):
+        return False
+    path = entry.get("path")
+    return isinstance(path, str) and path in _MATERIALIZED_TEMP_PATHS

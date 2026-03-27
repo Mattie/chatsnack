@@ -74,11 +74,12 @@ For Responses runtime workflows, you can pass attachments directly at query time
 ```python
 from chatsnack import Chat
 
-chat = Chat("Review the attachment and answer tersely.", runtime_selector="responses")
-print(chat.ask("Summarize this file.", files=["./data/sales.csv"]))
+chat = Chat("Review the attachment and answer tersely.", runtime="responses")
+print(chat.ask("Summarize these.", files=["./images/chart.png", "./data/sales.csv"]))
 
-next_chat = chat.chat("What stands out in this chart?", images=["./images/chart.png"])
-print(next_chat.last)
+thread = chat.chat("What stands out in this chart?", files=["./images/chart.png"])
+thread = thread.chat("Now compare that with this report.", files=["./data/q2-report.pdf"])
+print(thread.last)
 ```
 
 When attachments are present, chatsnack stores the user turn as an expanded YAML block

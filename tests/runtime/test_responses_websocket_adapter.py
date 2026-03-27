@@ -151,6 +151,50 @@ def test_create_completion_consumes_stream_to_normalized_result(monkeypatch):
     assert result.metadata["response_id"] == "resp_1"
 
 
+def test_create_completion_uses_terminal_response_payload_for_rich_output(monkeypatch):
+    ai = SimpleNamespace(api_key="x", base_url=None, client=None, aclient=None)
+    adapter = ResponsesWebSocketAdapter(ai, session=ResponsesWebSocketSession(mode="inherit"))
+
+    def fake_stream(messages, **kwargs):
+        yield SimpleNamespace(
+            type="completed",
+            index=0,
+            data={
+                "terminal": {
+                    "finish_reason": "completed",
+                    "model": "gpt-4.1",
+                    "usage": {"total_tokens": 5},
+                    "response_text": "hello",
+                    "metadata": {
+                        "response_id": "resp_1",
+                        "response": {
+                            "id": "resp_1",
+                            "status": "completed",
+                            "model": "gpt-4.1",
+                            "usage": {"total_tokens": 5},
+                            "output": [
+                                {
+                                    "type": "message",
+                                    "role": "assistant",
+                                    "content": [
+                                        {"type": "output_text", "text": "hello"},
+                                        {"type": "reasoning", "summary": [{"text": "step"}]},
+                                    ],
+                                }
+                            ],
+                        },
+                    },
+                }
+            },
+        )
+
+    monkeypatch.setattr(adapter, "stream_completion", fake_stream)
+    result = adapter.create_completion(messages=[{"role": "user", "content": "hi"}], model="gpt-4.1")
+
+    assert result.message.content == "hello"
+    assert result.message.reasoning == "step"
+
+
 def test_create_completion_preserves_streamed_tool_calls(monkeypatch):
     ai = SimpleNamespace(api_key="x", base_url=None, client=None, aclient=None)
     adapter = ResponsesWebSocketAdapter(ai, session=ResponsesWebSocketSession(mode="inherit"))
