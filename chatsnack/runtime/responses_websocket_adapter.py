@@ -694,7 +694,21 @@ class ResponsesWebSocketAdapter(ResponsesNormalizationMixin):
             response_dict.setdefault("usage", (terminal or {}).get("usage"))
             if tool_calls_by_id:
                 existing_output = list(response_dict.get("output") or [])
-                existing_output.extend(tool_calls_by_id.values())
+                # Deduplicate tool calls by (type, call_id) to avoid duplicating
+                # entries that may already be present in the terminal payload.
+                seen_keys = set()
+                for item in existing_output:
+                    item_type = item.get("type")
+                    item_call_id = item.get("call_id")
+                    if item_type is not None and item_call_id is not None:
+                        seen_keys.add((item_type, item_call_id))
+                for tool_call in tool_calls_by_id.values():
+                    key = (tool_call.get("type"), tool_call.get("call_id"))
+                    if key in seen_keys:
+                        continue
+                    if key[0] is not None and key[1] is not None:
+                        seen_keys.add(key)
+                    existing_output.append(tool_call)
                 response_dict["output"] = existing_output
             return self.normalize_completion(response_dict, kwargs)
         response_text = (terminal or {}).get("response_text")
