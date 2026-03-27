@@ -16,7 +16,7 @@ Drop a note into `## Progress Notes` whenever something meaningfully changes.
 ### YYYY-MM-DD - Short update title
 - Status: done | partial | blocked
 - RFC sections: `Proposed default-runtime policy`; `Built-in OpenAI tools design`
-- What works for users: `Chat()` now defaults to Responses WebSocket, and tool YAML saves in the compact Phase 4 syntax.
+- What works for users: `Chat()` now defaults to Responses WebSocket, and tool YAML saves in the compact tool syntax.
 - Caveats: Client `tool_search` still needs the callback boundary, or some compact-schema edge cases still expand.
 - How we checked it: runtime tests, YAML round-trip tests, notebook/manual check
 - Follow-up: leftover docs, parser gaps, model-capability gaps, or handler work
@@ -50,6 +50,8 @@ Drop a note into `## Progress Notes` whenever something meaningfully changes.
 
 - [ ] `params.responses.reasoning` is the canonical home for reasoning request options.
   RFC: `Reasoning configuration design -> Canonical authoring surface`
+- [ ] `chat.reasoning.effort` and `chat.reasoning.summary` are the public Python convenience accessors for reasoning request config.
+  RFC: `Reasoning configuration design -> Convenience access`
 - [ ] Implicit `reasoning={"effort": "low"}` is injected only for reasoning-capable models when reasoning is otherwise unset.
   RFC: `Reasoning configuration design -> Smart default`
 - [ ] Reasoning summaries stay off unless the user opts in.
@@ -107,20 +109,33 @@ Drop a note into `## Progress Notes` whenever something meaningfully changes.
 - [ ] Generated files and images from built-in tools continue to land in `assistant.files` and `assistant.images`.
   RFC: `Built-in tool outputs and YAML fidelity`
 
+### Example assets and implementation naming
+
+- [ ] We ship descriptive example YAML chats for the default runtime path, reasoning access, hosted `web_search`, hosted `tool_search`, and a mixed tool surface.
+  RFC: `Example assets and implementation naming`
+- [ ] At least one notebook or small CLI loads those example YAML chats directly and exercises them in a concise chatsnackian flow.
+  RFC: `Example assets and implementation naming`
+- [ ] New production code, tests, helper files, notebooks, CLIs, and example assets use descriptive phase-agnostic names.
+  RFC: `Example assets and implementation naming`; `Proposed implementation order -> Step 10`
+
 ### Docs, examples, and proof
 
 - [ ] README common-path examples no longer need `runtime="responses"` boilerplate.
-  RFC: `Proposed implementation order -> Step 8`
-- [ ] Notebook coverage shows the new default runtime path and at least one built-in tool example in the compact Phase 4 syntax.
-  RFC: `Proposed implementation order -> Step 8`
+  RFC: `Proposed implementation order -> Step 9`
+- [ ] Notebook or CLI coverage shows the new default runtime path, the `chat.reasoning` convenience surface, and at least one built-in tool example in the compact syntax.
+  RFC: `Proposed implementation order -> Step 8`; `Proposed implementation order -> Step 9`
 - [ ] Runtime tests cover default-runtime selection, env overrides, explicit runtime preservation, and reasoning defaults.
   RFC: `Testing priorities`
 - [ ] YAML tests cover reasoning round-trip behavior plus compact-tool scalar, mapping, namespace, and escape-hatch round trips.
+  RFC: `Testing priorities`
+- [ ] Python API tests cover `chat.reasoning.effort` and `chat.reasoning.summary`.
   RFC: `Testing priorities`
 - [ ] Hosted `tool_search` and client `tool_search` both have acceptance-level coverage.
   RFC: `Testing priorities`
 - [ ] The mixed-surface Example 7 from the RFC round-trips as one readable YAML asset.
   RFC: `End-user example acceptance criteria -> Example 7: Mixed tool surface`
+- [ ] The educational Example 8 assets load cleanly through the paired notebook or CLI flow.
+  RFC: `End-user example acceptance criteria -> Example 8: Educational example assets`
 
 ## Progress Notes
 

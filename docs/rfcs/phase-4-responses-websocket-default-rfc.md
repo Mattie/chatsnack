@@ -11,6 +11,7 @@ The main moves are:
 - `Chat()` with no explicit runtime choice should default to the Responses runtime over WebSocket with `session="inherit"`.
 - `CHATSNACK_DEFAULT_RUNTIME` should provide a process-level escape hatch, including a value that restores the legacy Chat Completions default.
 - `params.responses.reasoning` should become the canonical home for reasoning request options, with a smart implicit default for reasoning-capable models.
+- the Python convenience surface should expose `chat.reasoning.effort` and `chat.reasoning.summary` as the nested reasoning access path.
 - `params.tools` should stay the single authoring surface for built-in OpenAI tools, and the saved YAML should move to a compact chatsnack-shaped tool syntax.
 - If `tool_search` is present, searchable tool surfaces should default to effective `defer_loading: true` unless they explicitly opt out with `defer_loading: false`.
 - Phase 4 should assume PR 47, or equivalent rich assistant-field folding work, is available before the runtime-default flip lands.
@@ -42,6 +43,8 @@ Phase 4 should turn the implemented runtime work into the everyday default and t
 - Keep one authoring surface for tool availability.
 - Keep saved YAML readable and compact.
 - Keep advanced tool and reasoning configuration additive to the common path.
+- Keep example assets teachable, reusable, and easy to exercise from notebooks or small CLIs.
+- Keep implementation identifiers descriptive and phase-agnostic.
 - Keep tool and reasoning config forward-compatible with OpenAI's fast-moving schema surface.
 - Keep saved YAML readable while still letting advanced users pin behavior explicitly.
 
@@ -52,6 +55,7 @@ Phase 4 should turn the implemented runtime work into the everyday default and t
 - Freezing every tool field into a hardcoded schema that must be updated on every API change.
 - Coupling the runtime-default flip to a default-model change.
 - Redesigning the Phase 3 transcript format again.
+- Naming production code, tests, helper files, notebooks, or examples after the rollout phase.
 
 ## Assumed base branch
 
@@ -278,14 +282,21 @@ This is the pragmatic balance because official model support varies:
 - effort values differ across GPT-5, GPT-5.1, GPT-5.4, GPT-5 pro, and o-series models
 - summary options also vary by model family
 
-### Convenience aliases
+### Convenience access
 
 Phase 4 can add Python-side convenience without changing the YAML home:
 
-- `chat.reasoning_effort`
-- `chat.reasoning_summary`
+- `chat.reasoning.effort`
+- `chat.reasoning.summary`
 
-These should map into `params.responses.reasoning` internally.
+`chat.reasoning` should act as a small convenience namespace on the chat object, and those properties should map into `params.responses.reasoning` internally.
+
+Recommended behavior:
+
+- `chat.reasoning.effort = "low"` updates `params.responses.reasoning.effort`
+- `chat.reasoning.summary = "auto"` updates `params.responses.reasoning.summary`
+- reading `chat.reasoning.effort` or `chat.reasoning.summary` reflects the currently authored request config
+- the public convenience surface should stay nested under `chat.reasoning` so the API stays discoverable and close to the YAML shape
 
 The YAML contract stays nested under `params.responses.reasoning`.
 
@@ -678,6 +689,22 @@ Recommended behavior:
 
 This keeps the default transcript readable and still gives deeper exports a clear home.
 
+## Example assets and implementation naming
+
+Phase 4 should ship example assets as part of the implementation, not just as RFC snippets.
+
+Recommended deliverables:
+
+- a small set of descriptive YAML chats that exercise the default runtime path, reasoning access, hosted `web_search`, hosted `tool_search`, and a mixed tool surface
+- at least one notebook or small CLI flow that loads those YAML files and runs them in a concise chatsnackian style
+- examples that teach compact tool syntax through realistic tasks instead of synthetic provider-shaped payloads
+
+Recommended naming rule:
+
+- name production code, tests, helpers, example YAML files, notebooks, and CLIs by behavior or topic instead of by rollout phase
+- prefer names such as `tool_search_crm.yaml`, `reasoning_rollout.ipynb`, or `run_compact_tools.py`
+- keep phase names in planning docs where they add roadmap context, and keep them out of implementation artifact names
+
 ## Proposed implementation order
 
 ### Step 1
@@ -705,7 +732,7 @@ Add `CHATSNACK_DEFAULT_RUNTIME` parsing plus tests for:
 
 ### Step 4
 
-Add reasoning-default logic in [chatsnack/chat/mixin_params.py](../../chatsnack/chat/mixin_params.py) and/or the Responses request builder so reasoning-capable models get implicit `effort="low"` when the user left reasoning unset.
+Add reasoning-default logic in [chatsnack/chat/mixin_params.py](../../chatsnack/chat/mixin_params.py) and/or the Responses request builder so reasoning-capable models get implicit `effort="low"` when the user left reasoning unset, and expose the nested Python convenience surface through `chat.reasoning.effort` and `chat.reasoning.summary`.
 
 ### Step 5
 
@@ -727,7 +754,15 @@ Extend the runtime handling for provider-native tool execution where needed, sta
 
 ### Step 8
 
-Update README and notebook examples so the common path uses `Chat()` without `runtime="responses"` boilerplate and the built-in tool examples use the compact Phase 4 tool syntax.
+Add descriptive example YAML assets plus at least one notebook or small CLI flow that loads them and exercises the new default runtime, reasoning access, hosted `web_search`, and `tool_search` in a chatsnackian way.
+
+### Step 9
+
+Update README and notebook examples so the common path uses `Chat()` without `runtime="responses"` boilerplate, points at the new example assets, and uses the compact tool syntax consistently.
+
+### Step 10
+
+Keep new production code, tests, helper files, notebooks, and example assets descriptive and phase-agnostic in their names.
 
 ## Testing priorities
 
@@ -738,6 +773,7 @@ Phase 4 should add focused tests for:
 - explicit `runtime="responses"` continuing to behave the same way it does today
 - explicit `session="inherit"` and `session="new"` still taking precedence
 - reasoning-capable models receiving implicit `effort="low"` only when reasoning is otherwise unset
+- `chat.reasoning.effort` and `chat.reasoning.summary` reflecting and mutating `params.responses.reasoning` cleanly
 - explicit reasoning dicts surviving round-trip unchanged
 - zero-config built-ins saving as scalars
 - configured built-ins saving as single-key mappings
@@ -749,6 +785,8 @@ Phase 4 should add focused tests for:
 - explicit `defer_loading: false` overriding the implicit `tool_search` policy
 - client `tool_search` raising a clear error when no handler is configured
 - client `tool_search` continuing correctly when a handler is configured
+- example YAML assets loading cleanly through the paired notebook or CLI flows
+- new code, test, and example artifact names staying descriptive and phase-agnostic
 
 ## Acceptance target for Phase 4
 
@@ -756,11 +794,13 @@ Phase 4 is successful when these feel true:
 
 1. `Chat()` lands on the Responses WebSocket runtime with no extra boilerplate.
 2. One env var restores the legacy default for teams that need a slower migration.
-3. Reasoning config has a clear home, a useful implicit default, and stable YAML.
+3. Reasoning config has a clear home, a useful implicit default, stable YAML, and a discoverable `chat.reasoning` convenience surface.
 4. Built-in OpenAI tools feel like a supported first-class surface in `params.tools`.
 5. Saved tool YAML feels like chatsnack YAML instead of provider JSON.
-6. Hosted `web_search` and hosted `tool_search` work cleanly as serialized tool definitions.
-7. Client `tool_search` has a clear callback boundary and predictable runtime behavior.
+6. Example YAML assets and notebook or CLI flows teach the new defaults in a chatsnackian way.
+7. Hosted `web_search` and hosted `tool_search` work cleanly as serialized tool definitions.
+8. Client `tool_search` has a clear callback boundary and predictable runtime behavior.
+9. New implementation names describe behavior instead of the rollout phase.
 
 ## End-user example acceptance criteria
 
@@ -797,17 +837,20 @@ Acceptance criteria:
 - this uses `ChatCompletionsAdapter`
 - explicit `runtime="responses"` still opts into Responses when requested
 
-### Example 3: Reasoning defaults
+### Example 3: Reasoning access and defaults
 
 ```python
 from chatsnack import Chat
 
 chat = Chat("Solve carefully.", model="gpt-5.4")
+chat.reasoning.summary = "auto"
 reply = chat.ask("Plan a rollout for a websocket default migration.")
 ```
 
 Acceptance criteria:
 
+- `chat.reasoning.summary = "auto"` updates `params.responses.reasoning.summary`
+- `chat.reasoning.effort` and `chat.reasoning.summary` are the public Python convenience accessors
 - chatsnack injects `reasoning={"effort": "low"}` when reasoning config is otherwise unset
 - reasoning summaries remain off unless the user opts in
 
@@ -933,6 +976,22 @@ Acceptance criteria:
 - built-ins and namespaces share one coherent tool surface
 - inline Python-like arg syntax compiles cleanly
 - implicit `defer_loading` keeps the common tool-search path concise
+
+### Example 8: Educational example assets
+
+```text
+examples/chats/tool_search_crm.yaml
+examples/chats/web_search_docs.yaml
+examples/chats/mixed_tool_surface.yaml
+examples/run_chat_yaml.py
+examples/notebooks/reasoning_rollout.ipynb
+```
+
+Acceptance criteria:
+
+- the example asset names describe the behavior they teach
+- at least one notebook or small CLI loads the YAML files directly
+- the examples show the default runtime path, compact tool syntax, and the `chat.reasoning` convenience surface
 
 ## References
 
