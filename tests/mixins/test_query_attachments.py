@@ -39,6 +39,37 @@ class TestPhase3ANaturalAttachmentsGoal:
         assert out.messages[0] == {"user": {"text": "review image", "images": [{"path": "img/plot.png"}]}}
         assert out.messages[-1] == {"assistant": "processed"}
 
+    def test_chat_persists_rich_assistant_fields_from_normalized_response(self, monkeypatch):
+        chat = Chat(runtime_selector="responses")
+
+        async def fake_create_completion_a(self, messages, **kwargs):
+            return SimpleNamespace(
+                message=SimpleNamespace(
+                    content="processed",
+                    tool_calls=[],
+                    reasoning="why",
+                    sources=[{"type": "url_citation", "url": "https://example.com"}],
+                    images=[{"file_id": "file_img"}],
+                    files=[{"file_id": "file_doc"}],
+                    encrypted_content="enc",
+                ),
+                metadata={"response_id": "resp_1", "provider_extras": {"status": "completed"}},
+            )
+
+        monkeypatch.setattr(type(chat.runtime), "create_completion_a", fake_create_completion_a)
+
+        out = chat.chat("review image", images=["img/plot.png"])
+        assert out.messages[-1] == {
+            "assistant": {
+                "text": "processed",
+                "reasoning": "why",
+                "sources": [{"type": "url_citation", "url": "https://example.com"}],
+                "images": [{"file_id": "file_img"}],
+                "files": [{"file_id": "file_doc"}],
+                "encrypted_content": "enc",
+            }
+        }
+
     def test_listen_accepts_attachments_on_streaming_path(self, monkeypatch):
         chat = Chat(stream=True)
 
@@ -121,6 +152,11 @@ class TestPhase3ANaturalAttachmentsSteerUnit:
             "images": [{"url": "https://example.com/i.png"}],
         }
 
+    def test_files_bucket_routes_image_extensions_into_images(self):
+        payload = Chat._prepare_query_vars("hello", files=["photo.png", "notes.csv"])
+        assert payload["__user"]["images"] == [{"path": "photo.png"}]
+        assert payload["__user"]["files"] == [{"path": "notes.csv"}]
+
     def test_no_attachment_path_is_unchanged(self):
         payload = Chat._prepare_query_vars("hello", flavor="mint")
         assert payload == {"__user": "hello", "flavor": "mint"}
@@ -134,6 +170,25 @@ class TestPhase3ANaturalAttachmentsSteerUnit:
         assert len(files) == 1
         assert files[0]["filename"] == "records.csv"
         assert files[0]["path"].endswith(".csv")
+
+    def test_files_support_file_object_cleanup_after_upload(self, monkeypatch):
+        fh = io.BytesIO(b"id,name\n1,Alice\n")
+        fh.name = "records.csv"
+        chat = Chat(runtime_selector="responses")
+        uploaded_paths = []
+
+        def fake_upload(path, purpose):
+            uploaded_paths.append(path)
+            assert purpose == "assistants"
+            return "file_1"
+
+        monkeypatch.setattr(chat.ai, "upload_file", fake_upload)
+        payload = Chat._prepare_query_vars("read", files=[fh])
+        files = payload["__user"]["files"]
+        chat.runtime.attachment_resolver.resolve_attachment(files[0], "file")
+        assert uploaded_paths, "expected one upload call"
+        import os
+        assert not os.path.exists(uploaded_paths[0])
 
     def test_images_reject_file_object_bucket_mismatch(self):
         fh = io.BytesIO(b"bad")

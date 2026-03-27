@@ -14,6 +14,7 @@ import warnings
 from typing import Any, Dict, Optional, Tuple
 
 from loguru import logger
+from .attachment_inputs import _MATERIALIZED_TEMP_PATHS, is_materialized_tempfile
 
 # Cache key: (absolute_path, file_size, mtime_ns, kind)
 _CacheKey = Tuple[str, int, int, str]
@@ -73,6 +74,21 @@ class AttachmentResolver:
             purpose=self._upload_purpose(kind),
         )
 
+    @staticmethod
+    def _cleanup_temp_attachment(entry: Dict[str, Any]) -> None:
+        """Best-effort deletion for temp files materialized from file objects."""
+        if not is_materialized_tempfile(entry):
+            return
+        temp_path = entry.get("path")
+        try:
+            if temp_path and os.path.exists(temp_path):
+                os.remove(temp_path)
+        except OSError:
+            pass
+        finally:
+            if temp_path in _MATERIALIZED_TEMP_PATHS:
+                _MATERIALIZED_TEMP_PATHS.discard(temp_path)
+
     async def _upload_async(self, path: str, kind: str) -> str:
         """Upload *path* via the Files API (async) and return the file_id."""
         return await self.ai_client.upload_file_async(
@@ -109,6 +125,7 @@ class AttachmentResolver:
                 f"Skipping local-path {kind} '{path}': no ai_client available for upload.",
                 stacklevel=3,
             )
+            self._cleanup_temp_attachment(entry)
             return None
 
         cache_key = self._cache_key(path, kind)
@@ -117,11 +134,13 @@ class AttachmentResolver:
                 f"Skipping local-path {kind} '{path}': file not found.",
                 stacklevel=3,
             )
+            self._cleanup_temp_attachment(entry)
             return None
 
         cached = self._get_cached(cache_key)
         if cached:
             logger.debug("Cache hit for {kind} upload: {name} → {fid}", kind=kind, name=os.path.basename(path), fid=cached)
+            self._cleanup_temp_attachment(entry)
             return {"file_id": cached}
 
         try:
@@ -131,10 +150,12 @@ class AttachmentResolver:
                 f"Skipping local-path {kind} '{path}': upload failed ({exc}).",
                 stacklevel=3,
             )
+            self._cleanup_temp_attachment(entry)
             return None
 
         self._set_cached(cache_key, file_id)
         logger.debug("Uploaded {kind}: {name} → {fid}", kind=kind, name=os.path.basename(path), fid=file_id)
+        self._cleanup_temp_attachment(entry)
         return {"file_id": file_id}
 
     async def resolve_attachment_async(self, entry: Dict[str, Any], kind: str) -> Optional[Dict[str, Any]]:
@@ -154,6 +175,7 @@ class AttachmentResolver:
                 f"Skipping local-path {kind} '{path}': no ai_client available for upload.",
                 stacklevel=3,
             )
+            self._cleanup_temp_attachment(entry)
             return None
 
         cache_key = self._cache_key(path, kind)
@@ -162,11 +184,13 @@ class AttachmentResolver:
                 f"Skipping local-path {kind} '{path}': file not found.",
                 stacklevel=3,
             )
+            self._cleanup_temp_attachment(entry)
             return None
 
         cached = self._get_cached(cache_key)
         if cached:
             logger.debug("Cache hit for {kind} upload: {name} → {fid}", kind=kind, name=os.path.basename(path), fid=cached)
+            self._cleanup_temp_attachment(entry)
             return {"file_id": cached}
 
         try:
@@ -176,10 +200,12 @@ class AttachmentResolver:
                 f"Skipping local-path {kind} '{path}': upload failed ({exc}).",
                 stacklevel=3,
             )
+            self._cleanup_temp_attachment(entry)
             return None
 
         self._set_cached(cache_key, file_id)
         logger.debug("Uploaded {kind}: {name} → {fid}", kind=kind, name=os.path.basename(path), fid=file_id)
+        self._cleanup_temp_attachment(entry)
         return {"file_id": file_id}
 
     # ------------------------------------------------------------------

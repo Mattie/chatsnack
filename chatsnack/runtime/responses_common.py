@@ -186,6 +186,11 @@ class ResponsesNormalizationMixin:
 
     def normalize_output(self, response_dict: Dict[str, Any]) -> Tuple[NormalizedAssistantMessage, Optional[str]]:
         content_parts: List[str] = []
+        reasoning_parts: List[str] = []
+        sources: List[Dict[str, Any]] = []
+        images: List[Dict[str, Any]] = []
+        files: List[Dict[str, Any]] = []
+        encrypted_content: Optional[str] = None
         tool_calls: List[NormalizedToolCall] = []
         assistant_phase: Optional[str] = None
 
@@ -196,8 +201,43 @@ class ResponsesNormalizationMixin:
                 assistant_phase = assistant_phase or item_dict.get("status")
                 for part in item_dict.get("content") or []:
                     part_dict = self._to_dict(part)
-                    if part_dict.get("type") == "output_text":
+                    part_type = part_dict.get("type")
+                    if part_type == "output_text":
                         content_parts.append(part_dict.get("text", ""))
+                        for ann in part_dict.get("annotations") or []:
+                            ann_dict = self._to_dict(ann)
+                            if ann_dict:
+                                sources.append(ann_dict)
+                    elif part_type == "reasoning":
+                        reasoning_text = part_dict.get("text") or ""
+                        if not reasoning_text:
+                            summary = part_dict.get("summary")
+                            if isinstance(summary, list):
+                                reasoning_text = " ".join(
+                                    self._to_dict(chunk).get("text", "")
+                                    for chunk in summary
+                                    if self._to_dict(chunk).get("text")
+                                )
+                        if reasoning_text:
+                            reasoning_parts.append(reasoning_text)
+                    elif part_type == "output_image":
+                        image: Dict[str, Any] = {}
+                        if part_dict.get("file_id"):
+                            image["file_id"] = part_dict["file_id"]
+                        if part_dict.get("image_url"):
+                            image["url"] = part_dict["image_url"]
+                        if image:
+                            images.append(image)
+                    elif part_type == "output_file":
+                        output_file: Dict[str, Any] = {}
+                        if part_dict.get("file_id"):
+                            output_file["file_id"] = part_dict["file_id"]
+                        if part_dict.get("filename"):
+                            output_file["filename"] = part_dict["filename"]
+                        if output_file:
+                            files.append(output_file)
+                    elif part_type == "encrypted_content":
+                        encrypted_content = part_dict.get("encrypted_content") or part_dict.get("text")
             elif item_type == "function_call":
                 tool_calls.append(
                     NormalizedToolCall(
@@ -212,10 +252,16 @@ class ResponsesNormalizationMixin:
 
         if not content_parts and response_dict.get("output_text"):
             content_parts.append(self._coerce_text(response_dict.get("output_text")))
+        encrypted_content = encrypted_content or response_dict.get("encrypted_content")
 
         message = NormalizedAssistantMessage(
             role="assistant",
             content="".join(content_parts) or None,
+            reasoning="\n".join(reasoning_parts) or None,
+            encrypted_content=encrypted_content,
+            sources=sources,
+            images=images,
+            files=files,
             tool_calls=tool_calls,
         )
         return message, assistant_phase

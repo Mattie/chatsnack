@@ -273,6 +273,26 @@ class ChatQueryMixin(ChatMessagesMixin, ChatParamsMixin):
             ],
         }
 
+    @staticmethod
+    def _assistant_response_to_turn(response_message) -> object:
+        """Convert a normalized assistant response into chatsnack turn shape.
+
+        Returns plain text when no rich assistant fields are present so the
+        common scalar YAML form stays terse. When reasoning/sources/images/
+        files/encrypted_content exists, returns an expanded assistant block.
+        """
+        text = response_message.content if hasattr(response_message, "content") else None
+        expanded = {}
+        if text:
+            expanded["text"] = text
+        for field in ("reasoning", "sources", "images", "files", "encrypted_content"):
+            value = getattr(response_message, field, None)
+            if value:
+                expanded[field] = value
+        if expanded and (len(expanded) > 1 or "text" not in expanded):
+            return expanded
+        return text
+
     def _run_sync(self, coro, method_name: str):
         try:
             return asyncio.run(coro)
@@ -637,8 +657,9 @@ class ChatQueryMixin(ChatMessagesMixin, ChatParamsMixin):
                 # trace log
                 logger.trace("No tool calls in response")
                 # Just a regular response with content but no tool calls
-                if content:
-                    new_chatprompt = new_chatprompt.assistant(content)
+                assistant_turn = self._assistant_response_to_turn(message)
+                if assistant_turn is not None:
+                    new_chatprompt = new_chatprompt.assistant(assistant_turn)
                 # Propagate metadata from the adapter response (not from self,
                 # which may be the source chat that did not run the completion).
                 new_chatprompt._set_runtime_metadata_from_response(response)
@@ -727,8 +748,9 @@ class ChatQueryMixin(ChatMessagesMixin, ChatParamsMixin):
                                 message = follow_msg  # Update for next iteration
                             else:
                                 # Final response with content but no more tool calls
-                                content = follow_msg.content if hasattr(follow_msg, "content") else ""
-                                current_chat = current_chat.assistant(content)
+                                assistant_turn = self._assistant_response_to_turn(follow_msg)
+                                if assistant_turn is not None:
+                                    current_chat = current_chat.assistant(assistant_turn)
                                 current_chat._set_runtime_metadata_from_response(follow_up)
                     else:
                         # If auto_feed is False, break the tool call recursion loop
