@@ -229,6 +229,12 @@ def _normalize_data_on_load(data):
         # provider-shaped dicts, then split back to the current internal
         # storage fields so dataclass typing/deserialization stays stable.
         provider_tools = parse_tools_authoring(params.get("tools"))
+        legacy_native_tools = params.get("native_tools")
+        if isinstance(legacy_native_tools, list):
+            # Preserve legacy mixed-authoring configurations where function
+            # tools lived under `tools` and provider-native tools were still
+            # stored in `native_tools`.
+            provider_tools.extend(legacy_native_tools)
         function_tools, native_tools = split_tools_for_params(provider_tools)
         params["tools"] = function_tools or None
         if native_tools:

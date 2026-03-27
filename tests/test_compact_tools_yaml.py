@@ -6,6 +6,7 @@ from ruamel.yaml import YAML
 from chatsnack import Chat, CHATSNACK_BASE_DIR
 from chatsnack.chat.mixin_params import ChatParams
 from chatsnack.runtime.types import NormalizedAssistantMessage, NormalizedCompletionResult, NormalizedToolCall, NormalizedToolFunction
+from chatsnack.yamlformat import _normalize_data_on_load
 
 
 def test_compact_tools_yaml_round_trip_and_internal_split(tmp_path, monkeypatch):
@@ -120,3 +121,67 @@ def test_client_tool_search_handler_continues_loop(monkeypatch):
     assert tool_turns
     assert tool_turns[0]["tool"]["output_type"] == "tool_search_output"
     assert calls["n"] == 1
+
+
+def test_tool_search_handler_propagates_across_chat_continuations(monkeypatch):
+    handled = {"n": 0}
+
+    def handler(payload):
+        handled["n"] += 1
+        return {"ok": True, "payload": payload}
+
+    chat = Chat(params=ChatParams(model="gpt-5.4", runtime="responses"), tool_search_handler=handler)
+
+    async def fake_submit(self, track_continuation=True, **kwargs):
+        message = NormalizedAssistantMessage(
+            content=None,
+            tool_calls=[
+                NormalizedToolCall(
+                    id=f"ts_{handled['n'] + 1}",
+                    type="tool_search",
+                    function=NormalizedToolFunction(name="tool_search", arguments=json.dumps({"goal": "find docs"})),
+                    payload={"goal": "find docs"},
+                )
+            ],
+        )
+        return "[]", NormalizedCompletionResult(message=message)
+
+    async def fake_follow_up(self, prompt, track_continuation=False, **kwargs):
+        return "done"
+
+    monkeypatch.setattr(Chat, "_submit_for_response_and_prompt", fake_submit)
+    monkeypatch.setattr(Chat, "_cleaned_chat_completion", fake_follow_up)
+
+    first = chat.chat("turn one")
+    second = first.chat("turn two")
+
+    assert first.last == "done"
+    assert second.last == "done"
+    assert handled["n"] == 2
+
+
+def test_load_normalization_preserves_legacy_native_tools_when_tools_present():
+    data = {
+        "params": {
+            "tools": [
+                {
+                    "type": "function",
+                    "function": {
+                        "name": "lookup_weather",
+                        "description": "Lookup weather",
+                        "parameters": {
+                            "type": "object",
+                            "properties": {"city": {"type": "string"}},
+                        },
+                    },
+                },
+            ],
+            "native_tools": [{"type": "web_search"}],
+        }
+    }
+
+    normalized = _normalize_data_on_load(data)
+    params = normalized["params"]
+    assert isinstance(params["tools"], list)
+    assert params["tools"][0]["type"] == "function"
+    assert params["native_tools"] == [{"type": "web_search"}]

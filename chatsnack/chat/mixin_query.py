@@ -707,6 +707,7 @@ class ChatQueryMixin(ChatMessagesMixin, ChatParamsMixin):
         new_chatprompt = self.__class__(
             params=getattr(self, "params", None),
             runtime=getattr(self, "runtime", None),
+            tool_search_handler=getattr(self, "tool_search_handler", None),
         )
 
         logger.trace("Expanded prompt: " + prompt)
@@ -831,7 +832,12 @@ class ChatQueryMixin(ChatMessagesMixin, ChatParamsMixin):
         import copy
         copied_params = copy.copy(self.params)
         if name is not None:
-            new_chat = self.__class__(name=name, params=copied_params, runtime=getattr(self, "runtime", None))
+            new_chat = self.__class__(
+                name=name,
+                params=copied_params,
+                runtime=getattr(self, "runtime", None),
+                tool_search_handler=getattr(self, "tool_search_handler", None),
+            )
         else:
             # if the existing name ends with _{datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}-{uuid.uuid4()}" then we need to trim that off and add a new one
             # use a regex to match at the end of the name
@@ -846,6 +852,7 @@ class ChatQueryMixin(ChatMessagesMixin, ChatParamsMixin):
                 name=name + f"_{datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}-{uuid.uuid4()}",
                 params=copied_params,
                 runtime=getattr(self, "runtime", None),
+                tool_search_handler=getattr(self, "tool_search_handler", None),
             )
 
         # copy local registry
