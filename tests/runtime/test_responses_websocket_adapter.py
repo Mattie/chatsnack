@@ -48,7 +48,7 @@ def test_request_with_session_applies_continuation_defaults_before_building_inpu
         {"role": "user", "content": "continue"},
     ]
 
-    request = adapter._request_with_session(messages, {"model": "gpt-4.1"}, include_prev=True)
+    request = adapter._request_with_session(messages, {"model": "gpt-4.1", "store": True}, include_prev=True)
 
     assert request["previous_response_id"] == "resp_prev"
     assert request["store"] is True
@@ -149,6 +149,50 @@ def test_create_completion_consumes_stream_to_normalized_result(monkeypatch):
 
     assert result.message.content == "hello"
     assert result.metadata["response_id"] == "resp_1"
+
+
+def test_create_completion_uses_terminal_response_payload_for_rich_output(monkeypatch):
+    ai = SimpleNamespace(api_key="x", base_url=None, client=None, aclient=None)
+    adapter = ResponsesWebSocketAdapter(ai, session=ResponsesWebSocketSession(mode="inherit"))
+
+    def fake_stream(messages, **kwargs):
+        yield SimpleNamespace(
+            type="completed",
+            index=0,
+            data={
+                "terminal": {
+                    "finish_reason": "completed",
+                    "model": "gpt-4.1",
+                    "usage": {"total_tokens": 5},
+                    "response_text": "hello",
+                    "metadata": {
+                        "response_id": "resp_1",
+                        "response": {
+                            "id": "resp_1",
+                            "status": "completed",
+                            "model": "gpt-4.1",
+                            "usage": {"total_tokens": 5},
+                            "output": [
+                                {
+                                    "type": "message",
+                                    "role": "assistant",
+                                    "content": [
+                                        {"type": "output_text", "text": "hello"},
+                                        {"type": "reasoning", "summary": [{"text": "step"}]},
+                                    ],
+                                }
+                            ],
+                        },
+                    },
+                }
+            },
+        )
+
+    monkeypatch.setattr(adapter, "stream_completion", fake_stream)
+    result = adapter.create_completion(messages=[{"role": "user", "content": "hi"}], model="gpt-4.1")
+
+    assert result.message.content == "hello"
+    assert result.message.reasoning == "step"
 
 
 def test_create_completion_preserves_streamed_tool_calls(monkeypatch):
@@ -449,3 +493,150 @@ def test_no_retry_after_partial_output_emitted(monkeypatch):
     assert len(calls) == 1, "Should not retry after partial output"
     assert events[0].type == "text_delta"
     assert events[1].type == "error"
+
+
+def test_stream_completion_resolves_attachment_paths_before_sync_stream_request(monkeypatch):
+    """WebSocket sync path should resolve local attachments before streaming."""
+    ai = SimpleNamespace(api_key="x", base_url=None, client=None, aclient=None)
+    adapter = ResponsesWebSocketAdapter(ai, session=ResponsesWebSocketSession(mode="inherit"))
+    original_messages = [{"role": "user", "content": "", "files": [{"path": "./data.csv"}]}]
+    resolved_messages = [{"role": "user", "content": "", "files": [{"file_id": "file_uploaded"}]}]
+    seen = {}
+
+    def fake_resolve(messages):
+        seen["resolved_from"] = messages
+        return resolved_messages
+
+    def fake_stream(messages, kwargs, include_prev=True):
+        seen["stream_messages"] = messages
+        yield RuntimeStreamEvent(
+            type="completed",
+            index=0,
+            data={
+                "terminal": {
+                    "finish_reason": "completed",
+                    "model": "gpt-4.1",
+                    "usage": {},
+                    "response_text": "",
+                    "metadata": {"response_id": "resp_ws_attach"},
+                }
+            },
+        )
+
+    monkeypatch.setattr(adapter.attachment_resolver, "resolve_messages", fake_resolve)
+    monkeypatch.setattr(adapter, "_stream_sync_request", fake_stream)
+
+    events = list(adapter.stream_completion(messages=original_messages, model="gpt-4.1"))
+
+    assert events[0].type == "completed"
+    assert seen["resolved_from"] == original_messages
+    assert seen["stream_messages"] == resolved_messages
+
+
+@pytest.mark.asyncio
+async def test_stream_completion_a_resolves_attachment_paths_before_async_stream_request(monkeypatch):
+    """WebSocket async path should resolve local attachments before streaming."""
+    ai = SimpleNamespace(api_key="x", base_url=None, client=None, aclient=None)
+    adapter = ResponsesWebSocketAdapter(ai, session=ResponsesWebSocketSession(mode="inherit"))
+    original_messages = [{"role": "user", "content": "", "images": [{"path": "./photo.png"}]}]
+    resolved_messages = [{"role": "user", "content": "", "images": [{"file_id": "file_img_uploaded"}]}]
+    seen = {}
+
+    async def fake_resolve(messages):
+        seen["resolved_from"] = messages
+        return resolved_messages
+
+    async def fake_stream(messages, kwargs, include_prev=True):
+        seen["stream_messages"] = messages
+        yield RuntimeStreamEvent(
+            type="completed",
+            index=0,
+            data={
+                "terminal": {
+                    "finish_reason": "completed",
+                    "model": "gpt-4.1",
+                    "usage": {},
+                    "response_text": "",
+                    "metadata": {"response_id": "resp_ws_attach_async"},
+                }
+            },
+        )
+
+    monkeypatch.setattr(adapter.attachment_resolver, "resolve_messages_async", fake_resolve)
+    monkeypatch.setattr(adapter, "_stream_async_request", fake_stream)
+
+    events = [event async for event in adapter.stream_completion_a(messages=original_messages, model="gpt-4.1")]
+
+    assert events[0].type == "completed"
+    assert seen["resolved_from"] == original_messages
+    assert seen["stream_messages"] == resolved_messages
+
+
+def test_request_with_session_keeps_attachment_only_turn_for_continuation():
+    """Continuation requests should keep attachment-only suffix turns on the WebSocket path."""
+    ai = SimpleNamespace(api_key="x", base_url=None, client=None, aclient=None)
+    adapter = ResponsesWebSocketAdapter(ai, session=ResponsesWebSocketSession(mode="inherit"))
+    adapter.session.last_response_id = "resp_prev"
+
+    request = adapter._request_with_session(
+        [
+            {"role": "user", "content": "first"},
+            {"role": "assistant", "content": "reply"},
+            {"role": "user", "content": "", "files": [{"file_id": "file_abc"}]},
+        ],
+        {"model": "gpt-4.1"},
+        include_prev=True,
+    )
+
+    assert request["previous_response_id"] == "resp_prev"
+    assert len(request["input"]) == 1
+    assert request["input"][0]["role"] == "user"
+    assert request["input"][0]["content"] == [{"type": "input_file", "file_id": "file_abc"}]
+
+
+def test_stream_sync_request_passes_provider_native_tools_unchanged(monkeypatch):
+    """WebSocket create kwargs should keep provider-native tools unchanged."""
+    ai = SimpleNamespace(api_key="x", base_url=None, client=None, aclient=None)
+    session = ResponsesWebSocketSession(mode="inherit")
+    adapter = ResponsesWebSocketAdapter(ai, session=session)
+    captured = {}
+
+    class ResponsePayload:
+        output_text = ""
+
+        def model_dump(self):
+            return {"id": "resp_tools_ws", "status": "completed", "model": "gpt-4.1", "usage": None}
+
+    class SyncConnection:
+        def __init__(self):
+            self.response = SimpleNamespace(create=self._create)
+            self._events = [SimpleNamespace(type="response.completed", response=ResponsePayload())]
+
+        def _create(self, **kwargs):
+            captured.update(kwargs)
+            return None
+
+        def __iter__(self):
+            return self
+
+        def __next__(self):
+            if self._events:
+                return self._events.pop(0)
+            raise StopIteration
+
+        def close(self):
+            return None
+
+    connection = SyncConnection()
+    session.sync_connection = connection
+    monkeypatch.setattr(adapter, "_connect_sync", lambda: connection)
+
+    events = list(
+        adapter._stream_sync_request(
+            messages=[{"role": "user", "content": "search"}],
+            kwargs={"model": "gpt-4.1", "tools": [{"type": "web_search"}]},
+        )
+    )
+
+    assert events[-1].type == "completed"
+    assert captured["tools"] == [{"type": "web_search"}]

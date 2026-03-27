@@ -65,6 +65,26 @@ while (user_input := input("Chat with the bot: ")):
     yourchat = yourchat.chat(user_input)
     print(f"THEM: {yourchat.last}")
 ```
+
+### Natural Attachments (Phase 3 style ergonomics)
+
+For Responses runtime workflows, you can pass attachments directly at query time with
+`files=` and `images=`:
+
+```python
+from chatsnack import Chat
+
+chat = Chat("Review the attachment and answer tersely.", runtime="responses")
+print(chat.ask("Summarize these.", files=["./images/chart.png", "./data/sales.csv"]))
+
+thread = chat.chat("What stands out in this chart?", files=["./images/chart.png"])
+thread = thread.chat("Now compare that with this report.", files=["./data/q2-report.pdf"])
+print(thread.last)
+```
+
+When attachments are present, chatsnack stores the user turn as an expanded YAML block
+(`text` + `files` / `images`) while keeping plain text turns scalar-first.
+
 ### Tasty Features
 
 There's many other tidbits covered in the notebooks, examples, and videos. Here are some of the highlights:

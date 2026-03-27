@@ -129,6 +129,41 @@ def test_normalizes_assistant_text_tool_calls_usage_model_status_and_metadata():
     assert result.metadata["provider_extras"]["status"] == "completed"
 
 
+def test_normalizes_rich_assistant_parts_into_message_fields():
+    response = _FakeObj(
+        {
+            "id": "resp_rich",
+            "status": "completed",
+            "model": "gpt-4.1",
+            "output": [
+                {
+                    "type": "message",
+                    "role": "assistant",
+                    "status": "completed",
+                    "content": [
+                        {"type": "output_text", "text": "Answer.", "annotations": [{"type": "url_citation", "url": "https://example.com"}]},
+                        {"type": "reasoning", "summary": [{"text": "Step one."}, {"text": "Step two."}]},
+                        {"type": "output_image", "file_id": "file_img_1"},
+                        {"type": "output_file", "file_id": "file_doc_1", "filename": "notes.txt"},
+                        {"type": "encrypted_content", "encrypted_content": "enc_blob"},
+                    ],
+                }
+            ],
+        }
+    )
+
+    ai = SimpleNamespace(client=SimpleNamespace(responses=SimpleNamespace(create=lambda **kwargs: response)))
+    adapter = ResponsesAdapter(ai)
+    result = adapter.create_completion(messages=[{"role": "user", "content": "hello"}], model="gpt-4.1")
+
+    assert result.message.content == "Answer."
+    assert result.message.reasoning == "Step one. Step two."
+    assert result.message.sources == [{"type": "url_citation", "url": "https://example.com"}]
+    assert result.message.images == [{"file_id": "file_img_1"}]
+    assert result.message.files == [{"file_id": "file_doc_1", "filename": "notes.txt"}]
+    assert result.message.encrypted_content == "enc_blob"
+
+
 def test_normalization_falls_back_to_output_text_when_output_items_missing():
     response = _FakeObj(
         {
@@ -295,6 +330,7 @@ def test_continuation_previous_response_id_uses_incremental_suffix_not_full_repl
         ],
         model="gpt-4.1",
         previous_response_id="resp_prev",
+        store=True,
     )
 
     assert captured["previous_response_id"] == "resp_prev"

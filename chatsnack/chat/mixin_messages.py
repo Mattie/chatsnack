@@ -5,6 +5,13 @@ import pprint
 
 from datafiles import datafile
 
+from .turns import (
+    CANONICAL_SYSTEM_ROLE,
+    DEVELOPER_ALIAS,
+    NormalizedTurn,
+    normalize_messages,
+    denormalize_messages,
+)
 
 
 # Define the Message Management mixin
@@ -53,14 +60,21 @@ class ChatMessagesMixin:
         """        
         return self.add_message("include", chatprompt_name, chat)
     
+    def developer(self, content: str, chat=False) -> object:
+        """Alias for system(); accepts a ``developer`` message and stores it as ``system``."""
+        return self.system(content, chat=chat)
+
     def add_message(self, role: str, content: Union[str, List, Dict], chat: bool = False) -> object:
         """
-        Add a message to the chat, as role ('user', 'assistant', 'system', 'tool' or 'include') with the content
+        Add a message to the chat, as role ('user', 'assistant', 'system', 'developer', 'tool' or 'include') with the content
         Returns: If chat is False returns this object for chaining. If chat is True, submits the 
         chat and returns a new Chat object that includes the message and response
         """
         # fully trim the role and left-trim the content if it's a string
         role = role.strip()
+        # ``developer`` is an alias for ``system``
+        if role == DEVELOPER_ALIAS:
+            role = CANONICAL_SYSTEM_ROLE
         if isinstance(content, str):
             content = content.lstrip()
         
@@ -134,8 +148,22 @@ class ChatMessagesMixin:
                     # Standard message types (user, system)
                     if escape and isinstance(content, str):
                         content = content.replace("{", "{{").replace("}", "}}")
-                    
-                    if content and role:
+
+                    attachments = {}
+                    if message.get("images"):
+                        attachments["images"] = message["images"]
+                    if message.get("files"):
+                        attachments["files"] = message["files"]
+
+                    if role and attachments:
+                        # Attachment-only turns are valid in Phase 3, so we keep
+                        # the expanded structure even when there is no text field.
+                        expanded = {}
+                        if content:
+                            expanded["text"] = content
+                        expanded.update(attachments)
+                        self.messages.append({role: expanded})
+                    elif content and role:
                         # Generic role handling
                         self.messages.append({role: content})
                     else:
@@ -214,23 +242,24 @@ class ChatMessagesMixin:
 
     @property
     def system_message(self) -> str:
-        """ Returns the first system message, if any """
-        # get the first message that has a key of "system"
+        """ Returns the first system (or developer alias) message, if any """
         for _message in self.messages:
             message = self._msg_dict(_message)
             if "system" in message:
                 return message["system"]
+            if DEVELOPER_ALIAS in message:
+                return message[DEVELOPER_ALIAS]
         return None
     
     @system_message.setter
     def system_message(self, value: str):
         """ Set the system message """
-        # loop through the messages and replace the first 'system' messages with this one
+        # loop through the messages and replace the first 'system' or 'developer' message with this one
         replaced = False
         for i in range(len(self.messages)):
             _message = self.messages[i]
             message = self._msg_dict(_message)
-            if "system" in message:
+            if "system" in message or DEVELOPER_ALIAS in message:
                 self.messages[i] = {"system": value}
                 replaced = True
                 break
@@ -275,37 +304,22 @@ class ChatMessagesMixin:
         """ Returns a list of messages with any included named chat files expanded """
         new_messages = []
         for _message in self.messages:
-            # if it's a dict then
             message = self._msg_dict(_message)
 
             logger.trace(f"Processing message: {pprint.pformat(message)}")
-            """
-             {'assistant': {'audio': None,
-               'content': None,
-               'function_call': None,
-               'refusal': None,
-               'role': 'assistant',
-               'tool_calls': [{'function': {'arguments': '{"location":"New '
-                                                         'York, '
-                                                         'NY","unit":"fahrenheit"}',
-                                            'name': 'get_current_weather'},
-                               'id': 'call_XryJOImYdSjRZUhTsk0MjUbj',
-                               'type': 'function'}]}}
-            """
 
             for role, content in message.items():
+                # Normalize developer → system for API calls
+                api_role = CANONICAL_SYSTEM_ROLE if role == DEVELOPER_ALIAS else role
+
                 if role == "include" and includes_expanded:
-                    # we need to load the chatprompt and get the messages from it
                     include_chatprompt = self.objects.get_or_none(content)
                     if include_chatprompt is None:
                         raise ValueError(f"Could not find 'include' prompt with name: {content}")
-                    # get_expanded_messages from the include_chatprompt and add them to the new_messages, they're already formatted how we want
                     new_messages.extend(include_chatprompt.get_messages())
-                elif role == "assistant" and isinstance(content, dict) and "tool_calls" in content:
-                    # log that assistant message was found
+                elif api_role == "assistant" and isinstance(content, dict) and "tool_calls" in content:
                     logger.trace(f"Assistant message found with tool calls: {pprint.pformat(content)}")
-                    # Handle tool calls in assistant messages
-                    new_messages.append({"role": role, "content": content.get('content'), "tool_calls": [
+                    new_messages.append({"role": api_role, "content": content.get('text', content.get('content')), "tool_calls": [
                         {
                             "id": tool_call.get("id", ""),
                             "type": tool_call.get("type", "function"),
@@ -316,9 +330,22 @@ class ChatMessagesMixin:
                         }
                         for tool_call in content["tool_calls"]
                     ]})
-                elif role == "tool" and isinstance(content, dict) and "tool_call_id" in content and "content" in content:
-                    new_messages.append({"role": role, "content": content["content"], "tool_call_id": content["tool_call_id"]})                    
+                elif api_role == "tool" and isinstance(content, dict) and "tool_call_id" in content and "content" in content:
+                    new_messages.append({"role": api_role, "content": content["content"], "tool_call_id": content["tool_call_id"]})
+                elif isinstance(content, dict) and (
+                    "text" in content or "images" in content or "files" in content
+                ):
+                    # Expanded turn block (Phase 3) – build the API message.
+                    # Carry through images and files metadata alongside the text
+                    # so runtime adapters can build multi-part input items.
+                    # Attachment-only turns (no text) are also valid.
+                    api_msg = {"role": api_role, "content": content.get("text", "")}
+                    if content.get("images"):
+                        api_msg["images"] = content["images"]
+                    if content.get("files"):
+                        api_msg["files"] = content["files"]
+                    new_messages.append(api_msg)
                 else:
-                    new_messages.append({"role": role, "content": content})
-        
+                    new_messages.append({"role": api_role, "content": content})
+
         return new_messages

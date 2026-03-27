@@ -10,6 +10,7 @@ from datafiles import datafile
 from ..asynchelpers import aformatter
 from ..fillings import filling_machine
 from ..runtime import EVENT_SCHEMA_VERSION
+from ..runtime.attachment_inputs import normalize_attachment_inputs
 
 from .mixin_messages import ChatMessagesMixin
 from .mixin_params import ChatParamsMixin, DEFAULT_MODEL_FALLBACK
@@ -213,29 +214,113 @@ class ChatStreamListener:
 
 class ChatQueryMixin(ChatMessagesMixin, ChatParamsMixin):
     @staticmethod
-    def _tool_response_to_dict(response) -> dict:
-        """Convert a response message with tool calls to a plain dictionary.
+    def _prepare_query_vars(usermsg=None, files=None, images=None, **additional_vars):
+        """Build query vars with a canonical ``__user`` payload.
 
-        Uses ``model_dump()`` when available (e.g. Pydantic models), and falls
-        back to a manual construction otherwise.
+        Phase 3A centralizes natural attachment ergonomics so every query
+        entrypoint (sync/async/listen) routes through the same normalization
+        logic and produces the same expanded user-turn shape.
         """
-        if hasattr(response, "model_dump"):
-            return response.model_dump()
+        prepared = dict(additional_vars)
+        attachments = normalize_attachment_inputs(files=files, images=images)
+
+        if usermsg is None and not attachments:
+            return prepared
+
+        if attachments:
+            # Merge into any pre-existing __user payload (e.g. set by __call__)
+            # rather than replacing it, so callers like chat("hi", files=[...])
+            # don't silently lose the text that __call__ already put in __user.
+            existing = prepared.pop("__user", None)
+            if isinstance(existing, dict):
+                user_block = dict(existing)
+            elif isinstance(existing, str) and existing:
+                user_block = {"text": existing}
+            else:
+                user_block = {}
+            # Explicit usermsg always wins over any existing __user text.
+            if usermsg is not None:
+                user_block["text"] = usermsg
+            user_block.update(attachments)
+            prepared["__user"] = user_block
+        elif usermsg is not None:
+            prepared["__user"] = usermsg
+
+        return prepared
+
+    @staticmethod
+    def _serialize_tool_call(id: str, type: str, function_name: str, function_arguments: str) -> dict:
         return {
-            "role": "assistant",
-            "content": response.content,
-            "tool_calls": [
-                {
-                    "id": tc.id,
-                    "type": tc.type,
-                    "function": {
-                        "name": tc.function.name if tc.function else "",
-                        "arguments": tc.function.arguments if tc.function else "",
-                    },
-                }
-                for tc in response.tool_calls
-            ],
+            "id": id,
+            "type": type,
+            "function": {
+                "name": function_name,
+                "arguments": function_arguments,
+            },
         }
+
+    @staticmethod
+    def _tool_response_to_dict(response) -> dict:
+        """Convert a tool-bearing assistant response into canonical turn shape.
+
+        This preserves the assistant text plus any richer normalized fields so
+        tool-call responses can round-trip through chatsnack chat state/YAML
+        without discarding reasoning, sources, files, images, or encrypted
+        content.
+        """
+        out = {}
+        text = response.content if hasattr(response, "content") else None
+        if text:
+            out["text"] = text
+        for field in ("reasoning", "sources", "images", "files", "encrypted_content"):
+            value = getattr(response, field, None)
+            if value:
+                out[field] = value
+        tool_calls = []
+        for tc in response.tool_calls:
+            if isinstance(tc, dict):
+                function = tc.get("function", {}) or {}
+                tool_calls.append(
+                    ChatQueryMixin._serialize_tool_call(
+                        id=tc.get("id", ""),
+                        type=tc.get("type", "function"),
+                        function_name=function.get("name", ""),
+                        function_arguments=function.get("arguments", ""),
+                    )
+                )
+                continue
+
+            function = getattr(tc, "function", None)
+            tool_calls.append(
+                ChatQueryMixin._serialize_tool_call(
+                    id=getattr(tc, "id", ""),
+                    type=getattr(tc, "type", "function"),
+                    function_name=function.name if function else "",
+                    function_arguments=function.arguments if function else "",
+                )
+            )
+        out["tool_calls"] = tool_calls
+        return out
+
+    @staticmethod
+    def _assistant_response_to_turn(response_message) -> object:
+        """Convert a normalized assistant response into chatsnack turn shape.
+
+        Returns plain text when no rich assistant fields are present so the
+        common scalar YAML form stays terse. When reasoning/sources/images/
+        files/encrypted_content exists, returns an expanded assistant block.
+        """
+        text = response_message.content if hasattr(response_message, "content") else None
+        expanded = {}
+        if text:
+            expanded["text"] = text
+        for field in ("reasoning", "sources", "images", "files", "encrypted_content"):
+            value = getattr(response_message, field, None)
+            if value:
+                expanded[field] = value
+        if expanded and (len(expanded) > 1 or "text" not in expanded):
+            return expanded
+        return text
 
     def _run_sync(self, coro, method_name: str):
         try:
@@ -304,6 +389,15 @@ class ChatQueryMixin(ChatMessagesMixin, ChatParamsMixin):
         kwargs = {}
         if hasattr(self, 'params') and self.params is not None:
             kwargs = self.params._get_non_none_params()
+
+            # Phase 3: merge provider-facing Responses options (text, reasoning,
+            # include, store, …) into the request kwargs so they reach the
+            # Responses API.  These are lower-priority than explicit kwargs.
+            responses_opts = self.params._get_responses_api_options()
+            if responses_opts:
+                merged = responses_opts.copy()
+                merged.update(kwargs)
+                kwargs = merged
         
         # Add tools if available
         if hasattr(self, 'get_tools'):
@@ -338,6 +432,7 @@ class ChatQueryMixin(ChatMessagesMixin, ChatParamsMixin):
 
         return {
             "response_id": metadata.get("response_id"),
+            "previous_response_id": metadata.get("previous_response_id"),
             "usage": getattr(normalized_response, "usage", None) if normalized_response is not None else None,
             "assistant_phase": metadata.get("assistant_phase"),
             "provider_extras": metadata.get("provider_extras"),
@@ -346,6 +441,7 @@ class ChatQueryMixin(ChatMessagesMixin, ChatParamsMixin):
     def _set_last_runtime_metadata(self, metadata: Optional[Dict[str, object]] = None):
         empty = {
             "response_id": None,
+            "previous_response_id": None,
             "usage": None,
             "assistant_phase": None,
             "provider_extras": None,
@@ -354,10 +450,47 @@ class ChatQueryMixin(ChatMessagesMixin, ChatParamsMixin):
             empty.update(metadata)
         self._last_runtime_metadata = empty
 
+        # Phase 3: when export_state is enabled, bridge live runtime metadata
+        # into params.responses.state so it persists on save.
+        self._sync_runtime_metadata_to_params(empty)
+
     def _clone_runtime_metadata_to(self, other):
         source = getattr(self, "_last_runtime_metadata", None) or {}
         if hasattr(other, "_set_last_runtime_metadata"):
             other._set_last_runtime_metadata(source.copy())
+
+    def _sync_runtime_metadata_to_params(self, metadata: Dict[str, object]):
+        """Write runtime metadata into params.responses.state when export_state is true.
+
+        This bridges the live continuation metadata from adapter responses into
+        the YAML-persistent params surface, so that ``chat.save()`` serializes
+        the current response_id, previous_response_id, and status when the
+        user has opted into explicit state export.
+        """
+        params = getattr(self, "params", None)
+        if params is None:
+            return
+        responses_cfg = getattr(params, "responses", None)
+        if not isinstance(responses_cfg, dict) or not responses_cfg.get("export_state"):
+            return
+
+        state = {}
+        if metadata.get("response_id"):
+            state["response_id"] = metadata["response_id"]
+        provider_extras = metadata.get("provider_extras")
+        if isinstance(provider_extras, dict):
+            if provider_extras.get("status"):
+                state["status"] = provider_extras["status"]
+        # Carry forward previous_response_id if we have one.
+        prev_id = metadata.get("previous_response_id")
+        if prev_id is None:
+            # Check if it was in a nested metadata dict (from normalize_runtime_metadata).
+            prev_id = (metadata.get("provider_extras") or {}).get("previous_response_id")
+        if prev_id:
+            state["previous_response_id"] = prev_id
+
+        if state:
+            params.responses["state"] = state
 
     def _set_runtime_metadata_from_response(self, response):
         """Extract and store runtime metadata from an adapter response object."""
@@ -382,8 +515,10 @@ class ChatQueryMixin(ChatMessagesMixin, ChatParamsMixin):
         adapter = getattr(self, "runtime", None)
         if adapter is not None:
             request_kwargs = kwargs.copy()
-            if track_continuation and self._runtime_supports_continuation() and "store" not in request_kwargs:
-                request_kwargs["store"] = True
+            # Phase 3: do NOT auto-enable store=True for continuation.
+            # Let the explicit params.responses.store value flow through
+            # from the YAML config.  Phase 2a WebSocket continuation with
+            # store=False is a valid and important path.
             if (
                 track_continuation
                 and self._runtime_supports_continuation()
@@ -466,31 +601,28 @@ class ChatQueryMixin(ChatMessagesMixin, ChatParamsMixin):
             additional_vars["__user"] = usermsg
         return self.chat(**additional_vars)
  
-    def ask(self, usermsg=None, **additional_vars) -> str:
+    def ask(self, usermsg=None, files=None, images=None, **additional_vars) -> str:
         """
         Executes the internal chat query as-is and returns only the string response.
         If usermsg is passed in, it will be added as a user message to the chat before executing the query. ⭐
         """
-        if usermsg is not None:
-            additional_vars["__user"] = usermsg
+        additional_vars = self._prepare_query_vars(usermsg, files=files, images=images, **additional_vars)
         return self._run_sync(self.ask_a(**additional_vars), "ask")
-    async def ask_a(self, usermsg=None, **additional_vars) -> str:
+    async def ask_a(self, usermsg=None, files=None, images=None, **additional_vars) -> str:
         """ Executes the query as-is, async version of ask()"""
         if self.stream:
             raise Exception("Cannot use ask() with a stream")
-        if usermsg is not None:
-            additional_vars["__user"] = usermsg
+        additional_vars = self._prepare_query_vars(usermsg, files=files, images=images, **additional_vars)
         _, response = await self._submit_for_response_and_prompt(**additional_vars)
         # filter the response if we have a pattern
         response = self.filter_by_pattern(response)
         return response
-    def listen(self, usermsg=None, events=False, event_schema="legacy", **additional_vars) -> ChatStreamListener:
+    def listen(self, usermsg=None, events=False, event_schema="legacy", files=None, images=None, **additional_vars) -> ChatStreamListener:
         """
         Executes the internal chat query as-is and returns a listener object that can be iterated on for the text.
         If usermsg is passed in, it will be added as a user message to the chat before executing the query. ⭐
         """
-        if usermsg is not None:
-            additional_vars["__user"] = usermsg
+        additional_vars = self._prepare_query_vars(usermsg, files=files, images=images, **additional_vars)
         _, response = self._run_sync(self._submit_for_response_and_prompt(**additional_vars), "listen")
         if self.stream:
             # response is a ChatStreamListener so lets start it
@@ -498,12 +630,11 @@ class ChatQueryMixin(ChatMessagesMixin, ChatParamsMixin):
             response.event_schema = event_schema
             response.start()
         return response
-    async def listen_a(self, usermsg=None, async_listen=True, events=False, event_schema="legacy", **additional_vars) -> ChatStreamListener:
+    async def listen_a(self, usermsg=None, async_listen=True, events=False, event_schema="legacy", files=None, images=None, **additional_vars) -> ChatStreamListener:
         """ Executes the query as-is, async version of listen()"""
         if not self.stream:
             raise Exception("Cannot use listen() without a stream")
-        if usermsg is not None:
-            additional_vars["__user"] = usermsg
+        additional_vars = self._prepare_query_vars(usermsg, files=files, images=images, **additional_vars)
         _, response = await self._submit_for_response_and_prompt(**additional_vars)
         if self.stream:
             # response is a ChatStreamListener so lets start it
@@ -511,19 +642,17 @@ class ChatQueryMixin(ChatMessagesMixin, ChatParamsMixin):
             response.event_schema = event_schema
             await response.start_a()
         return response
-    def chat(self, usermsg=None, **additional_vars) -> object:
+    def chat(self, usermsg=None, files=None, images=None, **additional_vars) -> object:
         """ 
         Executes the query as-is and returns a new Chat for continuation 
         If usermsg is passed in, it will be added as a user message to the chat before executing the query. ⭐
         """
-        if usermsg is not None:
-            additional_vars["__user"] = usermsg
+        additional_vars = self._prepare_query_vars(usermsg, files=files, images=images, **additional_vars)
         return self._run_sync(self.chat_a(**additional_vars), "chat")
         
-    async def chat_a(self, usermsg=None, **additional_vars) -> object:
+    async def chat_a(self, usermsg=None, files=None, images=None, **additional_vars) -> object:
         """Executes the query as-is, and returns a ChatPrompt object that contains the response. Async version of chat()"""
-        if usermsg is not None:
-            additional_vars["__user"] = usermsg
+        additional_vars = self._prepare_query_vars(usermsg, files=files, images=images, **additional_vars)
             
         if self.stream:
             raise Exception("Cannot use chat() with a stream")
@@ -557,8 +686,9 @@ class ChatQueryMixin(ChatMessagesMixin, ChatParamsMixin):
                 # trace log
                 logger.trace("No tool calls in response")
                 # Just a regular response with content but no tool calls
-                if content:
-                    new_chatprompt = new_chatprompt.assistant(content)
+                assistant_turn = self._assistant_response_to_turn(message)
+                if assistant_turn is not None:
+                    new_chatprompt = new_chatprompt.assistant(assistant_turn)
                 # Propagate metadata from the adapter response (not from self,
                 # which may be the source chat that did not run the completion).
                 new_chatprompt._set_runtime_metadata_from_response(response)
@@ -647,8 +777,9 @@ class ChatQueryMixin(ChatMessagesMixin, ChatParamsMixin):
                                 message = follow_msg  # Update for next iteration
                             else:
                                 # Final response with content but no more tool calls
-                                content = follow_msg.content if hasattr(follow_msg, "content") else ""
-                                current_chat = current_chat.assistant(content)
+                                assistant_turn = self._assistant_response_to_turn(follow_msg)
+                                if assistant_turn is not None:
+                                    current_chat = current_chat.assistant(assistant_turn)
                                 current_chat._set_runtime_metadata_from_response(follow_up)
                     else:
                         # If auto_feed is False, break the tool call recursion loop

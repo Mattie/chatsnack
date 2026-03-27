@@ -66,6 +66,24 @@ class AiClient:
         self.aclient.api_key = value
         self.client.api_key = value
 
+    def upload_file(self, file_path: str, purpose: str = "assistants") -> str:
+        """Upload a local file via the OpenAI Files API (synchronous).
+
+        Returns the ``file_id`` string from the created file object.
+        """
+        with open(file_path, "rb") as f:
+            result = self.client.files.create(file=f, purpose=purpose)
+        return result.id
+
+    async def upload_file_async(self, file_path: str, purpose: str = "assistants") -> str:
+        """Upload a local file via the OpenAI Files API (asynchronous).
+
+        Returns the ``file_id`` string from the created file object.
+        """
+        with open(file_path, "rb") as f:
+            result = await self.aclient.files.create(file=f, purpose=purpose)
+        return result.id
+
     @staticmethod
     def _supports_responses_endpoint(client) -> bool:
         responses = getattr(client, "responses", None)

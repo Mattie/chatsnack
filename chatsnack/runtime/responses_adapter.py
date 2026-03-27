@@ -1,5 +1,6 @@
 from typing import Any, Dict, List
 
+from .attachment_resolver import AttachmentResolver
 from .responses_common import ResponsesNormalizationMixin
 from .types import RuntimeErrorPayload, RuntimeStreamEvent, RuntimeTerminalMetadata
 
@@ -9,6 +10,7 @@ class ResponsesAdapter(ResponsesNormalizationMixin):
 
     def __init__(self, ai_client):
         self.ai_client = ai_client
+        self.attachment_resolver = AttachmentResolver(ai_client)
 
     def _get_responses_create(self, *, async_mode: bool = False):
         client_name = "aclient" if async_mode else "client"
@@ -26,12 +28,14 @@ class ResponsesAdapter(ResponsesNormalizationMixin):
         )
 
     def create_completion(self, messages: List[Dict[str, Any]], **kwargs: Any):
-        request_kwargs = self.build_responses_request(messages, kwargs)
+        resolved = self.attachment_resolver.resolve_messages(messages)
+        request_kwargs = self.build_responses_request(resolved, kwargs)
         response = self._get_responses_create(async_mode=False)(**request_kwargs)
         return self.normalize_completion(response, request_kwargs)
 
     async def create_completion_a(self, messages: List[Dict[str, Any]], **kwargs: Any):
-        request_kwargs = self.build_responses_request(messages, kwargs)
+        resolved = await self.attachment_resolver.resolve_messages_async(messages)
+        request_kwargs = self.build_responses_request(resolved, kwargs)
         response = await self._get_responses_create(async_mode=True)(**request_kwargs)
         return self.normalize_completion(response, request_kwargs)
 
