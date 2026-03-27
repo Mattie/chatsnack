@@ -5,6 +5,7 @@ This helper keeps that normalization logic in one place so sync/async/listen
 entrypoints all produce the same canonical expanded user-turn shape.
 """
 
+import atexit
 import os
 import tempfile
 import uuid
@@ -15,6 +16,30 @@ _ALLOWED_SOURCE_KEYS = {"path", "file_id", "url"}
 _ALLOWED_OPTIONAL_KEYS = {"filename"}
 _IMAGE_SUFFIXES = {".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".tiff", ".tif", ".heic"}
 _MATERIALIZED_TEMP_PATHS: set[str] = set()
+
+
+def cleanup_unresolved_materialized_paths() -> None:
+    """Best-effort cleanup of any materialized temp files that were never resolved.
+
+    Temp files in ``_MATERIALIZED_TEMP_PATHS`` are normally removed by
+    :class:`~chatsnack.runtime.attachment_resolver.AttachmentResolver` after
+    each upload attempt.  This function handles paths that were never passed
+    through the resolver — for example when a non-Responses runtime is used or
+    when an exception occurs before resolution.  It is registered as an
+    ``atexit`` handler so paths are cleaned up at interpreter shutdown even if
+    callers never invoke it explicitly.
+    """
+    for path in list(_MATERIALIZED_TEMP_PATHS):
+        try:
+            if os.path.exists(path):
+                os.remove(path)
+        except OSError:
+            pass
+        finally:
+            _MATERIALIZED_TEMP_PATHS.discard(path)
+
+
+atexit.register(cleanup_unresolved_materialized_paths)
 
 
 def normalize_attachment_inputs(

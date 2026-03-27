@@ -1,10 +1,15 @@
 import io
+import os
 from types import SimpleNamespace
 
 import pytest
 
 from chatsnack import Chat
 from chatsnack.chat.mixin_query import ChatStreamListener
+from chatsnack.runtime.attachment_inputs import (
+    cleanup_unresolved_materialized_paths,
+    is_materialized_tempfile,
+)
 
 
 class TestPhase3ANaturalAttachmentsGoal:
@@ -189,6 +194,29 @@ class TestPhase3ANaturalAttachmentsSteerUnit:
         assert uploaded_paths, "expected one upload call"
         import os
         assert not os.path.exists(uploaded_paths[0])
+
+    def test_unresolved_materialized_temp_files_cleaned_by_cleanup_hook(self):
+        """cleanup_unresolved_materialized_paths() removes temp files that were never resolved.
+
+        This covers the case where file-object attachments are materialized but the
+        runtime never invokes AttachmentResolver (e.g. a non-Responses runtime is used
+        or an exception occurs before resolution).
+        """
+        fh = io.BytesIO(b"data,value\n1,42\n")
+        fh.name = "leak.csv"
+        payload = Chat._prepare_query_vars("analyze", files=[fh])
+        temp_path = payload["__user"]["files"][0]["path"]
+
+        # The path was added to the tracking set and the file exists on disk.
+        assert is_materialized_tempfile({"path": temp_path})
+        assert os.path.exists(temp_path)
+
+        # Simulate no resolver being called (e.g. non-Responses runtime) and
+        # trigger the broader cleanup hook explicitly.
+        cleanup_unresolved_materialized_paths()
+
+        assert not os.path.exists(temp_path)
+        assert not is_materialized_tempfile({"path": temp_path})
 
     def test_images_reject_file_object_bucket_mismatch(self):
         fh = io.BytesIO(b"bad")
