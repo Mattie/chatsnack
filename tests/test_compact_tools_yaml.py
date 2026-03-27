@@ -185,3 +185,134 @@ def test_load_normalization_preserves_legacy_native_tools_when_tools_present():
     assert isinstance(params["tools"], list)
     assert params["tools"][0]["type"] == "function"
     assert params["native_tools"] == [{"type": "web_search"}]
+
+
+def test_child_tool_round_trip_preserves_optional_args_without_defaults():
+    """P1a: optional args with no default must stay optional after save/load."""
+    from chatsnack.compact_tools import _expand_child_tool, _serialize_child_tool
+
+    child_provider = {
+        "type": "function",
+        "function": {
+            "name": "search_orders",
+            "description": "Search orders.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "query": {"type": "string"},
+                    "region": {"type": "string"},
+                },
+                "required": ["query"],
+            },
+        },
+    }
+
+    compact = _serialize_child_tool(child_provider, implicit_defer=False)
+    # Should use structured form because region is optional without default
+    assert isinstance(compact.get("search_orders"), dict), "Should emit structured form"
+    assert "args" in compact["search_orders"]
+    assert compact["search_orders"]["required"] == ["query"]
+
+    expanded = _expand_child_tool(compact)
+    assert expanded["function"]["parameters"]["required"] == ["query"]
+
+
+def test_child_tool_inline_form_when_all_args_required():
+    """Simple child tools with all-required args should use inline form."""
+    from chatsnack.compact_tools import _serialize_child_tool
+
+    child_provider = {
+        "type": "function",
+        "function": {
+            "name": "get_user",
+            "description": "Get user by ID.",
+            "parameters": {
+                "type": "object",
+                "properties": {"user_id": {"type": "string"}},
+                "required": ["user_id"],
+            },
+        },
+    }
+
+    compact = _serialize_child_tool(child_provider, implicit_defer=False)
+    assert compact.get("get_user") == "Get user by ID."
+    assert compact.get("user_id") == "str"
+
+
+def test_child_tool_inline_form_when_optional_args_have_defaults():
+    """Optional args with defaults can use inline form faithfully."""
+    from chatsnack.compact_tools import _expand_child_tool, _serialize_child_tool
+
+    child_provider = {
+        "type": "function",
+        "function": {
+            "name": "list_items",
+            "description": "List items.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "query": {"type": "string"},
+                    "limit": {"type": "integer", "default": 10},
+                },
+                "required": ["query"],
+            },
+        },
+    }
+
+    compact = _serialize_child_tool(child_provider, implicit_defer=False)
+    # Should use inline form since limit has a default
+    assert compact.get("list_items") == "List items."
+    assert compact.get("limit") == "int = 10"
+
+    expanded = _expand_child_tool(compact)
+    assert expanded["function"]["parameters"]["required"] == ["query"]
+
+
+def test_client_tool_search_args_compiled_to_schema():
+    """P1b: tool_search with execution:client and compact args should compile."""
+    from chatsnack.compact_tools import parse_tools_authoring, serialize_tools_authoring
+
+    authored = [
+        {"tool_search": {"execution": "client", "args": {"goal": "str"}}},
+    ]
+
+    parsed = parse_tools_authoring(authored)
+    assert parsed[0]["type"] == "tool_search"
+    assert parsed[0]["execution"] == "client"
+    assert parsed[0]["args"]["properties"]["goal"] == {"type": "string"}
+    assert parsed[0]["args"]["required"] == ["goal"]
+
+    serialized = serialize_tools_authoring(parsed)
+    assert serialized[0]["tool_search"]["args"] == {"goal": "str"}
+
+    reparsed = parse_tools_authoring(serialized)
+    assert reparsed[0]["args"]["properties"]["goal"] == {"type": "string"}
+
+
+def test_client_tool_search_args_yaml_round_trip(tmp_path, monkeypatch):
+    """Full YAML round-trip for client tool_search with compact args."""
+    monkeypatch.chdir(tmp_path)
+    data_dir = Path(CHATSNACK_BASE_DIR)
+    data_dir.mkdir(parents=True, exist_ok=True)
+    authored = {
+        "params": {
+            "model": "gpt-5.4",
+            "tools": [
+                {"tool_search": {"execution": "client", "args": {"goal": "str"}}},
+            ],
+        },
+        "messages": [{"system": "Help."}],
+    }
+
+    yaml = YAML()
+    with open(data_dir / "client_ts.yml", "w", encoding="utf-8") as f:
+        yaml.dump(authored, f)
+
+    loaded = Chat(name="client_ts")
+    tools = loaded.params.get_tools()
+    ts = [t for t in tools if t.get("type") == "tool_search"][0]
+    assert ts["execution"] == "client"
+    assert ts["args"]["properties"]["goal"] == {"type": "string"}
+
+    saved = loaded.yaml
+    assert "goal: str" in saved

@@ -1,6 +1,5 @@
 params:
   model: gpt-5.4
-  runtime: responses
   tools:
     - tool_search
     - web_search:

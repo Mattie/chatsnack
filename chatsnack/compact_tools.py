@@ -201,6 +201,24 @@ def parse_tools_authoring(entries: Optional[List[Any]]) -> List[Dict[str, Any]]:
                 tool = {"type": t}
                 if isinstance(cfg, dict):
                     tool.update(cfg)
+                    # Compile compact ``args`` shorthand into provider-ready
+                    # JSON-schema parameters (e.g. client tool_search).
+                    raw_args = tool.get("args")
+                    if isinstance(raw_args, dict):
+                        properties: Dict[str, Any] = {}
+                        required_args: List[str] = []
+                        for arg_name, arg_spec in raw_args.items():
+                            schema, is_req = _compile_arg_spec(arg_spec)
+                            properties[arg_name] = schema
+                            if is_req:
+                                required_args.append(arg_name)
+                        compiled: Dict[str, Any] = {
+                            "type": "object",
+                            "properties": properties,
+                        }
+                        if required_args:
+                            compiled["required"] = required_args
+                        tool["args"] = compiled
                 parsed.append(tool)
                 continue
 
@@ -249,6 +267,22 @@ def _schema_to_compact_expr(schema: Dict[str, Any]) -> str:
     return base
 
 
+def _needs_structured_form(props: Dict[str, Any], required: List[str]) -> bool:
+    """Return True when inline compact form cannot faithfully represent the tool.
+
+    An arg that is optional (not in ``required``) but has no ``default`` in its
+    schema cannot be represented in inline shorthand because the reload path
+    infers required from the absence of a default.  In that case we must fall
+    back to structured form with an explicit ``required`` block.
+    """
+    for arg_name, arg_schema in props.items():
+        if not isinstance(arg_schema, dict):
+            continue
+        if arg_name not in required and "default" not in arg_schema:
+            return True
+    return False
+
+
 def _serialize_child_tool(child: Dict[str, Any], *, implicit_defer: bool) -> Dict[str, Any]:
     func = child.get("function") if isinstance(child, dict) else None
     if not isinstance(func, dict):
@@ -259,6 +293,33 @@ def _serialize_child_tool(child: Dict[str, Any], *, implicit_defer: bool) -> Dic
     props = params.get("properties") if isinstance(params.get("properties"), dict) else {}
     required = params.get("required") if isinstance(params.get("required"), list) else []
 
+    # Determine defer_loading output
+    defer_loading = child.get("defer_loading")
+    emit_defer: Optional[bool] = None
+    if defer_loading is False:
+        emit_defer = False
+    elif defer_loading is True and not implicit_defer:
+        emit_defer = True
+
+    # Use structured form when inline shorthand would lose requiredness info
+    if _needs_structured_form(props, required):
+        structured: Dict[str, Any] = {
+            name: {
+                "description": func.get("description", ""),
+                "args": {},
+            }
+        }
+        for arg_name, arg_schema in props.items():
+            if isinstance(arg_schema, dict):
+                structured[name]["args"][arg_name] = _schema_to_compact_expr(arg_schema)
+        if required:
+            structured[name]["required"] = list(required)
+        if emit_defer is not None:
+            structured[name]["defer_loading"] = emit_defer
+        return structured
+
+    # Simple inline form – every optional arg has a default, so the reload
+    # path can infer requiredness faithfully.
     inline: Dict[str, Any] = {}
     if func.get("description"):
         inline[name] = func["description"]
@@ -272,13 +333,27 @@ def _serialize_child_tool(child: Dict[str, Any], *, implicit_defer: bool) -> Dic
                 expr = expr.split("=", 1)[0].strip()
             inline[arg_name] = expr
 
-    defer_loading = child.get("defer_loading")
-    if defer_loading is False:
-        inline["defer_loading"] = False
-    elif defer_loading is True and not implicit_defer:
-        inline["defer_loading"] = True
+    if emit_defer is not None:
+        inline["defer_loading"] = emit_defer
 
     return inline
+
+
+def _decompile_args_schema(schema: Dict[str, Any]) -> Dict[str, str]:
+    """Reverse the compact args compilation — turn a JSON-schema ``args``
+    object back into compact Python-like shorthand strings."""
+    props = schema.get("properties") if isinstance(schema, dict) else None
+    if not isinstance(props, dict):
+        return {}
+    required = schema.get("required") if isinstance(schema.get("required"), list) else []
+    out: Dict[str, str] = {}
+    for arg_name, arg_schema in props.items():
+        if isinstance(arg_schema, dict):
+            expr = _schema_to_compact_expr(arg_schema)
+            if arg_name in required and "=" in expr:
+                expr = expr.split("=", 1)[0].strip()
+            out[arg_name] = expr
+    return out
 
 
 def serialize_tools_authoring(provider_tools: Optional[List[Dict[str, Any]]]) -> List[Any]:
@@ -307,6 +382,10 @@ def serialize_tools_authoring(provider_tools: Optional[List[Dict[str, Any]]]) ->
             else:
                 if t == "mcp" and has_tool_search and cfg.get("defer_loading") is True:
                     cfg = {k: v for k, v in cfg.items() if k != "defer_loading"}
+                # Decompile compiled args back to compact shorthand
+                if isinstance(cfg.get("args"), dict) and "properties" in cfg["args"]:
+                    cfg = dict(cfg)
+                    cfg["args"] = _decompile_args_schema(cfg["args"])
                 out.append({t: cfg})
             continue
 
