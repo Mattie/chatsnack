@@ -59,7 +59,7 @@ class TestResponsesOptionsReachProvider:
         assert "provider_dump" not in opts
 
     def test_responses_api_options_empty_when_no_responses(self):
-        params = ChatParams(model="gpt-5.4")
+        params = ChatParams(model="gpt-4o")
         assert params._get_responses_api_options() == {}
 
     def test_store_from_responses_config_reaches_adapter(self):

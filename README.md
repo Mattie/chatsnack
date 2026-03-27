@@ -74,7 +74,7 @@ For Responses runtime workflows, you can pass attachments directly at query time
 ```python
 from chatsnack import Chat
 
-chat = Chat("Review the attachment and answer tersely.", runtime="responses")
+chat = Chat("Review the attachment and answer tersely.")
 print(chat.ask("Summarize these.", files=["./images/chart.png", "./data/sales.csv"]))
 
 thread = chat.chat("What stands out in this chart?", files=["./images/chart.png"])

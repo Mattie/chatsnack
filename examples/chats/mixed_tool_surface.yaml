@@ -1,0 +1,40 @@
+params:
+  model: gpt-5.4
+  runtime: responses
+  tools:
+    - tool_search
+    - web_search:
+        filters:
+          allowed_domains:
+            - docs.python.org
+        external_web_access: true
+    - file_search:
+        vector_store_ids:
+          - vs_docs
+        max_num_results: 5
+    - code_interpreter
+    - image_generation:
+        quality: medium
+        size: 1024x1024
+    - crm: CRM tools for customer lookup and order management.
+      tools:
+        - get_customer: Look up one customer by ID.
+          customer_id: str
+        - update_order_status: Update an order status.
+          defer_loading: false
+          order_id: str
+          status: Literal["pending", "shipped", "delivered"]
+    - mcp:
+        server_label: github
+        connector_id: connector_github
+        allowed_tools:
+          - search_repositories
+          - get_file_contents
+        require_approval: always
+  responses:
+    include:
+      - web_search_call.action.sources
+      - file_search_call.results
+messages:
+  - system: Use whichever tools are most helpful.
+  - user: Build a quick issue triage summary.

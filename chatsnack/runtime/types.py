@@ -24,6 +24,7 @@ class NormalizedToolCall:
     id: str
     type: str = "function"
     function: Optional[NormalizedToolFunction] = None
+    payload: Optional[Dict[str, Any]] = None
 
 
 @dataclass

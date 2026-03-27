@@ -1,11 +1,73 @@
 import re
 import json
+import warnings
 from typing import Optional, List, Dict, Any, Union, Literal
 from dataclasses import dataclass, field
 from datafiles import datafile
 
 
 DEFAULT_MODEL_FALLBACK = "gpt-5-chat-latest"
+
+
+class _ReasoningConfigProxy:
+    """Nested convenience access for params.responses.reasoning."""
+
+    def __init__(self, parent: "ChatParamsMixin"):
+        self._parent = parent
+
+    def _reasoning_dict(self, create: bool = False) -> Optional[Dict[str, Any]]:
+        if self._parent.params is None:
+            if not create:
+                return None
+            self._parent.params = ChatParams()
+        if self._parent.params.responses is None:
+            if not create:
+                return None
+            self._parent.params.responses = {}
+        responses = self._parent.params.responses
+        if not isinstance(responses, dict):
+            if not create:
+                return None
+            self._parent.params.responses = {}
+            responses = self._parent.params.responses
+        reasoning = responses.get("reasoning")
+        if reasoning is None:
+            if not create:
+                return None
+            responses["reasoning"] = {}
+            reasoning = responses["reasoning"]
+        if not isinstance(reasoning, dict):
+            if not create:
+                return None
+            responses["reasoning"] = {}
+            reasoning = responses["reasoning"]
+        return reasoning
+
+    @property
+    def effort(self) -> Optional[str]:
+        reasoning = self._reasoning_dict(create=False)
+        return reasoning.get("effort") if isinstance(reasoning, dict) else None
+
+    @effort.setter
+    def effort(self, value: Optional[str]):
+        reasoning = self._reasoning_dict(create=True)
+        if value is None:
+            reasoning.pop("effort", None)
+            return
+        reasoning["effort"] = value
+
+    @property
+    def summary(self) -> Optional[str]:
+        reasoning = self._reasoning_dict(create=False)
+        return reasoning.get("summary") if isinstance(reasoning, dict) else None
+
+    @summary.setter
+    def summary(self, value: Optional[str]):
+        reasoning = self._reasoning_dict(create=True)
+        if value is None:
+            reasoning.pop("summary", None)
+            return
+        reasoning["summary"] = value
 
 @datafile
 class ParameterProperty:
@@ -403,12 +465,48 @@ class ChatParams:
         (``export_state``, ``state``, ``provider_dump``, …) are stripped.
         """
         if not self.responses or not isinstance(self.responses, dict):
-            return {}
-        return {
+            responses_opts = {}
+        else:
+            responses_opts = {
             k: v
             for k, v in self.responses.items()
             if k not in self._RESPONSES_INTERNAL_KEYS and v is not None
         }
+        # Phase 4: smart default for reasoning-capable models only when
+        # reasoning was not authored.
+        if "reasoning" not in responses_opts and self._is_reasoning_capable_model():
+            responses_opts["reasoning"] = {"effort": "low"}
+
+        self._validate_reasoning_options(responses_opts.get("reasoning"))
+        return responses_opts
+
+    def _is_reasoning_capable_model(self) -> bool:
+        model = (self.model or "").lower()
+        if not model:
+            return False
+        reasoning_families = ("gpt-5", "o1", "o3", "o4")
+        return model.startswith(reasoning_families) or any(tag in model for tag in reasoning_families)
+
+    def _validate_reasoning_options(self, reasoning: Any) -> None:
+        if reasoning is None or not isinstance(reasoning, dict):
+            return
+        effort = reasoning.get("effort")
+        if effort is not None and effort not in {"minimal", "low", "medium", "high"}:
+            warnings.warn(
+                f"Unknown reasoning effort '{effort}'. Passing through to provider unchanged.",
+                stacklevel=3,
+            )
+        summary = reasoning.get("summary")
+        if summary is not None and summary not in {"auto", "concise", "detailed"}:
+            warnings.warn(
+                f"Unknown reasoning summary '{summary}'. Passing through to provider unchanged.",
+                stacklevel=3,
+            )
+        if not self._is_reasoning_capable_model():
+            warnings.warn(
+                f"Model '{self.model}' may not support reasoning options; forwarding as authored.",
+                stacklevel=3,
+            )
 
     # Helper method to add a tool from a dictionary
     def add_tool_from_dict(self, tool_dict: Dict) -> None:
@@ -460,6 +558,10 @@ class ChatParams:
 
 class ChatParamsMixin:
     params: Optional[ChatParams] = None
+
+    @property
+    def reasoning(self) -> _ReasoningConfigProxy:
+        return _ReasoningConfigProxy(self)
 
     @property
     def engine(self) -> Optional[str]:

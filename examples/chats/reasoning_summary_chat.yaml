@@ -1,0 +1,9 @@
+params:
+  model: gpt-5.4
+  responses:
+    reasoning:
+      effort: low
+      summary: auto
+messages:
+  - system: Think clearly, then answer in two bullets.
+  - user: Compare memoization and caching.

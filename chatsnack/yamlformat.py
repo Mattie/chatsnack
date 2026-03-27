@@ -31,6 +31,7 @@ from .chat.turns import (
     ALLOWED_FIELDS_BY_ROLE,
     NormalizedTurn,
 )
+from .compact_tools import parse_tools_authoring, serialize_tools_authoring, split_tools_for_params
 
 
 # ── Phase 3 helpers ────────────────────────────────────────────────────
@@ -222,6 +223,19 @@ def _normalize_data_on_load(data):
     if isinstance(messages, list):
         data["messages"] = [_normalize_message_on_load(m) for m in messages]
 
+    params = data.get("params")
+    if isinstance(params, dict) and isinstance(params.get("tools"), list):
+        # Phase 4: compile compact authoring syntax under params.tools into
+        # provider-shaped dicts, then split back to the current internal
+        # storage fields so dataclass typing/deserialization stays stable.
+        provider_tools = parse_tools_authoring(params.get("tools"))
+        function_tools, native_tools = split_tools_for_params(provider_tools)
+        params["tools"] = function_tools or None
+        if native_tools:
+            params["native_tools"] = native_tools
+        elif "native_tools" in params:
+            params.pop("native_tools", None)
+
     return data
 
 
@@ -238,6 +252,18 @@ def _normalize_data_on_save(data):
         data["messages"] = [_normalize_message_on_save(m, fidelity) for m in messages]
 
     if isinstance(params, dict):
+        # Phase 4: params.tools is the single authored surface. Merge any
+        # legacy native_tools field for save and emit compact canonical syntax.
+        authored_tools = []
+        if isinstance(params.get("tools"), list):
+            authored_tools.extend(params.get("tools") or [])
+        if isinstance(params.get("native_tools"), list):
+            authored_tools.extend(params.get("native_tools") or [])
+        if authored_tools:
+            params = dict(params)
+            params["tools"] = serialize_tools_authoring(authored_tools)
+            params.pop("native_tools", None)
+            data["params"] = params
         data["params"] = _normalize_params_on_save(params, fidelity)
 
     return data

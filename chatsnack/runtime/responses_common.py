@@ -1,4 +1,5 @@
 import warnings
+import json
 from typing import Any, Dict, List, Optional, Tuple
 
 from .attachment_resolver import AttachmentResolver
@@ -38,6 +39,15 @@ class ResponsesNormalizationMixin:
         content = message.get("content")
 
         if role == "tool":
+            output_type = message.get("output_type")
+            if output_type == "tool_search_output":
+                return [
+                    {
+                        "type": "tool_search_output",
+                        "tool_call_id": message.get("tool_call_id", ""),
+                        "output": self._coerce_text(content),
+                    }
+                ]
             return [
                 {
                     "type": "function_call_output",
@@ -247,6 +257,20 @@ class ResponsesNormalizationMixin:
                             name=item_dict.get("name", ""),
                             arguments=item_dict.get("arguments", ""),
                         ),
+                    )
+                )
+            elif item_type == "tool_search_call":
+                call_id = item_dict.get("call_id") or item_dict.get("id") or ""
+                payload = {k: v for k, v in item_dict.items() if k not in {"type", "call_id", "id"}}
+                tool_calls.append(
+                    NormalizedToolCall(
+                        id=call_id,
+                        type="tool_search",
+                        function=NormalizedToolFunction(
+                            name="tool_search",
+                            arguments=json.dumps(payload),
+                        ),
+                        payload=payload,
                     )
                 )
 
