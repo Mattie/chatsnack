@@ -268,12 +268,16 @@ def _schema_to_compact_expr(schema: Dict[str, Any]) -> str:
 
 
 def _needs_structured_form(props: Dict[str, Any], required: List[str]) -> bool:
-    """Return True when inline compact form cannot faithfully represent the tool.
+    """Return whether inline compact form cannot faithfully represent the tool.
 
     An arg that is optional (not in ``required``) but has no ``default`` in its
     schema cannot be represented in inline shorthand because the reload path
     infers required from the absence of a default.  In that case we must fall
     back to structured form with an explicit ``required`` block.
+
+    Returns:
+        ``True`` if structured form is needed to preserve optional args without
+        defaults; ``False`` if inline compact form can faithfully round-trip.
     """
     for arg_name, arg_schema in props.items():
         if not isinstance(arg_schema, dict):
@@ -340,8 +344,19 @@ def _serialize_child_tool(child: Dict[str, Any], *, implicit_defer: bool) -> Dic
 
 
 def _decompile_args_schema(schema: Dict[str, Any]) -> Dict[str, str]:
-    """Reverse the compact args compilation — turn a JSON-schema ``args``
-    object back into compact Python-like shorthand strings."""
+    """Reverse the compact args compilation.
+
+    Turns a JSON-schema ``args`` object back into compact Python-like shorthand
+    strings suitable for YAML authoring.
+
+    Args:
+        schema: A JSON-schema-style dict with ``properties`` and optional
+            ``required`` keys, as produced by the args compilation step.
+
+    Returns:
+        A dict mapping argument names to compact type expressions (e.g.
+        ``{"goal": "str", "limit": "int = 10"}``).
+    """
     props = schema.get("properties") if isinstance(schema, dict) else None
     if not isinstance(props, dict):
         return {}

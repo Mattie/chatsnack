@@ -20,7 +20,7 @@ for path in sorted(root.glob("*.yaml")):
     params = chat.params
     model = params.model if params else "—"
     tools = params.get_tools() if params else []
-    tool_types = [t.get("type", "?") for t in tools if isinstance(t, dict)]
+    tool_types = [t.get("type", "untyped") for t in tools if isinstance(t, dict)]
     reasoning = (params.responses or {}).get("reasoning") if params else None
 
     print(f"  {path.name}")

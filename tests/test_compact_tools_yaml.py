@@ -209,7 +209,9 @@ def test_child_tool_round_trip_preserves_optional_args_without_defaults():
 
     compact = _serialize_child_tool(child_provider, implicit_defer=False)
     # Should use structured form because region is optional without default
-    assert isinstance(compact.get("search_orders"), dict), "Should emit structured form"
+    assert isinstance(compact.get("search_orders"), dict), (
+        "Expected structured form for optional args without defaults, got inline form"
+    )
     assert "args" in compact["search_orders"]
     assert compact["search_orders"]["required"] == ["query"]
 
