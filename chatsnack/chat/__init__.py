@@ -172,7 +172,7 @@ class Chat(ChatQueryMixin, ChatSerializationMixin, ChatUtensilMixin):
                 self.params = ChatParams()
 
             # Import here to avoid circular imports
-            from ..utensil import extract_utensil_functions, get_openai_tools
+            from ..utensil import extract_utensil_functions, get_openai_tools, collect_include_entries
             
             # Store local registry of utensil functions
             self._local_registry = utensils  # Store original objects, extract when needed
@@ -182,6 +182,18 @@ class Chat(ChatQueryMixin, ChatSerializationMixin, ChatUtensilMixin):
             
             # Store and serialize tool definitions
             self.set_tools(tools_list)
+
+            # Phase 4A: collect implied include entries from hosted utensils
+            implied_includes = collect_include_entries(utensils)
+            if implied_includes:
+                if self.params.responses is None:
+                    self.params.responses = {}
+                existing = self.params.responses.get("include") or []
+                merged = list(existing)
+                for entry in implied_includes:
+                    if entry not in merged:
+                        merged.append(entry)
+                self.params.responses["include"] = merged
         
         # Check if we're being loaded from a YAML file with tools
         if utensils is None:

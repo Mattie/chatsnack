@@ -97,7 +97,7 @@ from .chat import Chat, Text, ChatParams
 from .txtformat import register_txt_datafiles
 from .yamlformat import register_yaml_datafiles
 from . import packs
-from .utensil import utensil, get_all_utensils, get_openai_tools, UtensilGroup
+from .utensil import utensil, get_all_utensils, get_openai_tools, UtensilGroup, HostedUtensil
 
 from .fillings import snack_catalog, filling_machine
 

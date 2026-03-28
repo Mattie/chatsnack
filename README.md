@@ -85,6 +85,41 @@ print(thread.last)
 When attachments are present, chatsnack stores the user turn as an expanded YAML block
 (`text` + `files` / `images`) while keeping plain text turns scalar-first.
 
+### Utensils (Tools)
+
+Local Python functions and hosted OpenAI tools share one `utensils=[...]` surface:
+
+```python
+from chatsnack import Chat, utensil
+
+# Local function tools use the @utensil decorator
+@utensil
+def get_weather(location: str, unit: str = "celsius"):
+    """Get the current weather for a location."""
+    return {"temperature": 72, "condition": "sunny", "unit": unit}
+
+# Grouped tools form searchable namespaces
+crm = utensil.group("crm", "CRM tools for customer lookup.")
+
+@crm
+def get_customer(customer_id: str):
+    """Look up one customer by ID."""
+    return {"id": customer_id}
+
+# Hosted tools are small named specs
+docs_search = utensil.web_search(domains=["docs.python.org"], sources=True)
+
+# Everything passes through utensils=[]
+chat = Chat(
+    "Use tools only when useful.",
+    utensils=[get_weather, crm, utensil.tool_search, docs_search],
+)
+chat.reasoning.summary = "auto"
+```
+
+The `sources=True` on `web_search` automatically populates `params.responses["include"]`
+without manual dict mutation.
+
 ### Tasty Features
 
 There's many other tidbits covered in the notebooks, examples, and videos. Here are some of the highlights:

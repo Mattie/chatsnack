@@ -5,48 +5,157 @@ from typing import Any, Callable, Dict, List, Optional, Union, get_type_hints
 from .chat.mixin_params import ToolDefinition, FunctionDefinition
 from loguru import logger
 
+
+# ── Hosted utensil specs ───────────────────────────────────────────────
+
+class HostedUtensil:
+    """A hosted OpenAI tool spec passable in ``utensils=[...]``.
+
+    Instances carry the provider tool definition and any implied
+    ``params.responses.include`` entries so that ``Chat`` can wire both
+    from a single ``utensils`` list without manual dict mutation.
+    """
+
+    def __init__(self, tool_type: str, config: Optional[Dict[str, Any]] = None,
+                 include_entries: Optional[List[str]] = None):
+        self.tool_type = tool_type
+        self.config = config or {}
+        self.include_entries = include_entries or []
+
+    def to_tool_dict(self) -> Dict[str, Any]:
+        """Return the provider-shaped tool dict for the runtime."""
+        tool: Dict[str, Any] = {"type": self.tool_type}
+        tool.update(self.config)
+        return tool
+
+    def get_include_entries(self) -> List[str]:
+        """Return any ``params.responses.include`` entries this tool implies."""
+        return list(self.include_entries)
+
+    def __repr__(self) -> str:
+        cfg = f", {self.config}" if self.config else ""
+        return f"HostedUtensil({self.tool_type!r}{cfg})"
+
+
+def _make_web_search(*, domains: Optional[List[str]] = None,
+                     sources: bool = False,
+                     user_location: Optional[Dict[str, Any]] = None,
+                     external_web_access: Optional[bool] = None,
+                     **extra: Any) -> HostedUtensil:
+    """Build a ``web_search`` hosted utensil spec."""
+    cfg: Dict[str, Any] = {}
+    filters: Dict[str, Any] = {}
+    if domains:
+        filters["allowed_domains"] = list(domains)
+    if filters:
+        cfg["filters"] = filters
+    if user_location is not None:
+        cfg["user_location"] = user_location
+    if external_web_access is not None:
+        cfg["external_web_access"] = external_web_access
+    cfg.update(extra)
+    includes: List[str] = []
+    if sources:
+        includes.append("web_search_call.action.sources")
+    return HostedUtensil("web_search", cfg or None, includes)
+
+
+def _make_file_search(*, vector_store_ids: Optional[List[str]] = None,
+                      max_num_results: Optional[int] = None,
+                      results: bool = False,
+                      **extra: Any) -> HostedUtensil:
+    """Build a ``file_search`` hosted utensil spec."""
+    cfg: Dict[str, Any] = {}
+    if vector_store_ids:
+        cfg["vector_store_ids"] = list(vector_store_ids)
+    if max_num_results is not None:
+        cfg["max_num_results"] = max_num_results
+    cfg.update(extra)
+    includes: List[str] = []
+    if results:
+        includes.append("file_search_call.results")
+    return HostedUtensil("file_search", cfg or None, includes)
+
+
+def _make_mcp(*, server_label: Optional[str] = None,
+              connector_id: Optional[str] = None,
+              allowed_tools: Optional[List[str]] = None,
+              require_approval: Optional[str] = None,
+              **extra: Any) -> HostedUtensil:
+    """Build an ``mcp`` hosted utensil spec."""
+    cfg: Dict[str, Any] = {}
+    if server_label is not None:
+        cfg["server_label"] = server_label
+    if connector_id is not None:
+        cfg["connector_id"] = connector_id
+    if allowed_tools is not None:
+        cfg["allowed_tools"] = list(allowed_tools)
+    if require_approval is not None:
+        cfg["require_approval"] = require_approval
+    cfg.update(extra)
+    return HostedUtensil("mcp", cfg or None)
+
+
+# ── Utensil group ─────────────────────────────────────────────────────
+
 class UtensilGroup:
-    """A group of related utensil functions."""
+    """A group of related utensil functions that forms a searchable namespace.
+
+    Instances are both decorators (``@group``) and directly passable in
+    ``utensils=[...]``.
+    """
     
     def __init__(self, name: str, description: Optional[str] = None):
-        """
-        Initialize a group of related utensil functions.
-        
-        Args:
-            name: The name of the group
-            description: Optional description of the group
-        """
         logger.debug(f"Creating utensil group '{name}'")
         self.name = name
         self.description = description
         self.utensils = []
-        
-    def add(self, func=None, *, name: Optional[str] = None, description: Optional[str] = None):
-        """Decorator to add a function to this utensil group. Overwrites existing utensils with the same name."""
-        logger.debug(f"Adding function to group '{self.name}'")
-        def decorator(func):
-            utensil_obj = _create_utensil(func, name, description)
-            
-            # Check if a function with the same name already exists in the group
+
+    def __call__(self, func=None, *, name: Optional[str] = None,
+                 description: Optional[str] = None):
+        """Use as ``@group`` or ``@group(name=..., description=...)``."""
+        def decorator(fn):
+            utensil_obj = _create_utensil(fn, name, description)
             existing_names = [u.name for u in self.utensils]
             if utensil_obj.name in existing_names:
-                # Find the index of the existing utensil and replace it
-                index = existing_names.index(utensil_obj.name)
-                self.utensils[index] = utensil_obj
+                idx = existing_names.index(utensil_obj.name)
+                self.utensils[idx] = utensil_obj
             else:
-                # No existing utensil with this name, so append it
                 self.utensils.append(utensil_obj)
-                
-            return func
-        
+            return fn
+
         if func is None:
             return decorator
         return decorator(func)
+
+    # Keep legacy .add() working as an alias
+    def add(self, func=None, *, name: Optional[str] = None,
+            description: Optional[str] = None):
+        """Decorator to add a function to this utensil group. Overwrites existing utensils with the same name."""
+        return self.__call__(func, name=name, description=description)
     
     def get_openai_tools(self) -> List[Dict[str, str]]:
         """Convert all utensils in this group to the OpenAI tools format."""
         logger.debug(f"Converting utensil group '{self.name}' to OpenAI tools format")
         return [u.get_openai_tool() for u in self.utensils]
+
+    def to_namespace_tool_dict(self) -> Dict[str, Any]:
+        """Compile this group into a provider-shaped namespace tool dict."""
+        children = []
+        for u in self.utensils:
+            tool_dict = u.get_openai_tool()
+            children.append(tool_dict)
+        ns: Dict[str, Any] = {
+            "type": "namespace",
+            "name": self.name,
+            "tools": children,
+        }
+        if self.description:
+            ns["description"] = self.description
+        return ns
+
+    def __repr__(self) -> str:
+        return f"UtensilGroup({self.name!r}, {len(self.utensils)} utensils)"
 
 
 class UtensilFunction:
@@ -261,37 +370,75 @@ def _create_utensil(
     return utensil_obj
 
 
-def utensil(
-    func=None, *, 
-    name: Optional[str] = None, 
-    description: Optional[str] = None,
-    parameter_descriptions: Optional[Dict[str, str]] = None
-):
+class _UtensilNamespace:
+    """Callable namespace that serves as decorator, group factory, and
+    hosted-tool builder — all from a single ``utensil`` symbol.
+
+    ``@utensil`` still works as the plain decorator.
+    ``utensil.group(...)`` creates grouped namespaces.
+    ``utensil.tool_search`` / ``utensil.web_search(...)`` etc. create hosted specs.
     """
-    Decorator to mark a function as a utensil that can be called by the AI.
-    
-    Args:
-        func: The function to decorate
-        name: Optional override for the function name
-        description: Optional override for the function description
-        parameter_descriptions: Optional descriptions for parameters
-    
-    Returns:
-        The decorated function
-    """
-    logger.debug(f"Registering utensil function '{name or func.__name__}'")
-    def decorator(func):
-        utensil_obj = _create_utensil(func, name, description, parameter_descriptions)
-        _REGISTRY.append(utensil_obj)
-        return func
-        
-    if func is None:
-        return decorator
-    return decorator(func)
+
+    # ── decorator behaviour (preserves @utensil) ──────────────────────
+
+    def __call__(self, func=None, *, name: Optional[str] = None,
+                 description: Optional[str] = None,
+                 parameter_descriptions: Optional[Dict[str, str]] = None):
+        """Use as ``@utensil`` or ``@utensil(name=..., description=...)``."""
+        def decorator(fn):
+            utensil_obj = _create_utensil(fn, name, description, parameter_descriptions)
+            _REGISTRY.append(utensil_obj)
+            return fn
+
+        if func is None:
+            return decorator
+        return decorator(func)
+
+    # ── group factory ─────────────────────────────────────────────────
+
+    @staticmethod
+    def group(name: str, description: Optional[str] = None) -> UtensilGroup:
+        """Create a grouped namespace for related utensil functions."""
+        return UtensilGroup(name, description)
+
+    # ── zero-config hosted properties ─────────────────────────────────
+
+    @property
+    def tool_search(self) -> HostedUtensil:
+        return HostedUtensil("tool_search")
+
+    @property
+    def code_interpreter(self) -> HostedUtensil:
+        return HostedUtensil("code_interpreter")
+
+    @property
+    def image_generation(self) -> HostedUtensil:
+        return HostedUtensil("image_generation")
+
+    # ── configured hosted builders ────────────────────────────────────
+
+    @staticmethod
+    def web_search(**kwargs: Any) -> HostedUtensil:
+        """Create a configured ``web_search`` hosted utensil."""
+        return _make_web_search(**kwargs)
+
+    @staticmethod
+    def file_search(**kwargs: Any) -> HostedUtensil:
+        """Create a configured ``file_search`` hosted utensil."""
+        return _make_file_search(**kwargs)
+
+    @staticmethod
+    def mcp(**kwargs: Any) -> HostedUtensil:
+        """Create a configured ``mcp`` hosted utensil."""
+        return _make_mcp(**kwargs)
 
 
-# Add group method to the utensil function
-utensil.group = UtensilGroup
+# Module-level singleton that replaces the old ``utensil`` function.
+utensil = _UtensilNamespace()
+
+
+# Add group as class attribute for backward compat with ``utensil.group = UtensilGroup``
+# (now handled by the staticmethod on _UtensilNamespace)
 
 
 def get_all_utensils() -> List[UtensilFunction]:
@@ -302,6 +449,10 @@ def get_all_utensils() -> List[UtensilFunction]:
 def extract_utensil_functions(utensils=None) -> List[UtensilFunction]:
     """
     Extract all UtensilFunction objects from various input types.
+    
+    Note: HostedUtensil and UtensilGroup instances are skipped here because
+    they are not local Python functions.  Use ``get_openai_tools()`` for the
+    full provider-ready tool list.
     
     Args:
         utensils: List of utensil functions, groups, or callables.
@@ -320,6 +471,9 @@ def extract_utensil_functions(utensils=None) -> List[UtensilFunction]:
             result.append(u)
         elif isinstance(u, UtensilGroup):
             result.extend(u.utensils)
+        elif isinstance(u, HostedUtensil):
+            # Hosted specs have no local callable — skip for function extraction
+            continue
         elif hasattr(u, '__utensil__'):
             result.append(u.__utensil__)
         elif callable(u):
@@ -334,9 +488,41 @@ def extract_utensil_functions(utensils=None) -> List[UtensilFunction]:
 
 # Update the existing functions to use this core function
 def get_openai_tools(utensils=None) -> List[Dict[str, str]]:
-    """Convert utensil functions to the OpenAI tools format."""
-    utensil_functions = extract_utensil_functions(utensils)
-    return [func.get_openai_tool() for func in utensil_functions]
+    """Convert utensil items to the OpenAI tools format.
+
+    Handles local functions, groups (as namespace tool dicts), and
+    hosted utensil specs.
+    """
+    if utensils is None:
+        return [func.get_openai_tool() for func in _REGISTRY]
+
+    result: List[Dict[str, Any]] = []
+    for u in utensils:
+        if isinstance(u, HostedUtensil):
+            result.append(u.to_tool_dict())
+        elif isinstance(u, UtensilGroup):
+            result.append(u.to_namespace_tool_dict())
+        elif isinstance(u, UtensilFunction):
+            result.append(u.get_openai_tool())
+        elif hasattr(u, '__utensil__'):
+            result.append(u.__utensil__.get_openai_tool())
+        elif callable(u):
+            utensil_obj = _create_utensil(u)
+            result.append(utensil_obj.get_openai_tool())
+        else:
+            logger.warning(f"Unknown type {type(u)} in utensils, skipping")
+    return result
+
+
+def collect_include_entries(utensils) -> List[str]:
+    """Gather implied ``params.responses.include`` entries from hosted utensils."""
+    if not utensils:
+        return []
+    entries: List[str] = []
+    for u in utensils:
+        if isinstance(u, HostedUtensil):
+            entries.extend(u.get_include_entries())
+    return entries
 
 def get_tool_definitions(utensils=None) -> List[ToolDefinition]:
     """Convert utensil functions to ToolDefinition objects."""
