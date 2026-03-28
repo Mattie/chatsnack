@@ -507,6 +507,25 @@ def get_openai_tools(utensils=None) -> List[Dict[str, str]]:
             result.append(utensil_obj.get_openai_tool())
         else:
             logger.warning(f"Unknown type {type(u)} in utensils, skipping")
+
+    # Phase 4A: apply implicit defer_loading policy matching the compact YAML
+    # surface — when tool_search is present, namespace child tools and mcp
+    # tools default to defer_loading: true.
+    has_tool_search = any(
+        isinstance(t, dict) and t.get("type") == "tool_search"
+        for t in result
+    )
+    if has_tool_search:
+        for tool in result:
+            if not isinstance(tool, dict):
+                continue
+            if tool.get("type") == "namespace":
+                for child in tool.get("tools") or []:
+                    if isinstance(child, dict) and "defer_loading" not in child:
+                        child["defer_loading"] = True
+            if tool.get("type") == "mcp" and "defer_loading" not in tool:
+                tool["defer_loading"] = True
+
     return result
 
 

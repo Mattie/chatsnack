@@ -202,6 +202,7 @@ class ResponsesNormalizationMixin:
         files: List[Dict[str, Any]] = []
         encrypted_content: Optional[str] = None
         tool_calls: List[NormalizedToolCall] = []
+        hosted_tool_calls: List[Dict[str, Any]] = []
         assistant_phase: Optional[str] = None
 
         for item in response_dict.get("output") or []:
@@ -273,6 +274,11 @@ class ResponsesNormalizationMixin:
                         payload=payload,
                     )
                 )
+            elif item_type in ("web_search_call", "file_search_call"):
+                # Hosted tool calls are informational — the model already
+                # handled them.  Preserve the full output item so the
+                # persistence layer can save it alongside assistant text.
+                hosted_tool_calls.append(item_dict)
 
         if not content_parts and response_dict.get("output_text"):
             content_parts.append(self._coerce_text(response_dict.get("output_text")))
@@ -287,6 +293,7 @@ class ResponsesNormalizationMixin:
             images=images,
             files=files,
             tool_calls=tool_calls,
+            hosted_tool_calls=hosted_tool_calls,
         )
         return message, assistant_phase
 

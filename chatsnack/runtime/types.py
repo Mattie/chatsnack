@@ -37,6 +37,7 @@ class NormalizedAssistantMessage:
     images: List[Dict[str, Any]] = field(default_factory=list)
     files: List[Dict[str, Any]] = field(default_factory=list)
     tool_calls: List[NormalizedToolCall] = field(default_factory=list)
+    hosted_tool_calls: List[Dict[str, Any]] = field(default_factory=list)  # Phase 4: web_search_call, file_search_call etc.
 
 
 @dataclass

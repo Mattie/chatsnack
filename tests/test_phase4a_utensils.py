@@ -356,3 +356,33 @@ class TestHostedUtensilRepr:
         r = repr(ws)
         assert "web_search" in r
         assert "filters" in r
+
+
+class TestImplicitDeferLoading:
+    """P2b: tool_search presence should inject defer_loading for namespace children."""
+
+    def test_namespace_children_get_defer_loading_with_tool_search(self):
+        grp = utensil.group("ns", "Namespace.")
+
+        @grp
+        def helper(q: str):
+            """Help."""
+            return q
+
+        tools = get_openai_tools([grp, utensil.tool_search])
+        ns = [t for t in tools if t.get("type") == "namespace"][0]
+        for child in ns.get("tools", []):
+            assert child.get("defer_loading") is True, "Child tools should have defer_loading when tool_search is present"
+
+    def test_no_defer_loading_without_tool_search(self):
+        grp = utensil.group("ns2", "Namespace2.")
+
+        @grp
+        def fn(x: str):
+            """Fn."""
+            return x
+
+        tools = get_openai_tools([grp])
+        ns = [t for t in tools if t.get("type") == "namespace"][0]
+        for child in ns.get("tools", []):
+            assert "defer_loading" not in child, "No defer_loading without tool_search"
