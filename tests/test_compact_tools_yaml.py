@@ -318,3 +318,63 @@ def test_client_tool_search_args_yaml_round_trip(tmp_path, monkeypatch):
 
     saved = loaded.yaml
     assert "goal: str" in saved
+
+
+def test_mixed_tool_order_round_trips(tmp_path, monkeypatch):
+    """P2a: Mixed tool surface should round-trip in authored order."""
+    monkeypatch.chdir(tmp_path)
+    data_dir = Path(CHATSNACK_BASE_DIR)
+    data_dir.mkdir(parents=True, exist_ok=True)
+
+    authored = {
+        "params": {
+            "model": "gpt-4o",
+            "tools": [
+                "tool_search",
+                {
+                    "type": "function",
+                    "function": {
+                        "name": "my_func",
+                        "description": "A function.",
+                        "parameters": {"type": "object", "properties": {"x": {"type": "string"}}},
+                    },
+                },
+                {"web_search": {"filters": {"allowed_domains": ["docs.python.org"]}}},
+            ],
+        },
+        "messages": [{"system": "Test."}],
+    }
+
+    yaml = YAML()
+    with open(data_dir / "order_test.yml", "w", encoding="utf-8") as f:
+        yaml.dump(authored, f)
+
+    loaded = Chat(name="order_test")
+    tools = loaded.params.get_tools()
+    types = [t.get("type") for t in tools]
+    assert types == ["tool_search", "function", "web_search"], f"Expected original order, got {types}"
+
+    # Save and verify order persists in the YAML text.
+    saved = loaded.yaml
+    # Check that tool_search appears before my_func, which appears before web_search.
+    ts_pos = saved.index("tool_search")
+    fn_pos = saved.index("my_func")
+    ws_pos = saved.index("web_search")
+    assert ts_pos < fn_pos < ws_pos, (
+        f"Expected tool_search < my_func < web_search in YAML, "
+        f"got positions {ts_pos}, {fn_pos}, {ws_pos}"
+    )
+
+
+def test_set_tools_preserves_interleaved_order():
+    """P2a: set_tools() -> get_tools() should preserve interleaved order."""
+    from chatsnack.chat.mixin_params import ChatParams
+
+    p = ChatParams()
+    p.set_tools([
+        {"type": "web_search"},
+        {"type": "function", "function": {"name": "fn", "description": "f", "parameters": {"type": "object", "properties": {}}}},
+        {"type": "tool_search"},
+    ])
+    types = [t.get("type") for t in p.get_tools()]
+    assert types == ["web_search", "function", "tool_search"]

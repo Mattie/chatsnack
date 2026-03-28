@@ -228,7 +228,10 @@ class Chat(ChatQueryMixin, ChatSerializationMixin, ChatUtensilMixin):
 
         # Phase 4 runtime resolution order:
         # explicit runtime object -> explicit runtime selector -> params.runtime
-        # -> explicit session -> env override -> library default.
+        # -> explicit session (constructor or params) -> env override -> library default.
+        # Authored params.session counts as an explicit session signal so that
+        # pinned YAML assets are not overridden by CHATSNACK_DEFAULT_RUNTIME.
+        has_explicit_session = explicit_session or session_mode is not None
         runtime_source = None
         if runtime is not None:
             runtime_source = "runtime_object"
@@ -236,7 +239,7 @@ class Chat(ChatQueryMixin, ChatSerializationMixin, ChatUtensilMixin):
             runtime_source = "explicit_runtime"
         elif params_runtime is not None:
             runtime_source = "params_runtime"
-        elif explicit_session:
+        elif has_explicit_session:
             runtime_selector = "responses"
             runtime_source = "explicit_session"
         else:
@@ -245,7 +248,7 @@ class Chat(ChatQueryMixin, ChatSerializationMixin, ChatUtensilMixin):
             if session_mode is None:
                 session_mode = default_session
 
-        # Explicit session keeps precedence for responses runtime selection.
+        # Constructor session= keeps precedence over params.session when both exist.
         if explicit_session and runtime_source in {"default_policy", "explicit_session"} and runtime_selector == "responses":
             session_mode = self.session
         self.runtime = self._select_runtime(runtime=runtime, runtime_selector=runtime_selector, profile=profile, session_mode=session_mode)

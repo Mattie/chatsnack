@@ -196,11 +196,15 @@ def _normalize_params_on_save(params_dict, fidelity):
         return params_dict
     
     result = dict(params_dict)
+
     responses = result.get("responses")
     if not isinstance(responses, dict):
         return result
 
     responses = dict(responses)
+
+    # Strip internal-only metadata that should not appear in saved YAML.
+    responses.pop("_tool_order", None)
     
     # state: only persist when export_state is true
     if fidelity not in ("continuation", "diagnostic"):
@@ -210,7 +214,11 @@ def _normalize_params_on_save(params_dict, fidelity):
     if fidelity != "diagnostic":
         responses.pop("provider_dump", None)
 
-    result["responses"] = responses
+    # If responses is now empty, drop it entirely for cleaner YAML.
+    if responses:
+        result["responses"] = responses
+    else:
+        result.pop("responses", None)
     return result
 
 
@@ -235,6 +243,24 @@ def _normalize_data_on_load(data):
             # tools lived under `tools` and provider-native tools were still
             # stored in `native_tools`.
             provider_tools.extend(legacy_native_tools)
+        # Build authored-order metadata so the save path can reconstruct
+        # the original tool sequence instead of always function-first/native-second.
+        order = []
+        fn_idx = 0
+        native_idx = 0
+        for tool in provider_tools:
+            if isinstance(tool, dict) and tool.get("type") == "function":
+                order.append(("fn", fn_idx))
+                fn_idx += 1
+            else:
+                order.append(("native", native_idx))
+                native_idx += 1
+        # Store order inside params.responses so it survives datafiles construction
+        # of ChatParams (responses is Optional[dict] and passes through as-is).
+        # It will be stripped before YAML emission in _normalize_params_on_save.
+        if not isinstance(params.get("responses"), dict):
+            params["responses"] = {}
+        params["responses"]["_tool_order"] = order
         function_tools, native_tools = split_tools_for_params(provider_tools)
         params["tools"] = function_tools or None
         if native_tools:
@@ -260,11 +286,30 @@ def _normalize_data_on_save(data):
     if isinstance(params, dict):
         # Phase 4: params.tools is the single authored surface. Merge any
         # legacy native_tools field for save and emit compact canonical syntax.
-        authored_tools = []
-        if isinstance(params.get("tools"), list):
-            authored_tools.extend(params.get("tools") or [])
-        if isinstance(params.get("native_tools"), list):
-            authored_tools.extend(params.get("native_tools") or [])
+        # Use _tool_order from responses if available to preserve the original
+        # interleaved sequence instead of always function-first/native-second.
+        fn_tools = list(params.get("tools") or [])
+        nt_tools = list(params.get("native_tools") or [])
+        responses = params.get("responses")
+        order = responses.get("_tool_order") if isinstance(responses, dict) else None
+        if order and (fn_tools or nt_tools):
+            authored_tools = []
+            for kind, idx in order:
+                if kind == "fn" and idx < len(fn_tools):
+                    authored_tools.append(fn_tools[idx])
+                elif kind == "native" and idx < len(nt_tools):
+                    authored_tools.append(nt_tools[idx])
+            # Append any tools added after initial authoring.
+            seen_fn = {idx for kind, idx in order if kind == "fn"}
+            seen_native = {idx for kind, idx in order if kind == "native"}
+            for i, t in enumerate(fn_tools):
+                if i not in seen_fn:
+                    authored_tools.append(t)
+            for i, t in enumerate(nt_tools):
+                if i not in seen_native:
+                    authored_tools.append(t)
+        else:
+            authored_tools = fn_tools + nt_tools
         if authored_tools:
             params = dict(params)
             params["tools"] = serialize_tools_authoring(authored_tools)

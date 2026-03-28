@@ -65,3 +65,20 @@ def test_reasoning_unknown_values_warn_but_pass_through():
         opts = params._get_responses_api_options()
     assert opts["reasoning"]["effort"] == "turbo"
     assert any("Unknown reasoning effort" in str(w.message) for w in caught)
+
+
+def test_params_session_wins_over_env_default(monkeypatch):
+    """P1: authored params.session should beat CHATSNACK_DEFAULT_RUNTIME."""
+    monkeypatch.setenv("CHATSNACK_DEFAULT_RUNTIME", "chat_completions")
+    chat = Chat(params=ChatParams(session="inherit"))
+    assert isinstance(chat.runtime, ResponsesWebSocketAdapter), (
+        "params.session='inherit' should force Responses WebSocket even when "
+        "env says chat_completions"
+    )
+
+
+def test_params_session_new_wins_over_env_default(monkeypatch):
+    """Variant: params.session='new' also beats env override."""
+    monkeypatch.setenv("CHATSNACK_DEFAULT_RUNTIME", "chat_completions")
+    chat = Chat(params=ChatParams(session="new"))
+    assert isinstance(chat.runtime, ResponsesWebSocketAdapter)

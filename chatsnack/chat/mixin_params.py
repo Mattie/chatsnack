@@ -527,28 +527,64 @@ class ChatParams:
         Provider-native tools (``web_search``, ``code_interpreter``, etc.)
         are stored as raw dicts and passed through unchanged.  Function
         tools are wrapped in ToolDefinition as before.
+
+        The original authored order is preserved via ``_authored_tool_order``
+        so that ``get_tools()`` returns the tools in the same sequence they
+        were authored (interleaving function and native tools correctly).
+        The order is also stored in ``responses._tool_order`` so it survives
+        datafiles serialization for the YAML save path.
         """
         function_tools = []
         native_tools = []
+        order: List[tuple] = []  # ("fn", idx) | ("native", idx)
         for tool_dict in tools_list:
             if self._is_native_tool(tool_dict):
+                order.append(("native", len(native_tools)))
                 native_tools.append(tool_dict)
             else:
+                order.append(("fn", len(function_tools)))
                 function_tools.append(ToolDefinition.from_dict(tool_dict))
         self.tools = function_tools or None
         self.native_tools = native_tools or None
+        self._authored_tool_order = order
+        # Persist order in responses dict for YAML save round-trip.
+        if self.responses is None:
+            self.responses = {}
+        self.responses["_tool_order"] = order
 
     def get_tools(self) -> List[Dict]:
         """Get the tools list in API-format dictionaries.
 
-        Combines function tools and provider-native tools into a single list.
+        Combines function tools and provider-native tools into a single
+        list, preserving the original authored order when available.
         """
-        result = []
-        if self.tools:
-            result.extend(tool.to_dict() for tool in self.tools)
-        if self.native_tools:
-            result.extend(self.native_tools)
-        return result
+        fn_list = [tool.to_dict() for tool in self.tools] if self.tools else []
+        native_list = list(self.native_tools) if self.native_tools else []
+        # Check for order info: first from the Python-set attribute, then
+        # from the responses dict (persisted through YAML load by datafiles).
+        order = getattr(self, "_authored_tool_order", None)
+        if not order and isinstance(self.responses, dict):
+            order = self.responses.get("_tool_order")
+        if order:
+            result = []
+            for kind, idx in order:
+                if kind == "fn" and idx < len(fn_list):
+                    result.append(fn_list[idx])
+                elif kind == "native" and idx < len(native_list):
+                    result.append(native_list[idx])
+            # Append any tools that weren't in the original order record
+            # (e.g. tools added after set_tools via add_tool).
+            seen_fn = {idx for kind, idx in order if kind == "fn"}
+            seen_native = {idx for kind, idx in order if kind == "native"}
+            for i, t in enumerate(fn_list):
+                if i not in seen_fn:
+                    result.append(t)
+            for i, t in enumerate(native_list):
+                if i not in seen_native:
+                    result.append(t)
+            return result
+        # Fallback: function tools first, then native (legacy behavior).
+        return fn_list + native_list
 
     @staticmethod
     def _is_native_tool(tool_dict: Dict) -> bool:
