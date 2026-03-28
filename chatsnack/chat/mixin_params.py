@@ -1,7 +1,7 @@
 import re
 import json
 import warnings
-from typing import Optional, List, Dict, Any, Union, Literal
+from typing import Optional, List, Dict, Any, Union, Literal, Tuple
 from dataclasses import dataclass, field
 from datafiles import datafile
 
@@ -536,7 +536,7 @@ class ChatParams:
         """
         function_tools = []
         native_tools = []
-        order: List[tuple] = []  # ("fn", idx) | ("native", idx)
+        order: List[Tuple[str, int]] = []  # ("fn", idx) | ("native", idx)
         for tool_dict in tools_list:
             if self._is_native_tool(tool_dict):
                 order.append(("native", len(native_tools)))
@@ -558,6 +558,8 @@ class ChatParams:
         Combines function tools and provider-native tools into a single
         list, preserving the original authored order when available.
         """
+        from ..compact_tools import reconstruct_tool_order
+
         fn_list = [tool.to_dict() for tool in self.tools] if self.tools else []
         native_list = list(self.native_tools) if self.native_tools else []
         # Check for order info: first from the Python-set attribute, then
@@ -565,26 +567,7 @@ class ChatParams:
         order = getattr(self, "_authored_tool_order", None)
         if not order and isinstance(self.responses, dict):
             order = self.responses.get("_tool_order")
-        if order:
-            result = []
-            for kind, idx in order:
-                if kind == "fn" and idx < len(fn_list):
-                    result.append(fn_list[idx])
-                elif kind == "native" and idx < len(native_list):
-                    result.append(native_list[idx])
-            # Append any tools that weren't in the original order record
-            # (e.g. tools added after set_tools via add_tool).
-            seen_fn = {idx for kind, idx in order if kind == "fn"}
-            seen_native = {idx for kind, idx in order if kind == "native"}
-            for i, t in enumerate(fn_list):
-                if i not in seen_fn:
-                    result.append(t)
-            for i, t in enumerate(native_list):
-                if i not in seen_native:
-                    result.append(t)
-            return result
-        # Fallback: function tools first, then native (legacy behavior).
-        return fn_list + native_list
+        return reconstruct_tool_order(fn_list, native_list, order)
 
     @staticmethod
     def _is_native_tool(tool_dict: Dict) -> bool:

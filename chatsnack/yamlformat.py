@@ -31,7 +31,7 @@ from .chat.turns import (
     ALLOWED_FIELDS_BY_ROLE,
     NormalizedTurn,
 )
-from .compact_tools import parse_tools_authoring, serialize_tools_authoring, split_tools_for_params
+from .compact_tools import parse_tools_authoring, serialize_tools_authoring, split_tools_for_params, reconstruct_tool_order
 
 
 # ── Phase 3 helpers ────────────────────────────────────────────────────
@@ -292,24 +292,7 @@ def _normalize_data_on_save(data):
         nt_tools = list(params.get("native_tools") or [])
         responses = params.get("responses")
         order = responses.get("_tool_order") if isinstance(responses, dict) else None
-        if order and (fn_tools or nt_tools):
-            authored_tools = []
-            for kind, idx in order:
-                if kind == "fn" and idx < len(fn_tools):
-                    authored_tools.append(fn_tools[idx])
-                elif kind == "native" and idx < len(nt_tools):
-                    authored_tools.append(nt_tools[idx])
-            # Append any tools added after initial authoring.
-            seen_fn = {idx for kind, idx in order if kind == "fn"}
-            seen_native = {idx for kind, idx in order if kind == "native"}
-            for i, t in enumerate(fn_tools):
-                if i not in seen_fn:
-                    authored_tools.append(t)
-            for i, t in enumerate(nt_tools):
-                if i not in seen_native:
-                    authored_tools.append(t)
-        else:
-            authored_tools = fn_tools + nt_tools
+        authored_tools = reconstruct_tool_order(fn_tools, nt_tools, order)
         if authored_tools:
             params = dict(params)
             params["tools"] = serialize_tools_authoring(authored_tools)

@@ -10,6 +10,35 @@ class CompactToolSyntaxError(ValueError):
     """Raised when compact tool YAML cannot be parsed safely."""
 
 
+def reconstruct_tool_order(
+    fn_list: List[Dict[str, Any]],
+    native_list: List[Dict[str, Any]],
+    order: Optional[List[Tuple[str, int]]],
+) -> List[Dict[str, Any]]:
+    """Reconstruct a merged tool list from separate function/native lists using stored order.
+
+    If *order* is ``None`` or empty, falls back to function-first/native-second.
+    """
+    if not order:
+        return list(fn_list) + list(native_list)
+    result: List[Dict[str, Any]] = []
+    for kind, idx in order:
+        if kind == "fn" and idx < len(fn_list):
+            result.append(fn_list[idx])
+        elif kind == "native" and idx < len(native_list):
+            result.append(native_list[idx])
+    # Append any tools added after the original authoring.
+    seen_fn = {idx for kind, idx in order if kind == "fn"}
+    seen_native = {idx for kind, idx in order if kind == "native"}
+    for i, t in enumerate(fn_list):
+        if i not in seen_fn:
+            result.append(t)
+    for i, t in enumerate(native_list):
+        if i not in seen_native:
+            result.append(t)
+    return result
+
+
 def _infer_schema_from_expr(expr: str) -> Tuple[Dict[str, Any], bool]:
     """Compile a tiny Python-like type expression into JSON-schema-ish fields.
 
