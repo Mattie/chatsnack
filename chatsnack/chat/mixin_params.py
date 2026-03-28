@@ -9,6 +9,56 @@ from datafiles import datafile
 DEFAULT_MODEL_FALLBACK = "gpt-5-chat-latest"
 
 
+_REASONING_SUMMARY_OPTIONS = frozenset({"auto", "concise", "detailed"})
+_KNOWN_REASONING_MODELS: Tuple[Tuple[str, Dict[str, frozenset]], ...] = (
+    (
+        "gpt-5.4",
+        {
+            "effort": frozenset({"none", "low", "medium", "high", "xhigh"}),
+            "summary": _REASONING_SUMMARY_OPTIONS,
+        },
+    ),
+    (
+        "gpt-5.1",
+        {
+            "effort": frozenset({"none", "low", "medium", "high"}),
+            "summary": _REASONING_SUMMARY_OPTIONS,
+        },
+    ),
+    (
+        "gpt-5",
+        {
+            "effort": frozenset({"minimal", "low", "medium", "high"}),
+            "summary": _REASONING_SUMMARY_OPTIONS,
+        },
+    ),
+    (
+        "o1",
+        {
+            "effort": frozenset({"low", "medium", "high"}),
+            "summary": _REASONING_SUMMARY_OPTIONS,
+        },
+    ),
+    (
+        "o3",
+        {
+            "effort": frozenset({"low", "medium", "high"}),
+            "summary": _REASONING_SUMMARY_OPTIONS,
+        },
+    ),
+    (
+        "o4",
+        {
+            "effort": frozenset({"low", "medium", "high"}),
+            "summary": _REASONING_SUMMARY_OPTIONS,
+        },
+    ),
+)
+_KNOWN_REASONING_EFFORTS = frozenset().union(
+    *(caps["effort"] for _, caps in _KNOWN_REASONING_MODELS)
+)
+
+
 class _ReasoningConfigProxy:
     """Nested convenience access for params.responses.reasoning."""
 
@@ -482,28 +532,62 @@ class ChatParams:
         return responses_opts
 
     def _is_reasoning_capable_model(self) -> bool:
+        return self._get_reasoning_capabilities() is not None
+
+    def _get_reasoning_capabilities(self) -> Optional[Dict[str, frozenset]]:
+        """Return the best-known reasoning capability profile for the current model.
+
+        The Phase 4 reasoning surface is intentionally pass-through friendly, but
+        we still keep a lightweight model table so we can give better warnings
+        for obviously unsupported effort/summary combinations on common models.
+        """
         model = (self.model or "").lower()
         if not model:
-            return False
-        reasoning_families = ("gpt-5", "o1", "o3", "o4")
-        return model.startswith(reasoning_families) or any(tag in model for tag in reasoning_families)
+            return None
+
+        for pattern, capabilities in _KNOWN_REASONING_MODELS:
+            if model == pattern or model.startswith(f"{pattern}-"):
+                return capabilities
+
+        for pattern, capabilities in _KNOWN_REASONING_MODELS:
+            if pattern in model:
+                return capabilities
+
+        return None
 
     def _validate_reasoning_options(self, reasoning: Any) -> None:
         if reasoning is None or not isinstance(reasoning, dict):
             return
+        capabilities = self._get_reasoning_capabilities()
         effort = reasoning.get("effort")
-        if effort is not None and effort not in {"minimal", "low", "medium", "high"}:
-            warnings.warn(
-                f"Unknown reasoning effort '{effort}'. Passing through to provider unchanged.",
-                stacklevel=3,
-            )
+        if effort is not None:
+            if effort not in _KNOWN_REASONING_EFFORTS:
+                warnings.warn(
+                    f"Unknown reasoning effort '{effort}'. Passing through to provider unchanged.",
+                    stacklevel=3,
+                )
+            elif capabilities and effort not in capabilities["effort"]:
+                warnings.warn(
+                    f"Reasoning effort '{effort}' is not in the known supported set "
+                    f"{sorted(capabilities['effort'])} for model '{self.model}'. "
+                    "Passing through to provider unchanged.",
+                    stacklevel=3,
+                )
         summary = reasoning.get("summary")
-        if summary is not None and summary not in {"auto", "concise", "detailed"}:
-            warnings.warn(
-                f"Unknown reasoning summary '{summary}'. Passing through to provider unchanged.",
-                stacklevel=3,
-            )
-        if not self._is_reasoning_capable_model():
+        if summary is not None:
+            if summary not in _REASONING_SUMMARY_OPTIONS:
+                warnings.warn(
+                    f"Unknown reasoning summary '{summary}'. Passing through to provider unchanged.",
+                    stacklevel=3,
+                )
+            elif capabilities and summary not in capabilities["summary"]:
+                warnings.warn(
+                    f"Reasoning summary '{summary}' is not in the known supported set "
+                    f"{sorted(capabilities['summary'])} for model '{self.model}'. "
+                    "Passing through to provider unchanged.",
+                    stacklevel=3,
+                )
+        if capabilities is None:
             warnings.warn(
                 f"Model '{self.model}' may not support reasoning options; forwarding as authored.",
                 stacklevel=3,

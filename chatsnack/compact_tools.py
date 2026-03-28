@@ -153,6 +153,9 @@ def _expand_child_tool(entry: Dict[str, Any]) -> Dict[str, Any]:
 
     inline_args = {k: v for k, v in data.items() if k not in RESERVED_CHILD_KEYS}
     arg_specs = explicit_args if isinstance(explicit_args, dict) else inline_args
+    child_extras: Dict[str, Any] = {}
+    if isinstance(explicit_args, dict):
+        child_extras = {k: v for k, v in inline_args.items() if k not in explicit_args}
 
     properties: Dict[str, Any] = {}
     required: List[str] = []
@@ -180,6 +183,8 @@ def _expand_child_tool(entry: Dict[str, Any]) -> Dict[str, Any]:
     tool = {"type": "function", "function": function_block}
     if defer_loading is not None:
         tool["defer_loading"] = bool(defer_loading)
+    if child_extras:
+        tool.update(child_extras)
     return tool
 
 
@@ -325,6 +330,10 @@ def _serialize_child_tool(child: Dict[str, Any], *, implicit_defer: bool) -> Dic
     params = func.get("parameters") if isinstance(func.get("parameters"), dict) else {}
     props = params.get("properties") if isinstance(params.get("properties"), dict) else {}
     required = params.get("required") if isinstance(params.get("required"), list) else []
+    child_extras = {
+        k: v for k, v in child.items()
+        if k not in {"type", "function", "defer_loading"}
+    }
 
     # Determine defer_loading output
     defer_loading = child.get("defer_loading")
@@ -335,7 +344,7 @@ def _serialize_child_tool(child: Dict[str, Any], *, implicit_defer: bool) -> Dic
         emit_defer = True
 
     # Use structured form when inline shorthand would lose requiredness info
-    if _needs_structured_form(props, required):
+    if child_extras or _needs_structured_form(props, required):
         structured: Dict[str, Any] = {
             name: {
                 "description": func.get("description", ""),
@@ -349,6 +358,8 @@ def _serialize_child_tool(child: Dict[str, Any], *, implicit_defer: bool) -> Dic
             structured[name]["required"] = list(required)
         if emit_defer is not None:
             structured[name]["defer_loading"] = emit_defer
+        if child_extras:
+            structured[name].update(child_extras)
         return structured
 
     # Simple inline form – every optional arg has a default, so the reload

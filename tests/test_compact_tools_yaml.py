@@ -270,6 +270,54 @@ def test_child_tool_inline_form_when_optional_args_have_defaults():
     assert expanded["function"]["parameters"]["required"] == ["query"]
 
 
+def test_structured_child_tool_preserves_provider_level_fields():
+    """Structured child tools should keep future provider-level child fields."""
+    from chatsnack.compact_tools import _expand_child_tool, _serialize_child_tool
+
+    compact = {
+        "search_accounts": {
+            "description": "Search accounts.",
+            "args": {"query": "str"},
+            "strict": True,
+        }
+    }
+
+    expanded = _expand_child_tool(compact)
+    assert expanded["strict"] is True
+    assert expanded["function"]["parameters"]["properties"]["query"] == {"type": "string"}
+
+    reserialized = _serialize_child_tool(expanded, implicit_defer=False)
+    assert reserialized["search_accounts"]["strict"] is True
+    assert reserialized["search_accounts"]["args"]["query"] == "str"
+
+
+def test_child_tool_serializer_uses_structured_form_for_provider_level_fields():
+    """Serializer should avoid inline form when child-level extras must be preserved."""
+    from chatsnack.compact_tools import _expand_child_tool, _serialize_child_tool
+
+    child_provider = {
+        "type": "function",
+        "strict": True,
+        "function": {
+            "name": "lookup_order",
+            "description": "Lookup an order.",
+            "parameters": {
+                "type": "object",
+                "properties": {"order_id": {"type": "string"}},
+                "required": ["order_id"],
+            },
+        },
+    }
+
+    compact = _serialize_child_tool(child_provider, implicit_defer=False)
+    assert isinstance(compact["lookup_order"], dict)
+    assert compact["lookup_order"]["strict"] is True
+
+    expanded = _expand_child_tool(compact)
+    assert expanded["strict"] is True
+    assert expanded["function"]["parameters"]["required"] == ["order_id"]
+
+
 def test_client_tool_search_args_compiled_to_schema():
     """P1b: tool_search with execution:client and compact args should compile."""
     from chatsnack.compact_tools import parse_tools_authoring, serialize_tools_authoring

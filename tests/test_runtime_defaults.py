@@ -67,6 +67,49 @@ def test_reasoning_unknown_values_warn_but_pass_through():
     assert any("Unknown reasoning effort" in str(w.message) for w in caught)
 
 
+def test_reasoning_known_model_warns_for_known_unsupported_effort():
+    params = ChatParams(model="gpt-5.4", runtime="responses", responses={"reasoning": {"effort": "minimal"}})
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        params._get_responses_api_options()
+    assert any("known supported set" in str(w.message) and "gpt-5.4" in str(w.message) for w in caught)
+
+
+def test_reasoning_known_model_warns_for_known_unsupported_summary():
+    params = ChatParams(model="o3-mini", runtime="responses", responses={"reasoning": {"summary": "verbose"}})
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        params._get_responses_api_options()
+    assert any("Unknown reasoning summary" in str(w.message) for w in caught)
+
+
+def test_reasoning_known_model_warns_for_supported_value_that_table_disallows():
+    params = ChatParams(model="o3-mini", runtime="responses", responses={"reasoning": {"effort": "minimal"}})
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        params._get_responses_api_options()
+    assert any("known supported set" in str(w.message) and "o3-mini" in str(w.message) for w in caught)
+
+
+def test_reasoning_non_reasoning_model_warns_generically():
+    params = ChatParams(model="gpt-4o", runtime="responses", responses={"reasoning": {"effort": "low"}})
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        params._get_responses_api_options()
+    assert any("may not support reasoning options" in str(w.message) for w in caught)
+
+
+def test_reasoning_capability_profiles_are_model_aware():
+    gpt54 = ChatParams(model="gpt-5.4", runtime="responses")
+    gpt5 = ChatParams(model="gpt-5", runtime="responses")
+    o3 = ChatParams(model="o3-mini", runtime="responses")
+
+    assert "xhigh" in gpt54._get_reasoning_capabilities()["effort"]
+    assert "minimal" in gpt5._get_reasoning_capabilities()["effort"]
+    assert gpt5._get_reasoning_capabilities()["effort"] != gpt54._get_reasoning_capabilities()["effort"]
+    assert o3._get_reasoning_capabilities()["effort"] == frozenset({"low", "medium", "high"})
+
+
 def test_params_session_wins_over_env_default(monkeypatch):
     """P1: authored params.session should beat CHATSNACK_DEFAULT_RUNTIME."""
     monkeypatch.setenv("CHATSNACK_DEFAULT_RUNTIME", "chat_completions")
