@@ -276,13 +276,24 @@ class ResponsesNormalizationMixin:
                 )
             elif item_type in ("web_search_call", "file_search_call"):
                 # Hosted tool calls are informational — the model already
-                # handled them.  Preserve the full output item so the
-                # persistence layer can save it alongside assistant text.
+                # handled them. Keep canonical web-search sources in
+                # assistant.sources and park the raw hosted call payload in
+                # assistant.provider_extras for continuation/diagnostic fidelity.
+                if item_type == "web_search_call":
+                    action = self._to_dict(item_dict.get("action") or {})
+                    for source in action.get("sources") or []:
+                        source_dict = self._to_dict(source)
+                        if source_dict and source_dict not in sources:
+                            sources.append(source_dict)
                 hosted_tool_calls.append(item_dict)
 
         if not content_parts and response_dict.get("output_text"):
             content_parts.append(self._coerce_text(response_dict.get("output_text")))
         encrypted_content = encrypted_content or response_dict.get("encrypted_content")
+
+        provider_extras = None
+        if hosted_tool_calls:
+            provider_extras = {"hosted_tool_calls": hosted_tool_calls}
 
         message = NormalizedAssistantMessage(
             role="assistant",
@@ -293,7 +304,7 @@ class ResponsesNormalizationMixin:
             images=images,
             files=files,
             tool_calls=tool_calls,
-            hosted_tool_calls=hosted_tool_calls,
+            provider_extras=provider_extras,
         )
         return message, assistant_phase
 

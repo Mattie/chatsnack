@@ -312,14 +312,14 @@ class ChatQueryMixin(ChatMessagesMixin, ChatParamsMixin):
 
         Returns plain text when no rich assistant fields are present so the
         common scalar YAML form stays terse. When reasoning/sources/images/
-        files/encrypted_content/hosted_tool_calls exists, returns an expanded
+        files/encrypted_content/provider_extras exists, returns an expanded
         assistant block.
         """
         text = response_message.content if hasattr(response_message, "content") else None
         expanded = {}
         if text:
             expanded["text"] = text
-        for field in ("reasoning", "sources", "images", "files", "encrypted_content", "hosted_tool_calls"):
+        for field in ("reasoning", "sources", "images", "files", "encrypted_content", "provider_extras"):
             value = getattr(response_message, field, None)
             if value:
                 expanded[field] = value

@@ -82,3 +82,17 @@ def test_params_session_new_wins_over_env_default(monkeypatch):
     monkeypatch.setenv("CHATSNACK_DEFAULT_RUNTIME", "chat_completions")
     chat = Chat(params=ChatParams(session="new"))
     assert isinstance(chat.runtime, ResponsesWebSocketAdapter)
+
+
+def test_tool_order_is_not_forwarded_to_responses_api_options():
+    params = ChatParams(
+        model="gpt-5.4",
+        runtime="responses",
+        responses={
+            "_tool_order": [("native", 0), ("fn", 0)],
+            "include": ["web_search_call.action.sources"],
+        },
+    )
+    opts = params._get_responses_api_options()
+    assert "_tool_order" not in opts
+    assert opts["include"] == ["web_search_call.action.sources"]

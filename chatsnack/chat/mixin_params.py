@@ -455,6 +455,7 @@ class ChatParams:
         "export_diagnostics",
         "state",
         "provider_dump",
+        "_tool_order",
     })
 
     def _get_responses_api_options(self) -> Dict:

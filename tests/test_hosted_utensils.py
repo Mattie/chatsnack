@@ -1,4 +1,4 @@
-"""Phase 4A tests: hosted tools feel like utensils in Python.
+"""Hosted tool/utensil surface tests.
 
 Tests cover the _UtensilNamespace callable object, hosted utensil specs,
 group namespaces, Chat integration, and YAML round-trip.

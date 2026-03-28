@@ -21,8 +21,11 @@ Add your OpenAI API key to your .env file. If you don't have a .env file, the li
 ### Learn More!
 Read more below, watch the [intro video](https://www.youtube.com/watch?v=Yjwi54rHrhw) or check out the [Getting Started notebook](notebooks/).
 
-### Response API Support
-If you wish to use the Responses runtime (`runtime_selector="responses"` or `params.runtime="responses"`), chatsnack will require the OpenAI Python client to be `openai>=1.66.0` (or newer) to ensure compatibility.
+### Responses API Support
+`Chat()` now defaults to the Responses family over WebSocket with `session="inherit"`.
+If you stay on that default path—or explicitly choose another Responses transport—
+chatsnack requires the OpenAI Python client to be `openai>=1.66.0` (or newer) to
+ensure compatibility.
 
 ## Usage
 
@@ -68,7 +71,7 @@ while (user_input := input("Chat with the bot: ")):
 
 ### Natural Attachments (Phase 3 style ergonomics)
 
-For Responses runtime workflows, you can pass attachments directly at query time with
+For the default Responses workflows, you can pass attachments directly at query time with
 `files=` and `images=`:
 
 ```python

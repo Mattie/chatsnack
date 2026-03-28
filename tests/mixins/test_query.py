@@ -118,7 +118,27 @@ def test_ask_with_responses_runtime_returns_str(chat, monkeypatch):
 
     out = chat.ask()
     assert isinstance(out, str)
+
+
+def test_internal_tool_order_is_not_forwarded_in_responses_request(monkeypatch):
+    chat = Chat("Use tools.")
+    chat.runtime = ResponsesAdapter(chat.ai)
+    chat.set_tools([
+        {"type": "tool_search"},
+        {"type": "function", "function": {"name": "lookup", "description": "Lookup.", "parameters": {"type": "object", "properties": {}}}},
+    ])
+
+    captured = {}
+
+    async def fake_create_completion_a(self, messages, **kwargs):
+        captured.update(kwargs)
+        return SimpleNamespace(message=SimpleNamespace(content="reply", tool_calls=[]))
+
+    monkeypatch.setattr(ResponsesAdapter, "create_completion_a", fake_create_completion_a)
+
+    out = chat.ask("hi")
     assert out == "reply"
+    assert "_tool_order" not in captured
 
 
 def test_chat_with_responses_runtime_returns_chat_with_assistant_history(chat, monkeypatch):

@@ -1079,9 +1079,10 @@ class TestHostedToolCallFolding:
 
         msg, phase = mixin.normalize_output(response_dict)
         assert msg.content == "Here are the results."
-        assert len(msg.hosted_tool_calls) == 1
-        assert msg.hosted_tool_calls[0]["type"] == "web_search_call"
-        assert msg.hosted_tool_calls[0]["action"]["sources"][0]["url"] == "https://docs.python.org"
+        assert msg.sources[0]["url"] == "https://docs.python.org"
+        assert len(msg.provider_extras["hosted_tool_calls"]) == 1
+        assert msg.provider_extras["hosted_tool_calls"][0]["type"] == "web_search_call"
+        assert msg.provider_extras["hosted_tool_calls"][0]["action"]["sources"][0]["url"] == "https://docs.python.org"
 
     def test_file_search_call_captured(self):
         from chatsnack.runtime.responses_common import ResponsesNormalizationMixin
@@ -1106,25 +1107,25 @@ class TestHostedToolCallFolding:
 
         msg, phase = mixin.normalize_output(response_dict)
         assert msg.content == "Found it."
-        assert len(msg.hosted_tool_calls) == 1
-        assert msg.hosted_tool_calls[0]["type"] == "file_search_call"
+        assert len(msg.provider_extras["hosted_tool_calls"]) == 1
+        assert msg.provider_extras["hosted_tool_calls"][0]["type"] == "file_search_call"
 
-    def test_hosted_tool_calls_persisted_in_turn(self):
+    def test_hosted_tool_calls_land_in_provider_extras_on_turn(self):
         from chatsnack.chat.mixin_query import ChatQueryMixin
         from chatsnack.runtime.types import NormalizedAssistantMessage
 
         msg = NormalizedAssistantMessage(
             content="Results found.",
-            hosted_tool_calls=[{"type": "web_search_call", "id": "ws_1", "action": {"type": "search"}}],
+            provider_extras={"hosted_tool_calls": [{"type": "web_search_call", "id": "ws_1", "action": {"type": "search"}}]},
         )
         turn = ChatQueryMixin._assistant_response_to_turn(msg)
-        # When hosted_tool_calls are present, should be expanded form
+        # When provider_extras are present, should be expanded form
         assert isinstance(turn, dict)
         assert turn["text"] == "Results found."
-        assert len(turn["hosted_tool_calls"]) == 1
-        assert turn["hosted_tool_calls"][0]["type"] == "web_search_call"
+        assert len(turn["provider_extras"]["hosted_tool_calls"]) == 1
+        assert turn["provider_extras"]["hosted_tool_calls"][0]["type"] == "web_search_call"
 
-    def test_no_hosted_tool_calls_stays_scalar(self):
+    def test_no_provider_extras_stays_scalar(self):
         from chatsnack.chat.mixin_query import ChatQueryMixin
         from chatsnack.runtime.types import NormalizedAssistantMessage
 
