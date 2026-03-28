@@ -57,7 +57,7 @@ def _make_web_search(*, domains: Optional[List[str]] = None,
     includes: List[str] = []
     if sources:
         includes.append("web_search_call.action.sources")
-    return HostedUtensil("web_search", cfg or None, includes)
+    return HostedUtensil("web_search", cfg, includes)
 
 
 def _make_file_search(*, vector_store_ids: Optional[List[str]] = None,
@@ -74,7 +74,7 @@ def _make_file_search(*, vector_store_ids: Optional[List[str]] = None,
     includes: List[str] = []
     if results:
         includes.append("file_search_call.results")
-    return HostedUtensil("file_search", cfg or None, includes)
+    return HostedUtensil("file_search", cfg, includes)
 
 
 def _make_mcp(*, server_label: Optional[str] = None,
@@ -93,7 +93,7 @@ def _make_mcp(*, server_label: Optional[str] = None,
     if require_approval is not None:
         cfg["require_approval"] = require_approval
     cfg.update(extra)
-    return HostedUtensil("mcp", cfg or None)
+    return HostedUtensil("mcp", cfg)
 
 
 # ── Utensil group ─────────────────────────────────────────────────────
@@ -435,10 +435,6 @@ class _UtensilNamespace:
 
 # Module-level singleton that replaces the old ``utensil`` function.
 utensil = _UtensilNamespace()
-
-
-# Add group as class attribute for backward compat with ``utensil.group = UtensilGroup``
-# (now handled by the staticmethod on _UtensilNamespace)
 
 
 def get_all_utensils() -> List[UtensilFunction]:

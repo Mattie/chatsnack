@@ -188,7 +188,7 @@ class Chat(ChatQueryMixin, ChatSerializationMixin, ChatUtensilMixin):
             if implied_includes:
                 if self.params.responses is None:
                     self.params.responses = {}
-                existing = self.params.responses.get("include") or []
+                existing = self.params.responses.get("include", [])
                 merged = list(existing)
                 for entry in implied_includes:
                     if entry not in merged:
