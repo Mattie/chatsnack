@@ -88,7 +88,10 @@ class ChatMessagesMixin:
             self.messages.append({"assistant": {"tool_calls": content}})
         # now we need to handle the tool message the same way as the assistant message, it should have a tool_call_id and content
         elif role == "tool" and isinstance(content, dict) and "tool_call_id" in content and "content" in content:
-            self.messages.append({"tool": {"tool_call_id": content["tool_call_id"], "content": content["content"]}})
+            tool_block = {"tool_call_id": content["tool_call_id"], "content": content["content"]}
+            if "output_type" in content:
+                tool_block["output_type"] = content["output_type"]
+            self.messages.append({"tool": tool_block})
         else:
             self.messages.append({role: content})
             
@@ -140,9 +143,13 @@ class ChatMessagesMixin:
                     # Handle tool response messages
                     tool_call_id = message.get("tool_call_id", "")
                     tool_content = message.get("content", "")
+                    output_type = message.get("output_type")
                     
                     # Add as a tool message with proper structure
-                    self.tool({"tool_call_id": tool_call_id, "content": tool_content})
+                    payload = {"tool_call_id": tool_call_id, "content": tool_content}
+                    if output_type:
+                        payload["output_type"] = output_type
+                    self.tool(payload)
                     
                 else:
                     # Standard message types (user, system)
@@ -319,19 +326,28 @@ class ChatMessagesMixin:
                     new_messages.extend(include_chatprompt.get_messages())
                 elif api_role == "assistant" and isinstance(content, dict) and "tool_calls" in content:
                     logger.trace(f"Assistant message found with tool calls: {pprint.pformat(content)}")
-                    new_messages.append({"role": api_role, "content": content.get('text', content.get('content')), "tool_calls": [
-                        {
+                    tool_calls = []
+                    for tool_call in content["tool_calls"]:
+                        if not isinstance(tool_call, dict):
+                            continue
+                        tc = {
                             "id": tool_call.get("id", ""),
                             "type": tool_call.get("type", "function"),
-                            "function": {
-                                "name": tool_call.get("function", {}).get("name", ""),
-                                "arguments": tool_call.get("function", {}).get("arguments", "{}")
-                            }
                         }
-                        for tool_call in content["tool_calls"]
-                    ]})
+                        if isinstance(tool_call.get("function"), dict):
+                            tc["function"] = {
+                                "name": tool_call.get("function", {}).get("name", ""),
+                                "arguments": tool_call.get("function", {}).get("arguments", "{}"),
+                            }
+                        if isinstance(tool_call.get("payload"), dict):
+                            tc["payload"] = tool_call["payload"]
+                        tool_calls.append(tc)
+                    new_messages.append({"role": api_role, "content": content.get('text', content.get('content')), "tool_calls": tool_calls})
                 elif api_role == "tool" and isinstance(content, dict) and "tool_call_id" in content and "content" in content:
-                    new_messages.append({"role": api_role, "content": content["content"], "tool_call_id": content["tool_call_id"]})
+                    tool_msg = {"role": api_role, "content": content["content"], "tool_call_id": content["tool_call_id"]}
+                    if "output_type" in content:
+                        tool_msg["output_type"] = content["output_type"]
+                    new_messages.append(tool_msg)
                 elif isinstance(content, dict) and (
                     "text" in content or "images" in content or "files" in content
                 ):

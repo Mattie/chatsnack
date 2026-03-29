@@ -31,6 +31,7 @@ from .chat.turns import (
     ALLOWED_FIELDS_BY_ROLE,
     NormalizedTurn,
 )
+from .compact_tools import parse_tools_authoring, serialize_tools_authoring, split_tools_for_params, reconstruct_tool_order
 
 
 # ── Phase 3 helpers ────────────────────────────────────────────────────
@@ -195,11 +196,15 @@ def _normalize_params_on_save(params_dict, fidelity):
         return params_dict
     
     result = dict(params_dict)
+
     responses = result.get("responses")
     if not isinstance(responses, dict):
         return result
 
     responses = dict(responses)
+
+    # Strip internal-only metadata that should not appear in saved YAML.
+    responses.pop("_tool_order", None)
     
     # state: only persist when export_state is true
     if fidelity not in ("continuation", "diagnostic"):
@@ -209,7 +214,11 @@ def _normalize_params_on_save(params_dict, fidelity):
     if fidelity != "diagnostic":
         responses.pop("provider_dump", None)
 
-    result["responses"] = responses
+    # If responses is now empty, drop it entirely for cleaner YAML.
+    if responses:
+        result["responses"] = responses
+    else:
+        result.pop("responses", None)
     return result
 
 
@@ -221,6 +230,43 @@ def _normalize_data_on_load(data):
     messages = data.get("messages")
     if isinstance(messages, list):
         data["messages"] = [_normalize_message_on_load(m) for m in messages]
+
+    params = data.get("params")
+    if isinstance(params, dict) and isinstance(params.get("tools"), list):
+        # Phase 4: compile compact authoring syntax under params.tools into
+        # provider-shaped dicts, then split back to the current internal
+        # storage fields so dataclass typing/deserialization stays stable.
+        provider_tools = parse_tools_authoring(params.get("tools"))
+        legacy_native_tools = params.get("native_tools")
+        if isinstance(legacy_native_tools, list):
+            # Preserve legacy mixed-authoring configurations where function
+            # tools lived under `tools` and provider-native tools were still
+            # stored in `native_tools`.
+            provider_tools.extend(legacy_native_tools)
+        # Build authored-order metadata so the save path can reconstruct
+        # the original tool sequence instead of always function-first/native-second.
+        order = []
+        fn_idx = 0
+        native_idx = 0
+        for tool in provider_tools:
+            if isinstance(tool, dict) and tool.get("type") == "function":
+                order.append(("fn", fn_idx))
+                fn_idx += 1
+            else:
+                order.append(("native", native_idx))
+                native_idx += 1
+        # Store order inside params.responses so it survives datafiles construction
+        # of ChatParams (responses is Optional[dict] and passes through as-is).
+        # It will be stripped before YAML emission in _normalize_params_on_save.
+        if not isinstance(params.get("responses"), dict):
+            params["responses"] = {}
+        params["responses"]["_tool_order"] = order
+        function_tools, native_tools = split_tools_for_params(provider_tools)
+        params["tools"] = function_tools or None
+        if native_tools:
+            params["native_tools"] = native_tools
+        elif "native_tools" in params:
+            params.pop("native_tools", None)
 
     return data
 
@@ -238,6 +284,20 @@ def _normalize_data_on_save(data):
         data["messages"] = [_normalize_message_on_save(m, fidelity) for m in messages]
 
     if isinstance(params, dict):
+        # Phase 4: params.tools is the single authored surface. Merge any
+        # legacy native_tools field for save and emit compact canonical syntax.
+        # Use _tool_order from responses if available to preserve the original
+        # interleaved sequence instead of always function-first/native-second.
+        fn_tools = list(params.get("tools") or [])
+        nt_tools = list(params.get("native_tools") or [])
+        responses = params.get("responses")
+        order = responses.get("_tool_order") if isinstance(responses, dict) else None
+        authored_tools = reconstruct_tool_order(fn_tools, nt_tools, order)
+        if authored_tools:
+            params = dict(params)
+            params["tools"] = serialize_tools_authoring(authored_tools)
+            params.pop("native_tools", None)
+            data["params"] = params
         data["params"] = _normalize_params_on_save(params, fidelity)
 
     return data

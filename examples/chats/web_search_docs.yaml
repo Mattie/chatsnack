@@ -1,0 +1,15 @@
+params:
+  model: gpt-5.4
+  tools:
+    - web_search:
+        filters:
+          allowed_domains:
+            - docs.python.org
+            - pandas.pydata.org
+        external_web_access: true
+  responses:
+    include:
+      - web_search_call.action.sources
+messages:
+  - system: Cite sources when relevant.
+  - user: Find two docs pages about iterators.

@@ -250,14 +250,16 @@ class ChatQueryMixin(ChatMessagesMixin, ChatParamsMixin):
 
     @staticmethod
     def _serialize_tool_call(id: str, type: str, function_name: str, function_arguments: str) -> dict:
-        return {
+        out = {
             "id": id,
             "type": type,
-            "function": {
+        }
+        if function_name:
+            out["function"] = {
                 "name": function_name,
                 "arguments": function_arguments,
-            },
-        }
+            }
+        return out
 
     @staticmethod
     def _tool_response_to_dict(response) -> dict:
@@ -291,14 +293,16 @@ class ChatQueryMixin(ChatMessagesMixin, ChatParamsMixin):
                 continue
 
             function = getattr(tc, "function", None)
-            tool_calls.append(
-                ChatQueryMixin._serialize_tool_call(
-                    id=getattr(tc, "id", ""),
-                    type=getattr(tc, "type", "function"),
-                    function_name=function.name if function else "",
-                    function_arguments=function.arguments if function else "",
-                )
+            serialized = ChatQueryMixin._serialize_tool_call(
+                id=getattr(tc, "id", ""),
+                type=getattr(tc, "type", "function"),
+                function_name=function.name if function else "",
+                function_arguments=function.arguments if function else "",
             )
+            payload = getattr(tc, "payload", None)
+            if isinstance(payload, dict):
+                serialized["payload"] = payload
+            tool_calls.append(serialized)
         out["tool_calls"] = tool_calls
         return out
 
@@ -308,13 +312,14 @@ class ChatQueryMixin(ChatMessagesMixin, ChatParamsMixin):
 
         Returns plain text when no rich assistant fields are present so the
         common scalar YAML form stays terse. When reasoning/sources/images/
-        files/encrypted_content exists, returns an expanded assistant block.
+        files/encrypted_content/provider_extras exists, returns an expanded
+        assistant block.
         """
         text = response_message.content if hasattr(response_message, "content") else None
         expanded = {}
         if text:
             expanded["text"] = text
-        for field in ("reasoning", "sources", "images", "files", "encrypted_content"):
+        for field in ("reasoning", "sources", "images", "files", "encrypted_content", "provider_extras"):
             value = getattr(response_message, field, None)
             if value:
                 expanded[field] = value
@@ -576,6 +581,46 @@ class ChatQueryMixin(ChatMessagesMixin, ChatParamsMixin):
 
         return response.choices[0].message.content
 
+    async def _execute_model_tool_call(self, tool_call):
+        """Execute one normalized tool call and return a tool turn payload."""
+        tc_type = getattr(tool_call, "type", None)
+        tc_id = getattr(tool_call, "id", "")
+        if tc_type == "tool_search":
+            handler = getattr(self, "tool_search_handler", None)
+            if handler is None and getattr(self, "params", None) is not None:
+                handler = getattr(self.params, "tool_search_handler", None)
+            if handler is None:
+                raise RuntimeError(
+                    "Model emitted tool_search_call but no tool_search handler is configured. "
+                    "Set chat.tool_search_handler=<callable> before chat()."
+                )
+            payload = getattr(tool_call, "payload", None)
+            if payload is None:
+                payload = {"arguments": getattr(getattr(tool_call, "function", None), "arguments", "")}
+            result = handler(payload)
+            if asyncio.iscoroutine(result):
+                result = await result
+            return {
+                "tool_call_id": tc_id,
+                "output_type": "tool_search_output",
+                "content": json.dumps(result) if isinstance(result, (dict, list)) else str(result),
+            }
+
+        function = getattr(tool_call, "function", None)
+        tool_call_dict = {
+            "id": tc_id,
+            "type": "function",
+            "function": {
+                "name": function.name if function else "",
+                "arguments": function.arguments if function else "",
+            },
+        }
+        result = self.execute_tool_call(tool_call_dict)
+        return {
+            "tool_call_id": tc_id,
+            "content": json.dumps(result) if isinstance(result, dict) else str(result),
+        }
+
     @property
     def response(self) -> str:
         """ Returns the value of the last assistant message in the chat prompt ⭐"""
@@ -663,6 +708,7 @@ class ChatQueryMixin(ChatMessagesMixin, ChatParamsMixin):
         new_chatprompt = self.__class__(
             params=getattr(self, "params", None),
             runtime=getattr(self, "runtime", None),
+            tool_search_handler=getattr(self, "tool_search_handler", None),
         )
 
         logger.trace("Expanded prompt: " + prompt)
@@ -722,24 +768,8 @@ class ChatQueryMixin(ChatMessagesMixin, ChatParamsMixin):
                     logger.debug(f"Tool recursion {current_recursion}/{max_tool_recursion}")
                    
                     for tool_call in message.tool_calls:
-                        tool_call_dict = {
-                            "id": tool_call.id,  # Ensure ID is included here
-                            "type": "function", 
-                            "function": {
-                                "name": tool_call.function.name,
-                                "arguments": tool_call.function.arguments
-                            }
-                        }
-                        
-                        # Execute the tool and get its result
-                        result = self.execute_tool_call(tool_call_dict)
-                        
-                        # Add tool result to the chat history using the tool() method
-                        # Include the tool_call_id when adding to history
-                        current_chat = current_chat.tool({
-                            "content": json.dumps(result) if isinstance(result, dict) else str(result),
-                            "tool_call_id": tool_call.id
-                        })
+                        tool_output = await self._execute_model_tool_call(tool_call)
+                        current_chat = current_chat.tool(tool_output)
                         
                         # log all messages in the current_chat
                         logger.debug(f"Current chat messages: {current_chat.get_messages()}")
@@ -803,7 +833,12 @@ class ChatQueryMixin(ChatMessagesMixin, ChatParamsMixin):
         import copy
         copied_params = copy.copy(self.params)
         if name is not None:
-            new_chat = self.__class__(name=name, params=copied_params, runtime=getattr(self, "runtime", None))
+            new_chat = self.__class__(
+                name=name,
+                params=copied_params,
+                runtime=getattr(self, "runtime", None),
+                tool_search_handler=getattr(self, "tool_search_handler", None),
+            )
         else:
             # if the existing name ends with _{datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}-{uuid.uuid4()}" then we need to trim that off and add a new one
             # use a regex to match at the end of the name
@@ -818,6 +853,7 @@ class ChatQueryMixin(ChatMessagesMixin, ChatParamsMixin):
                 name=name + f"_{datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}-{uuid.uuid4()}",
                 params=copied_params,
                 runtime=getattr(self, "runtime", None),
+                tool_search_handler=getattr(self, "tool_search_handler", None),
             )
 
         # copy local registry

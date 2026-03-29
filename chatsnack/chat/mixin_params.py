@@ -1,11 +1,123 @@
 import re
 import json
-from typing import Optional, List, Dict, Any, Union, Literal
+import warnings
+from typing import Optional, List, Dict, Any, Union, Literal, Tuple
 from dataclasses import dataclass, field
 from datafiles import datafile
 
 
 DEFAULT_MODEL_FALLBACK = "gpt-5-chat-latest"
+
+
+_REASONING_SUMMARY_OPTIONS = frozenset({"auto", "concise", "detailed"})
+_KNOWN_REASONING_MODELS: Tuple[Tuple[str, Dict[str, frozenset]], ...] = (
+    (
+        "gpt-5.4",
+        {
+            "effort": frozenset({"none", "low", "medium", "high", "xhigh"}),
+            "summary": _REASONING_SUMMARY_OPTIONS,
+        },
+    ),
+    (
+        "gpt-5.1",
+        {
+            "effort": frozenset({"none", "low", "medium", "high"}),
+            "summary": _REASONING_SUMMARY_OPTIONS,
+        },
+    ),
+    (
+        "gpt-5",
+        {
+            "effort": frozenset({"minimal", "low", "medium", "high"}),
+            "summary": _REASONING_SUMMARY_OPTIONS,
+        },
+    ),
+    (
+        "o1",
+        {
+            "effort": frozenset({"low", "medium", "high"}),
+            "summary": _REASONING_SUMMARY_OPTIONS,
+        },
+    ),
+    (
+        "o3",
+        {
+            "effort": frozenset({"low", "medium", "high"}),
+            "summary": _REASONING_SUMMARY_OPTIONS,
+        },
+    ),
+    (
+        "o4",
+        {
+            "effort": frozenset({"low", "medium", "high"}),
+            "summary": _REASONING_SUMMARY_OPTIONS,
+        },
+    ),
+)
+_KNOWN_REASONING_EFFORTS = frozenset().union(
+    *(caps["effort"] for _, caps in _KNOWN_REASONING_MODELS)
+)
+
+
+class _ReasoningConfigProxy:
+    """Nested convenience access for params.responses.reasoning."""
+
+    def __init__(self, parent: "ChatParamsMixin"):
+        self._parent = parent
+
+    def _reasoning_dict(self, create: bool = False) -> Optional[Dict[str, Any]]:
+        if self._parent.params is None:
+            if not create:
+                return None
+            self._parent.params = ChatParams()
+        if self._parent.params.responses is None:
+            if not create:
+                return None
+            self._parent.params.responses = {}
+        responses = self._parent.params.responses
+        if not isinstance(responses, dict):
+            if not create:
+                return None
+            self._parent.params.responses = {}
+            responses = self._parent.params.responses
+        reasoning = responses.get("reasoning")
+        if reasoning is None:
+            if not create:
+                return None
+            responses["reasoning"] = {}
+            reasoning = responses["reasoning"]
+        if not isinstance(reasoning, dict):
+            if not create:
+                return None
+            responses["reasoning"] = {}
+            reasoning = responses["reasoning"]
+        return reasoning
+
+    @property
+    def effort(self) -> Optional[str]:
+        reasoning = self._reasoning_dict(create=False)
+        return reasoning.get("effort") if isinstance(reasoning, dict) else None
+
+    @effort.setter
+    def effort(self, value: Optional[str]):
+        reasoning = self._reasoning_dict(create=True)
+        if value is None:
+            reasoning.pop("effort", None)
+            return
+        reasoning["effort"] = value
+
+    @property
+    def summary(self) -> Optional[str]:
+        reasoning = self._reasoning_dict(create=False)
+        return reasoning.get("summary") if isinstance(reasoning, dict) else None
+
+    @summary.setter
+    def summary(self, value: Optional[str]):
+        reasoning = self._reasoning_dict(create=True)
+        if value is None:
+            reasoning.pop("summary", None)
+            return
+        reasoning["summary"] = value
 
 @datafile
 class ParameterProperty:
@@ -393,6 +505,7 @@ class ChatParams:
         "export_diagnostics",
         "state",
         "provider_dump",
+        "_tool_order",
     })
 
     def _get_responses_api_options(self) -> Dict:
@@ -403,12 +516,82 @@ class ChatParams:
         (``export_state``, ``state``, ``provider_dump``, …) are stripped.
         """
         if not self.responses or not isinstance(self.responses, dict):
-            return {}
-        return {
+            responses_opts = {}
+        else:
+            responses_opts = {
             k: v
             for k, v in self.responses.items()
             if k not in self._RESPONSES_INTERNAL_KEYS and v is not None
         }
+        # Phase 4: smart default for reasoning-capable models only when
+        # reasoning was not authored.
+        if "reasoning" not in responses_opts and self._is_reasoning_capable_model():
+            responses_opts["reasoning"] = {"effort": "low"}
+
+        self._validate_reasoning_options(responses_opts.get("reasoning"))
+        return responses_opts
+
+    def _is_reasoning_capable_model(self) -> bool:
+        return self._get_reasoning_capabilities() is not None
+
+    def _get_reasoning_capabilities(self) -> Optional[Dict[str, frozenset]]:
+        """Return the best-known reasoning capability profile for the current model.
+
+        The Phase 4 reasoning surface is intentionally pass-through friendly, but
+        we still keep a lightweight model table so we can give better warnings
+        for obviously unsupported effort/summary combinations on common models.
+        """
+        model = (self.model or "").lower()
+        if not model:
+            return None
+
+        for pattern, capabilities in _KNOWN_REASONING_MODELS:
+            if model == pattern or model.startswith(f"{pattern}-"):
+                return capabilities
+
+        for pattern, capabilities in _KNOWN_REASONING_MODELS:
+            if pattern in model:
+                return capabilities
+
+        return None
+
+    def _validate_reasoning_options(self, reasoning: Any) -> None:
+        if reasoning is None or not isinstance(reasoning, dict):
+            return
+        capabilities = self._get_reasoning_capabilities()
+        effort = reasoning.get("effort")
+        if effort is not None:
+            if effort not in _KNOWN_REASONING_EFFORTS:
+                warnings.warn(
+                    f"Unknown reasoning effort '{effort}'. Passing through to provider unchanged.",
+                    stacklevel=3,
+                )
+            elif capabilities and effort not in capabilities["effort"]:
+                warnings.warn(
+                    f"Reasoning effort '{effort}' is not in the known supported set "
+                    f"{sorted(capabilities['effort'])} for model '{self.model}'. "
+                    "Passing through to provider unchanged.",
+                    stacklevel=3,
+                )
+        summary = reasoning.get("summary")
+        if summary is not None:
+            if summary not in _REASONING_SUMMARY_OPTIONS:
+                warnings.warn(
+                    f"Unknown reasoning summary '{summary}'. Passing through to provider unchanged.",
+                    stacklevel=3,
+                )
+            elif capabilities and summary not in capabilities["summary"]:
+                warnings.warn(
+                    f"Reasoning summary '{summary}' is not in the known supported set "
+                    f"{sorted(capabilities['summary'])} for model '{self.model}'. "
+                    "Passing through to provider unchanged.",
+                    stacklevel=3,
+                )
+        if capabilities is None:
+            warnings.warn(
+                f"Model '{self.model}' may not support reasoning options; forwarding as authored.",
+                stacklevel=3,
+            )
 
     # Helper method to add a tool from a dictionary
     def add_tool_from_dict(self, tool_dict: Dict) -> None:
@@ -429,28 +612,47 @@ class ChatParams:
         Provider-native tools (``web_search``, ``code_interpreter``, etc.)
         are stored as raw dicts and passed through unchanged.  Function
         tools are wrapped in ToolDefinition as before.
+
+        The original authored order is preserved via ``_authored_tool_order``
+        so that ``get_tools()`` returns the tools in the same sequence they
+        were authored (interleaving function and native tools correctly).
+        The order is also stored in ``responses._tool_order`` so it survives
+        datafiles serialization for the YAML save path.
         """
         function_tools = []
         native_tools = []
+        order: List[Tuple[str, int]] = []  # ("fn", idx) | ("native", idx)
         for tool_dict in tools_list:
             if self._is_native_tool(tool_dict):
+                order.append(("native", len(native_tools)))
                 native_tools.append(tool_dict)
             else:
+                order.append(("fn", len(function_tools)))
                 function_tools.append(ToolDefinition.from_dict(tool_dict))
         self.tools = function_tools or None
         self.native_tools = native_tools or None
+        self._authored_tool_order = order
+        # Persist order in responses dict for YAML save round-trip.
+        if self.responses is None:
+            self.responses = {}
+        self.responses["_tool_order"] = order
 
     def get_tools(self) -> List[Dict]:
         """Get the tools list in API-format dictionaries.
 
-        Combines function tools and provider-native tools into a single list.
+        Combines function tools and provider-native tools into a single
+        list, preserving the original authored order when available.
         """
-        result = []
-        if self.tools:
-            result.extend(tool.to_dict() for tool in self.tools)
-        if self.native_tools:
-            result.extend(self.native_tools)
-        return result
+        from ..compact_tools import reconstruct_tool_order
+
+        fn_list = [tool.to_dict() for tool in self.tools] if self.tools else []
+        native_list = list(self.native_tools) if self.native_tools else []
+        # Check for order info: first from the Python-set attribute, then
+        # from the responses dict (persisted through YAML load by datafiles).
+        order = getattr(self, "_authored_tool_order", None)
+        if not order and isinstance(self.responses, dict):
+            order = self.responses.get("_tool_order")
+        return reconstruct_tool_order(fn_list, native_list, order)
 
     @staticmethod
     def _is_native_tool(tool_dict: Dict) -> bool:
@@ -460,6 +662,10 @@ class ChatParams:
 
 class ChatParamsMixin:
     params: Optional[ChatParams] = None
+
+    @property
+    def reasoning(self) -> _ReasoningConfigProxy:
+        return _ReasoningConfigProxy(self)
 
     @property
     def engine(self) -> Optional[str]:

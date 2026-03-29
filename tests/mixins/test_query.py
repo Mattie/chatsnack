@@ -4,7 +4,7 @@ import json
 from types import SimpleNamespace
 from chatsnack import Chat, Text, CHATSNACK_BASE_DIR
 from chatsnack.chat.mixin_params import ChatParams
-from chatsnack.runtime import ChatCompletionsAdapter, ResponsesAdapter
+from chatsnack.runtime import ChatCompletionsAdapter, ResponsesAdapter, ResponsesWebSocketAdapter
 from chatsnack.chat.mixin_params import DEFAULT_MODEL_FALLBACK
 
 import os
@@ -75,9 +75,21 @@ def _set_runtime_mode(chat, use_runtime_adapter: bool):
 
 
 
-def test_default_runtime_is_chat_completions_adapter():
+def test_default_runtime_is_responses_websocket_adapter():
+    chat = Chat()
+    assert isinstance(chat.runtime, ResponsesWebSocketAdapter)
+
+
+def test_default_runtime_env_chat_completions(monkeypatch):
+    monkeypatch.setenv("CHATSNACK_DEFAULT_RUNTIME", "chat_completions")
     chat = Chat()
     assert isinstance(chat.runtime, ChatCompletionsAdapter)
+
+
+def test_default_runtime_env_responses_http(monkeypatch):
+    monkeypatch.setenv("CHATSNACK_DEFAULT_RUNTIME", "responses_http")
+    chat = Chat()
+    assert isinstance(chat.runtime, ResponsesAdapter)
 
 
 def test_runtime_selector_selects_responses_adapter():
@@ -106,7 +118,27 @@ def test_ask_with_responses_runtime_returns_str(chat, monkeypatch):
 
     out = chat.ask()
     assert isinstance(out, str)
+
+
+def test_internal_tool_order_is_not_forwarded_in_responses_request(monkeypatch):
+    chat = Chat("Use tools.")
+    chat.runtime = ResponsesAdapter(chat.ai)
+    chat.set_tools([
+        {"type": "tool_search"},
+        {"type": "function", "function": {"name": "lookup", "description": "Lookup.", "parameters": {"type": "object", "properties": {}}}},
+    ])
+
+    captured = {}
+
+    async def fake_create_completion_a(self, messages, **kwargs):
+        captured.update(kwargs)
+        return SimpleNamespace(message=SimpleNamespace(content="reply", tool_calls=[]))
+
+    monkeypatch.setattr(ResponsesAdapter, "create_completion_a", fake_create_completion_a)
+
+    out = chat.ask("hi")
     assert out == "reply"
+    assert "_tool_order" not in captured
 
 
 def test_chat_with_responses_runtime_returns_chat_with_assistant_history(chat, monkeypatch):
@@ -156,8 +188,8 @@ def test_chat_continuation_creates_independent_adapter_instance(chat, monkeypatc
 
 
 
-def test_default_runtime_selection_preserves_phase0_behavior(chat, monkeypatch):
-    assert isinstance(chat.runtime, ChatCompletionsAdapter)
+def test_default_runtime_selection_uses_responses_family(chat, monkeypatch):
+    assert isinstance(chat.runtime, ResponsesWebSocketAdapter)
 
     async def fake_create_completion_a(messages, **kwargs):
         return SimpleNamespace(message=SimpleNamespace(content="legacy-shape", tool_calls=[]))

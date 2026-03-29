@@ -1,0 +1,13 @@
+params:
+  model: gpt-5.4
+  tools:
+    - crm: CRM tools for customer lookup and order management.
+      tools:
+        - get_customer: Look up one customer by ID.
+          customer_id: str
+        - list_open_orders: List open orders for a customer ID.
+          customer_id: str
+    - tool_search
+messages:
+  - system: Use CRM tools when useful.
+  - user: Pull account details for customer C-100.

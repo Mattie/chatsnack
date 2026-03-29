@@ -59,7 +59,7 @@ class TestResponsesOptionsReachProvider:
         assert "provider_dump" not in opts
 
     def test_responses_api_options_empty_when_no_responses(self):
-        params = ChatParams(model="gpt-5.4")
+        params = ChatParams(model="gpt-4o")
         assert params._get_responses_api_options() == {}
 
     def test_store_from_responses_config_reaches_adapter(self):
@@ -1047,3 +1047,88 @@ class TestAttachmentResolverAsync:
         assert resolved[0]["files"][0] == {"file_id": "file_async_batch"}
         # Original untouched
         assert messages[0]["files"][0] == {"path": str(test_file)}
+
+
+class TestHostedToolCallFolding:
+    """P2c: normalize_output should capture web_search_call and file_search_call."""
+
+    def test_web_search_call_captured(self):
+        from chatsnack.runtime.responses_common import ResponsesNormalizationMixin
+        mixin = ResponsesNormalizationMixin()
+
+        response_dict = {
+            "output": [
+                {
+                    "type": "web_search_call",
+                    "id": "ws_1",
+                    "action": {
+                        "type": "search",
+                        "search_queries": ["python docs"],
+                        "sources": [
+                            {"url": "https://docs.python.org", "title": "Python Docs", "snippet": "..."}
+                        ],
+                    },
+                },
+                {
+                    "type": "message",
+                    "role": "assistant",
+                    "content": [{"type": "output_text", "text": "Here are the results."}],
+                },
+            ]
+        }
+
+        msg, phase = mixin.normalize_output(response_dict)
+        assert msg.content == "Here are the results."
+        assert msg.sources[0]["url"] == "https://docs.python.org"
+        assert len(msg.provider_extras["hosted_tool_calls"]) == 1
+        assert msg.provider_extras["hosted_tool_calls"][0]["type"] == "web_search_call"
+        assert msg.provider_extras["hosted_tool_calls"][0]["action"]["sources"][0]["url"] == "https://docs.python.org"
+
+    def test_file_search_call_captured(self):
+        from chatsnack.runtime.responses_common import ResponsesNormalizationMixin
+        mixin = ResponsesNormalizationMixin()
+
+        response_dict = {
+            "output": [
+                {
+                    "type": "file_search_call",
+                    "id": "fs_1",
+                    "results": [
+                        {"file_id": "file_123", "text": "Matching doc content."}
+                    ],
+                },
+                {
+                    "type": "message",
+                    "role": "assistant",
+                    "content": [{"type": "output_text", "text": "Found it."}],
+                },
+            ]
+        }
+
+        msg, phase = mixin.normalize_output(response_dict)
+        assert msg.content == "Found it."
+        assert len(msg.provider_extras["hosted_tool_calls"]) == 1
+        assert msg.provider_extras["hosted_tool_calls"][0]["type"] == "file_search_call"
+
+    def test_hosted_tool_calls_land_in_provider_extras_on_turn(self):
+        from chatsnack.chat.mixin_query import ChatQueryMixin
+        from chatsnack.runtime.types import NormalizedAssistantMessage
+
+        msg = NormalizedAssistantMessage(
+            content="Results found.",
+            provider_extras={"hosted_tool_calls": [{"type": "web_search_call", "id": "ws_1", "action": {"type": "search"}}]},
+        )
+        turn = ChatQueryMixin._assistant_response_to_turn(msg)
+        # When provider_extras are present, should be expanded form
+        assert isinstance(turn, dict)
+        assert turn["text"] == "Results found."
+        assert len(turn["provider_extras"]["hosted_tool_calls"]) == 1
+        assert turn["provider_extras"]["hosted_tool_calls"][0]["type"] == "web_search_call"
+
+    def test_no_provider_extras_stays_scalar(self):
+        from chatsnack.chat.mixin_query import ChatQueryMixin
+        from chatsnack.runtime.types import NormalizedAssistantMessage
+
+        msg = NormalizedAssistantMessage(content="Plain response.")
+        turn = ChatQueryMixin._assistant_response_to_turn(msg)
+        assert turn == "Plain response."

@@ -1,4 +1,5 @@
 import warnings
+import json
 from typing import Any, Dict, List, Optional, Tuple
 
 from .attachment_resolver import AttachmentResolver
@@ -38,6 +39,15 @@ class ResponsesNormalizationMixin:
         content = message.get("content")
 
         if role == "tool":
+            output_type = message.get("output_type")
+            if output_type == "tool_search_output":
+                return [
+                    {
+                        "type": "tool_search_output",
+                        "tool_call_id": message.get("tool_call_id", ""),
+                        "output": self._coerce_text(content),
+                    }
+                ]
             return [
                 {
                     "type": "function_call_output",
@@ -192,6 +202,7 @@ class ResponsesNormalizationMixin:
         files: List[Dict[str, Any]] = []
         encrypted_content: Optional[str] = None
         tool_calls: List[NormalizedToolCall] = []
+        hosted_tool_calls: List[Dict[str, Any]] = []
         assistant_phase: Optional[str] = None
 
         for item in response_dict.get("output") or []:
@@ -249,10 +260,40 @@ class ResponsesNormalizationMixin:
                         ),
                     )
                 )
+            elif item_type == "tool_search_call":
+                call_id = item_dict.get("call_id") or item_dict.get("id") or ""
+                payload = {k: v for k, v in item_dict.items() if k not in {"type", "call_id", "id"}}
+                tool_calls.append(
+                    NormalizedToolCall(
+                        id=call_id,
+                        type="tool_search",
+                        function=NormalizedToolFunction(
+                            name="tool_search",
+                            arguments=json.dumps(payload),
+                        ),
+                        payload=payload,
+                    )
+                )
+            elif item_type in ("web_search_call", "file_search_call"):
+                # Hosted tool calls are informational — the model already
+                # handled them. Keep canonical web-search sources in
+                # assistant.sources and park the raw hosted call payload in
+                # assistant.provider_extras for continuation/diagnostic fidelity.
+                if item_type == "web_search_call":
+                    action = self._to_dict(item_dict.get("action") or {})
+                    for source in action.get("sources") or []:
+                        source_dict = self._to_dict(source)
+                        if source_dict and source_dict not in sources:
+                            sources.append(source_dict)
+                hosted_tool_calls.append(item_dict)
 
         if not content_parts and response_dict.get("output_text"):
             content_parts.append(self._coerce_text(response_dict.get("output_text")))
         encrypted_content = encrypted_content or response_dict.get("encrypted_content")
+
+        provider_extras = None
+        if hosted_tool_calls:
+            provider_extras = {"hosted_tool_calls": hosted_tool_calls}
 
         message = NormalizedAssistantMessage(
             role="assistant",
@@ -263,6 +304,7 @@ class ResponsesNormalizationMixin:
             images=images,
             files=files,
             tool_calls=tool_calls,
+            provider_extras=provider_extras,
         )
         return message, assistant_phase
 

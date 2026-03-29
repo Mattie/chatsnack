@@ -1,0 +1,5 @@
+params:
+  model: gpt-5.4
+messages:
+  - system: Respond tersely.
+  - user: Explain why conversations are useful.

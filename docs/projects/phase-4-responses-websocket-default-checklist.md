@@ -26,33 +26,33 @@ Drop a note into `## Progress Notes` whenever something meaningfully changes.
 
 ### Default runtime policy
 
-- [ ] `Chat()` defaults to the Responses WebSocket runtime when runtime and session are omitted.
+- [x] `Chat()` defaults to the Responses WebSocket runtime when runtime and session are omitted.
   RFC: `The main rule`; `Runtime resolution order`
-- [ ] Explicit `runtime="responses"` keeps its current explicit behavior.
+- [x] Explicit `runtime="responses"` keeps its current explicit behavior.
   RFC: `The main rule`; `Runtime resolution order`
-- [ ] Explicit `runtime="chat_completions"` still selects the legacy runtime.
+- [x] Explicit `runtime="chat_completions"` still selects the legacy runtime.
   RFC: `The main rule`
-- [ ] Explicit `session="inherit"` and `session="new"` still take precedence when runtime is otherwise unset.
+- [x] Explicit `session="inherit"` and `session="new"` still take precedence when runtime is otherwise unset.
   RFC: `Runtime resolution order`
 
 ### Environment override
 
-- [ ] `CHATSNACK_DEFAULT_RUNTIME=chat_completions` restores the legacy default runtime.
+- [x] `CHATSNACK_DEFAULT_RUNTIME=chat_completions` restores the legacy default runtime.
   RFC: `CHATSNACK_DEFAULT_RUNTIME`
-- [ ] `CHATSNACK_DEFAULT_RUNTIME=responses_http` selects implicit Responses over HTTP.
+- [x] `CHATSNACK_DEFAULT_RUNTIME=responses_http` selects implicit Responses over HTTP.
   RFC: `CHATSNACK_DEFAULT_RUNTIME`
-- [ ] `CHATSNACK_DEFAULT_RUNTIME=responses_websocket` and `responses_ws` select implicit Responses over WebSocket.
+- [x] `CHATSNACK_DEFAULT_RUNTIME=responses_websocket` and `responses_ws` select implicit Responses over WebSocket.
   RFC: `CHATSNACK_DEFAULT_RUNTIME`
-- [ ] Invalid env values warn once and fall back to the library default.
+- [x] Invalid env values warn once and fall back to the library default.
   RFC: `CHATSNACK_DEFAULT_RUNTIME`
 
 ### Reasoning defaults and serialization
 
 - [ ] `params.responses.reasoning` is the canonical home for reasoning request options.
   RFC: `Reasoning configuration design -> Canonical authoring surface`
-- [ ] `chat.reasoning.effort` and `chat.reasoning.summary` are the public Python convenience accessors for reasoning request config.
+- [x] `chat.reasoning.effort` and `chat.reasoning.summary` are the public Python convenience accessors for reasoning request config.
   RFC: `Reasoning configuration design -> Convenience access`
-- [ ] Implicit `reasoning={"effort": "low"}` is injected only for reasoning-capable models when reasoning is otherwise unset.
+- [x] Implicit `reasoning={"effort": "low"}` is injected only for reasoning-capable models when reasoning is otherwise unset.
   RFC: `Reasoning configuration design -> Smart default`
 - [ ] Reasoning summaries stay off unless the user opts in.
   RFC: `Reasoning configuration design -> Smart default`
@@ -67,17 +67,17 @@ Drop a note into `## Progress Notes` whenever something meaningfully changes.
 
 - [ ] `params.tools` stays the single authoring surface for local and built-in tools.
   RFC: `Built-in OpenAI tools design -> One authoring surface`
-- [ ] Zero-config built-ins save as scalars such as `- tool_search` and `- code_interpreter`.
+- [x] Zero-config built-ins save as scalars such as `- tool_search` and `- code_interpreter`.
   RFC: `Built-in OpenAI tools design -> Compact authoring tiers`
-- [ ] Configured built-ins save as single-key mappings such as `- web_search:` and `- file_search:`.
+- [x] Configured built-ins save as single-key mappings such as `- web_search:` and `- file_search:`.
   RFC: `Built-in OpenAI tools design -> Compact authoring tiers`
-- [ ] Namespace blocks save with the namespace name as the key plus a `tools:` block.
+- [x] Namespace blocks save with the namespace name as the key plus a `tools:` block.
   RFC: `Built-in OpenAI tools design -> Compact authoring tiers`
 - [ ] Simple child tools round-trip in inline compact form when the tool only needs a description, inline args, and any explicit `defer_loading: false`.
   RFC: `Built-in OpenAI tools design -> Canonical save rules`
 - [ ] Richer child tools round-trip in the structured escape-hatch form with `description`, `args`, `required`, and `defer_loading`.
   RFC: `Built-in OpenAI tools design -> Structured escape hatch`; `Canonical save rules`
-- [ ] Python-like arg shorthand such as `customer_id: str`, `include_inactive: bool = False`, and `status: Literal[...]` compiles to the expected provider schema.
+- [x] Python-like arg shorthand such as `customer_id: str`, `include_inactive: bool = False`, and `status: Literal[...]` compiles to the expected provider schema.
   RFC: `Built-in OpenAI tools design -> Python-like type shorthand in YAML`
 - [ ] Reserved keys inside compact namespace tools are handled deterministically.
   RFC: `Built-in OpenAI tools design -> Reserved keys inside compact namespace tools`
@@ -89,13 +89,13 @@ Drop a note into `## Progress Notes` whenever something meaningfully changes.
   RFC: `Built-in OpenAI tools design -> file_search`
 - [ ] Hosted `tool_search` tool definitions round-trip cleanly in compact namespace syntax.
   RFC: `Built-in OpenAI tools design -> tool_search`
-- [ ] Searchable namespace child tools receive effective implicit `defer_loading: true` when `tool_search` is present and the field is omitted.
+- [x] Searchable namespace child tools receive effective implicit `defer_loading: true` when `tool_search` is present and the field is omitted.
   RFC: `Built-in OpenAI tools design -> Implicit defer_loading policy when tool_search is present`
-- [ ] Explicit `defer_loading: false` overrides the implicit `tool_search` policy.
+- [x] Explicit `defer_loading: false` overrides the implicit `tool_search` policy.
   RFC: `Built-in OpenAI tools design -> Implicit defer_loading policy when tool_search is present`
 - [ ] Connector or MCP surfaces follow the same implicit deferred-loading policy when it is meaningful.
   RFC: `Built-in OpenAI tools design -> mcp`; `Implicit defer_loading policy when tool_search is present`
-- [ ] Client `tool_search` has a clear callback boundary and a clear guidance error when the handler is missing.
+- [x] Client `tool_search` has a clear callback boundary and a clear guidance error when the handler is missing.
   RFC: `Built-in OpenAI tools design -> tool_search`
 
 ### Output folding and fidelity
@@ -111,16 +111,16 @@ Drop a note into `## Progress Notes` whenever something meaningfully changes.
 
 ### Example assets and implementation naming
 
-- [ ] We ship descriptive example YAML chats for the default runtime path, reasoning access, hosted `web_search`, hosted `tool_search`, and a mixed tool surface.
+- [x] We ship descriptive example YAML chats for the default runtime path, reasoning access, hosted `web_search`, hosted `tool_search`, and a mixed tool surface.
   RFC: `Example assets and implementation naming`
-- [ ] At least one notebook or small CLI loads those example YAML chats directly and exercises them in a concise chatsnackian flow.
+- [x] At least one notebook or small CLI loads those example YAML chats directly and exercises them in a concise chatsnackian flow.
   RFC: `Example assets and implementation naming`
 - [ ] New production code, tests, helper files, notebooks, CLIs, and example assets use descriptive phase-agnostic names.
   RFC: `Example assets and implementation naming`; `Proposed implementation order -> Step 10`
 
 ### Docs, examples, and proof
 
-- [ ] README common-path examples no longer need `runtime="responses"` boilerplate.
+- [x] README common-path examples no longer need `runtime="responses"` boilerplate.
   RFC: `Proposed implementation order -> Step 9`
 - [ ] Notebook or CLI coverage shows the new default runtime path, the `chat.reasoning` convenience surface, and at least one built-in tool example in the compact syntax.
   RFC: `Proposed implementation order -> Step 8`; `Proposed implementation order -> Step 9`
@@ -140,3 +140,10 @@ Drop a note into `## Progress Notes` whenever something meaningfully changes.
 ## Progress Notes
 
 Add short dated entries here as work lands.
+
+### 2026-03-27 - Runtime default + compact tools + reasoning ergonomics
+- Status: partial
+- RFC sections: `Proposed default-runtime policy`; `CHATSNACK_DEFAULT_RUNTIME`; `Reasoning configuration design`; `Built-in OpenAI tools design`
+- What works for users: `Chat()` now resolves to Responses WebSocket by default; compact tool YAML (scalar/mapping/namespace) round-trips; `chat.reasoning.effort` / `chat.reasoning.summary` map directly to `params.responses.reasoning`; client `tool_search` now has a callback boundary with guidance errors when missing.
+- Caveats: hosted `tool_search` and namespace provider-schema details still rely on provider pass-through behavior; additional output-folding polish can still be tightened for broader real-world payloads.
+- How we checked it: focused runtime/unit tests and YAML round-trip tests.

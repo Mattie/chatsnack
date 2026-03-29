@@ -21,8 +21,11 @@ Add your OpenAI API key to your .env file. If you don't have a .env file, the li
 ### Learn More!
 Read more below, watch the [intro video](https://www.youtube.com/watch?v=Yjwi54rHrhw) or check out the [Getting Started notebook](notebooks/).
 
-### Response API Support
-If you wish to use the Responses runtime (`runtime_selector="responses"` or `params.runtime="responses"`), chatsnack will require the OpenAI Python client to be `openai>=1.66.0` (or newer) to ensure compatibility.
+### Responses API Support
+`Chat()` now defaults to the Responses family over WebSocket with `session="inherit"`.
+If you stay on that default path—or explicitly choose another Responses transport—
+chatsnack requires the OpenAI Python client to be `openai>=1.66.0` (or newer) to
+ensure compatibility.
 
 ## Usage
 
@@ -68,13 +71,13 @@ while (user_input := input("Chat with the bot: ")):
 
 ### Natural Attachments (Phase 3 style ergonomics)
 
-For Responses runtime workflows, you can pass attachments directly at query time with
+For the default Responses workflows, you can pass attachments directly at query time with
 `files=` and `images=`:
 
 ```python
 from chatsnack import Chat
 
-chat = Chat("Review the attachment and answer tersely.", runtime="responses")
+chat = Chat("Review the attachment and answer tersely.")
 print(chat.ask("Summarize these.", files=["./images/chart.png", "./data/sales.csv"]))
 
 thread = chat.chat("What stands out in this chart?", files=["./images/chart.png"])
@@ -84,6 +87,41 @@ print(thread.last)
 
 When attachments are present, chatsnack stores the user turn as an expanded YAML block
 (`text` + `files` / `images`) while keeping plain text turns scalar-first.
+
+### Utensils (Tools)
+
+Local Python functions and hosted OpenAI tools share one `utensils=[...]` surface:
+
+```python
+from chatsnack import Chat, utensil
+
+# Local function tools use the @utensil decorator
+@utensil
+def get_weather(location: str, unit: str = "celsius"):
+    """Get the current weather for a location."""
+    return {"temperature": 72, "condition": "sunny", "unit": unit}
+
+# Grouped tools form searchable namespaces
+crm = utensil.group("crm", "CRM tools for customer lookup.")
+
+@crm
+def get_customer(customer_id: str):
+    """Look up one customer by ID."""
+    return {"id": customer_id}
+
+# Hosted tools are small named specs
+docs_search = utensil.web_search(domains=["docs.python.org"], sources=True)
+
+# Everything passes through utensils=[]
+chat = Chat(
+    "Use tools only when useful.",
+    utensils=[get_weather, crm, utensil.tool_search, docs_search],
+)
+chat.reasoning.summary = "auto"
+```
+
+The `sources=True` on `web_search` automatically populates `params.responses["include"]`
+without manual dict mutation.
 
 ### Tasty Features
 

@@ -24,6 +24,7 @@ class NormalizedToolCall:
     id: str
     type: str = "function"
     function: Optional[NormalizedToolFunction] = None
+    payload: Optional[Dict[str, Any]] = None
 
 
 @dataclass
@@ -36,6 +37,7 @@ class NormalizedAssistantMessage:
     images: List[Dict[str, Any]] = field(default_factory=list)
     files: List[Dict[str, Any]] = field(default_factory=list)
     tool_calls: List[NormalizedToolCall] = field(default_factory=list)
+    provider_extras: Optional[Dict[str, Any]] = None
 
 
 @dataclass

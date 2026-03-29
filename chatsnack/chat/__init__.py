@@ -1,4 +1,6 @@
 import copy
+import os
+import warnings
 import uuid
 from dataclasses import field
 from datetime import datetime
@@ -33,6 +35,34 @@ def _empty_runtime_metadata() -> Dict[str, object]:
         "assistant_phase": None,
         "provider_extras": None,
     }
+
+
+_RUNTIME_ENV_WARNING_EMITTED = False
+
+
+def _runtime_policy_from_env() -> tuple[str, Optional[str]]:
+    """Resolve implicit runtime family/session from CHATSNACK_DEFAULT_RUNTIME."""
+    global _RUNTIME_ENV_WARNING_EMITTED
+    raw = os.getenv("CHATSNACK_DEFAULT_RUNTIME")
+    if raw is None or not raw.strip():
+        return "responses", "inherit"
+
+    value = raw.strip().lower()
+    if value in {"responses_websocket", "responses_ws"}:
+        return "responses", "inherit"
+    if value == "responses_http":
+        return "responses", None
+    if value == "chat_completions":
+        return "chat_completions", None
+
+    if not _RUNTIME_ENV_WARNING_EMITTED:
+        warnings.warn(
+            "Invalid CHATSNACK_DEFAULT_RUNTIME value "
+            f"'{raw}'. Falling back to responses_websocket.",
+            stacklevel=2,
+        )
+        _RUNTIME_ENV_WARNING_EMITTED = True
+    return "responses", "inherit"
 
 
 ########################################################################################################################
@@ -83,6 +113,7 @@ class Chat(ChatQueryMixin, ChatSerializationMixin, ChatUtensilMixin):
         model = kwargs.pop("model", None)
         session = kwargs.pop("session", None)
         stream = kwargs.pop("stream", None)
+        tool_search_handler = kwargs.pop("tool_search_handler", None)
         
         # get name from kwargs, if it's there
         if "name" in kwargs:
@@ -141,7 +172,7 @@ class Chat(ChatQueryMixin, ChatSerializationMixin, ChatUtensilMixin):
                 self.params = ChatParams()
 
             # Import here to avoid circular imports
-            from ..utensil import extract_utensil_functions, get_openai_tools
+            from ..utensil import extract_utensil_functions, get_openai_tools, collect_include_entries
             
             # Store local registry of utensil functions
             self._local_registry = utensils  # Store original objects, extract when needed
@@ -151,6 +182,18 @@ class Chat(ChatQueryMixin, ChatSerializationMixin, ChatUtensilMixin):
             
             # Store and serialize tool definitions
             self.set_tools(tools_list)
+
+            # Phase 4A: collect implied include entries from hosted utensils
+            implied_includes = collect_include_entries(utensils)
+            if implied_includes:
+                if self.params.responses is None:
+                    self.params.responses = {}
+                existing = self.params.responses.get("include", [])
+                merged = list(existing)
+                for entry in implied_includes:
+                    if entry not in merged:
+                        merged.append(entry)
+                self.params.responses["include"] = merged
         
         # Check if we're being loaded from a YAML file with tools
         if utensils is None:
@@ -168,15 +211,46 @@ class Chat(ChatQueryMixin, ChatSerializationMixin, ChatUtensilMixin):
         self._initial_registry = getattr(self, '_local_registry', None)
 
         self.ai = AiClient()
+        self.tool_search_handler = tool_search_handler
         if isinstance(runtime, str) and runtime_selector is None:
             runtime_selector = runtime
             runtime = None
         profile = None
         session_mode = None
+        explicit_runtime_selector = runtime_selector
+        explicit_session = session is not None
+        params_runtime = None
         if hasattr(self, "params") and self.params is not None:
             profile = getattr(self.params, "profile", None)
-            runtime_selector = runtime_selector or getattr(self.params, "runtime", None)
+            params_runtime = getattr(self.params, "runtime", None)
+            runtime_selector = runtime_selector or params_runtime
             session_mode = getattr(self.params, "session", None)
+
+        # Phase 4 runtime resolution order:
+        # explicit runtime object -> explicit runtime selector -> params.runtime
+        # -> explicit session (constructor or params) -> env override -> library default.
+        # Authored params.session counts as a session signal so that
+        # pinned YAML assets are not overridden by CHATSNACK_DEFAULT_RUNTIME.
+        session_specified = explicit_session or session_mode is not None
+        runtime_source = None
+        if runtime is not None:
+            runtime_source = "runtime_object"
+        elif explicit_runtime_selector is not None:
+            runtime_source = "explicit_runtime"
+        elif params_runtime is not None:
+            runtime_source = "params_runtime"
+        elif session_specified:
+            runtime_selector = "responses"
+            runtime_source = "explicit_session"
+        else:
+            runtime_selector, default_session = _runtime_policy_from_env()
+            runtime_source = "default_policy"
+            if session_mode is None:
+                session_mode = default_session
+
+        # Constructor session= keeps precedence over params.session when both exist.
+        if explicit_session and runtime_source in {"default_policy", "explicit_session"} and runtime_selector == "responses":
+            session_mode = self.session
         self.runtime = self._select_runtime(runtime=runtime, runtime_selector=runtime_selector, profile=profile, session_mode=session_mode)
         self._last_runtime_metadata = _empty_runtime_metadata()
 
