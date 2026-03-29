@@ -86,8 +86,12 @@ class ResponsesNormalizationMixin:
         # Build content parts – start with text, then images and files.
         content_parts: List[Dict[str, Any]] = []
         text = self._coerce_text(content)
-        if text:
-            content_parts.append({"type": "input_text", "text": text})
+        # Always emit an input_text part for conversational roles.
+        #
+        # Attachment-only turns are valid in chatsnack, and preserving an
+        # explicit (possibly empty) text part makes these turns more stable as
+        # standalone conversation steps when followed by another user turn.
+        content_parts.append({"type": "input_text", "text": text})
 
         # Phase 3: images on user/assistant turns → input_image items.
         for img in message.get("images") or []:
@@ -117,10 +121,6 @@ class ResponsesNormalizationMixin:
                         f"Skipping local-path file '{f['path']}': upload to file_id is not yet implemented. Use a file_id entry instead.",
                         stacklevel=2,
                     )
-
-        # Fall back to at least one input_text part even if empty.
-        if not content_parts:
-            content_parts.append({"type": "input_text", "text": ""})
 
         return [
             {

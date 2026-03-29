@@ -591,7 +591,10 @@ def test_request_with_session_keeps_attachment_only_turn_for_continuation():
     assert request["previous_response_id"] == "resp_prev"
     assert len(request["input"]) == 1
     assert request["input"][0]["role"] == "user"
-    assert request["input"][0]["content"] == [{"type": "input_file", "file_id": "file_abc"}]
+    assert request["input"][0]["content"] == [
+        {"type": "input_text", "text": ""},
+        {"type": "input_file", "file_id": "file_abc"},
+    ]
 
 
 def test_stream_sync_request_passes_provider_native_tools_unchanged(monkeypatch):
