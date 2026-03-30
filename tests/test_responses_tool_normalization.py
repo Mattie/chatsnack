@@ -105,23 +105,39 @@ class TestNativeToolsPassthrough:
 
     @pytest.mark.parametrize("tool_type", [
         "web_search", "file_search", "tool_search",
-        "code_interpreter", "image_generation", "mcp", "namespace",
+        "code_interpreter", "image_generation", "mcp",
     ])
     def test_native_tool_passes_through(self, tool_type):
         tool = {"type": tool_type, "some_config": "value"}
-        if tool_type == "namespace":
-            tool["tools"] = [_nested_function_tool(name="inner")]
         [result] = ResponsesNormalizationMixin._normalize_tools_for_responses_request([tool])
-        if tool_type == "namespace":
-            # Namespace wrappers are copied so child tools can be normalized recursively.
-            assert result is not tool
-            assert result["type"] == "namespace"
-            assert result["some_config"] == "value"
-            assert result["tools"][0]["type"] == "function"
-            assert result["tools"][0]["name"] == "inner"
-            assert "function" not in result["tools"][0]
-        else:
-            assert result is tool  # exact same object, not copied
+        assert result is tool  # exact same object, not copied
+
+    def test_namespace_flattened_without_tool_search(self):
+        """Without tool_search, namespace children are promoted to top-level tools."""
+        ns = {"type": "namespace", "name": "grp", "tools": [
+            _nested_function_tool(name="inner_a"),
+            _nested_function_tool(name="inner_b"),
+        ]}
+        result = ResponsesNormalizationMixin._normalize_tools_for_responses_request([ns])
+        assert len(result) == 2
+        assert result[0]["type"] == "function"
+        assert result[0]["name"] == "inner_a"
+        assert "function" not in result[0]
+        assert result[1]["name"] == "inner_b"
+
+    def test_namespace_preserved_with_tool_search(self):
+        """With tool_search present, namespace wrapper is kept and children normalized."""
+        ns = {"type": "namespace", "name": "grp", "some_config": "v", "tools": [
+            _nested_function_tool(name="inner"),
+        ]}
+        tools = [{"type": "tool_search"}, ns]
+        result = ResponsesNormalizationMixin._normalize_tools_for_responses_request(tools)
+        assert len(result) == 2
+        assert result[0]["type"] == "tool_search"
+        assert result[1]["type"] == "namespace"
+        assert result[1]["some_config"] == "v"
+        assert result[1]["tools"][0]["name"] == "inner"
+        assert "function" not in result[1]["tools"][0]
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -444,10 +460,12 @@ class TestWebSocketErrorSurface:
         connection.response.create.side_effect = sdk_error
         adapter._connect_sync = MagicMock(return_value=connection)
 
+        # Include tool_search so the namespace wrapper is preserved (testing
+        # the error surface, not the namespace flattening logic).
         with pytest.raises(ResponsesWebSocketTransportError) as exc_info:
             list(adapter._stream_sync_request(
                 [{"role": "user", "content": "t"}],
-                {"model": "gpt-5.4-mini", "tools": [{"type": "namespace", "name": "ns"}]},
+                {"model": "gpt-5.4-mini", "tools": [{"type": "tool_search"}, {"type": "namespace", "name": "ns"}]},
             ))
 
         exc = exc_info.value
@@ -462,7 +480,7 @@ class TestWebSocketErrorSurface:
         assert d["provider_type"] == "invalid_request_error"
         assert "raw_error" in d
         assert d["request_summary"]["model"] == "gpt-5.4-mini"
-        assert d["request_summary"]["tool_count"] == 1
+        assert d["request_summary"]["tool_count"] == 2
 
     def test_generic_transport_failure_from_response_create_still_works(self):
         """A generic exception from response.create should still produce socket_send_failed."""

@@ -7,11 +7,11 @@ from chatsnack.chat.mixin_params import ChatParams
 
 # List of engines that support tool calls based on your compatibility chart
 TOOL_COMPATIBLE_ENGINES = [
-    "gpt-4-turbo",
-    "gpt-4o",
-    "gpt-4o-mini", 
-    "o1",
-    "o3-mini"
+    "gpt-5.4-mini",
+    "gpt-5.4",
+    "gpt-5-nano",
+    "gpt-4.1-2025-04-14",  # for backcompat
+    "o3-mini",  # for backcompat
 ]
 
 @pytest.mark.parametrize("engine", TOOL_COMPATIBLE_ENGINES)

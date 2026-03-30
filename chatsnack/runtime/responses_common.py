@@ -225,19 +225,39 @@ class ResponsesNormalizationMixin:
         Provider-native tools (web_search, file_search, mcp, namespace, etc.)
         and tools that are already flat pass through unchanged.  Original list
         order is preserved exactly.
+
+        **Namespace flattening:** ``namespace`` tool wrappers are only valid
+        on the Responses API when ``tool_search`` is also present in the
+        tools list.  When ``tool_search`` is absent, namespace children are
+        promoted to individual top-level function tools so the request is
+        accepted by both Responses and Chat Completions providers.  When
+        ``tool_search`` is present, the namespace wrapper is kept and its
+        children are recursively normalized.
         """
+        has_tool_search = any(
+            isinstance(t, dict) and t.get("type") == "tool_search"
+            for t in tools
+        )
         normalized: List[Dict[str, Any]] = []
         for tool in tools:
             tool_type = tool.get("type", "function")
 
-            # Namespace tools may contain nested Chat Completions–shaped tools under
-            # "tools". Normalize those children recursively but otherwise passthrough.
+            # Namespace tools: keep the wrapper when tool_search is present,
+            # otherwise promote children to top-level function tools.
             if tool_type == "namespace":
-                ns_tool = dict(tool)
-                child_tools = tool.get("tools")
-                if isinstance(child_tools, list):
-                    ns_tool["tools"] = cls._normalize_tools_for_responses_request(child_tools)
-                normalized.append(ns_tool)
+                child_tools = tool.get("tools") or []
+                if has_tool_search:
+                    # Preserve namespace wrapper; recursively normalize children.
+                    ns_tool = dict(tool)
+                    if isinstance(child_tools, list):
+                        ns_tool["tools"] = cls._normalize_tools_for_responses_request(child_tools)
+                    normalized.append(ns_tool)
+                else:
+                    # Flatten: promote each child to a top-level tool.
+                    for child in child_tools:
+                        normalized.extend(
+                            cls._normalize_tools_for_responses_request([child])
+                        )
                 continue
 
             # Other provider-native tools: pass through as-is.

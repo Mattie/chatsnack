@@ -103,6 +103,25 @@ class UtensilGroup:
 
     Instances are both decorators (``@group``) and directly passable in
     ``utensils=[...]``.
+
+    **Runtime behavior:** Internally, a group compiles to a ``namespace``
+    tool dict via :meth:`to_namespace_tool_dict`.  The ``namespace`` type
+    is a Responses API concept that is only valid when ``tool_search`` is
+    also present in the tools list.
+
+    At request time, chatsnack's transport normalization handles this
+    automatically:
+
+    - **With tool_search present:** the namespace wrapper is preserved so
+      the provider can use tool_search to discover and defer-load the
+      group's children.
+    - **Without tool_search:** the namespace wrapper is dissolved and each
+      child function is promoted to a top-level function tool.  This makes
+      groups work transparently on both the Responses API and the Chat
+      Completions API.
+
+    Authors can always use ``UtensilGroup`` without worrying about the
+    target runtime — the compile step picks the right shape.
     """
     
     def __init__(self, name: str, description: Optional[str] = None):
@@ -140,7 +159,15 @@ class UtensilGroup:
         return [u.get_openai_tool() for u in self.utensils]
 
     def to_namespace_tool_dict(self) -> Dict[str, Any]:
-        """Compile this group into a provider-shaped namespace tool dict."""
+        """Compile this group into a provider-shaped namespace tool dict.
+
+        The resulting dict uses ``type: "namespace"`` which is the internal
+        authoring representation.  The transport normalization layer
+        (:meth:`ResponsesNormalizationMixin._normalize_tools_for_responses_request`)
+        decides at request time whether to keep the wrapper (when
+        ``tool_search`` is present) or flatten the children into individual
+        function tools (when it is not).
+        """
         children = []
         for u in self.utensils:
             tool_dict = u.get_openai_tool()
@@ -398,7 +425,13 @@ class _UtensilNamespace:
 
     @staticmethod
     def group(name: str, description: Optional[str] = None) -> UtensilGroup:
-        """Create a grouped namespace for related utensil functions."""
+        """Create a grouped namespace for related utensil functions.
+
+        Groups work on every runtime.  When ``tool_search`` is in the
+        tools list the group is sent as a searchable namespace; otherwise
+        its children are automatically flattened into individual function
+        tools at request time.  See :class:`UtensilGroup` for details.
+        """
         return UtensilGroup(name, description)
 
     # ── zero-config hosted properties ─────────────────────────────────

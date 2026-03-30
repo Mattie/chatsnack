@@ -33,7 +33,28 @@ class ChatCompletionsAdapter:
     @classmethod
     def _strip_responses_keys(cls, kwargs: Dict[str, Any]) -> Dict[str, Any]:
         """Remove Responses-only keys so they never reach the CC SDK call."""
-        return {k: v for k, v in kwargs.items() if k not in cls._RESPONSES_ONLY_KEYS}
+        cleaned = {k: v for k, v in kwargs.items() if k not in cls._RESPONSES_ONLY_KEYS}
+        # Flatten namespace tools — CC only accepts type="function".
+        if "tools" in cleaned and isinstance(cleaned["tools"], list):
+            cleaned["tools"] = cls._flatten_namespace_tools(cleaned["tools"])
+        return cleaned
+
+    @classmethod
+    def _flatten_namespace_tools(cls, tools: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """Promote namespace children to top-level function tools for Chat Completions.
+
+        The ``namespace`` tool type is a Responses API concept. Chat Completions
+        only accepts ``type="function"``.  When a namespace tool appears, its
+        children are extracted and promoted to individual top-level tools.
+        """
+        flat: List[Dict[str, Any]] = []
+        for tool in tools:
+            if isinstance(tool, dict) and tool.get("type") == "namespace":
+                for child in tool.get("tools") or []:
+                    flat.append(child)
+            else:
+                flat.append(tool)
+        return flat
 
     @staticmethod
     def _to_dict(obj: Any) -> Dict[str, Any]:
