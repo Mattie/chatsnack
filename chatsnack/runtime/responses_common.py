@@ -202,7 +202,17 @@ class ResponsesNormalizationMixin:
         for tool in tools:
             tool_type = tool.get("type", "function")
 
-            # Provider-native tools: pass through as-is.
+            # Namespace tools may contain nested Chat Completions–shaped tools under
+            # "tools". Normalize those children recursively but otherwise passthrough.
+            if tool_type == "namespace":
+                ns_tool = dict(tool)
+                child_tools = tool.get("tools")
+                if isinstance(child_tools, list):
+                    ns_tool["tools"] = cls._normalize_tools_for_responses_request(child_tools)
+                normalized.append(ns_tool)
+                continue
+
+            # Other provider-native tools: pass through as-is.
             if tool_type in cls._NATIVE_TOOL_TYPES:
                 normalized.append(tool)
                 continue
