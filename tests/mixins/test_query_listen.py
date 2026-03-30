@@ -43,19 +43,19 @@ from chatsnack.packs import Jane
 def test_listen():
     # Define constants
     SENTENCE = "A short sentence about the difference between green and blue."
-    TEMPERATURE = 0.0
+    #TEMPERATURE = 0.0
     # TODO: Rework this such that it doesn't risk being flaky. If you get a different system behind the scenes, even 
     #       the seed won't be enough
-    SEED = 42
+    #SEED = 42
 
     # First part of the test
-    chat = Jane.copy()
+    chat = Chat("Be helpful and concise.")
     cp = chat.user(SENTENCE)
     assert cp.last == SENTENCE
 
     cp.stream = True
-    cp.temperature = TEMPERATURE
-    cp.seed = SEED
+    #cp.temperature = TEMPERATURE
+    #cp.seed = SEED
 
     # Listen to the response
     output_iter = cp.listen()
@@ -66,8 +66,8 @@ def test_listen():
     cp = chat.user(SENTENCE)
     assert cp.last == SENTENCE
 
-    cp.temperature = TEMPERATURE
-    cp.seed = SEED
+    #cp.temperature = TEMPERATURE
+    #cp.seed = SEED
 
     # Ask the same question
     ask_output = cp.ask()
@@ -78,23 +78,17 @@ def test_listen():
     # BUG: This ends up being too flaky. We will just check that the output is not empty
     # assert output == ask_output
 
-@pytest.mark.skipif(True or os.environ.get("OPENAI_API_KEY") is None, reason="OPENAI_API_KEY is not set in environment or .env")
+@pytest.mark.skipif(os.environ.get("OPENAI_API_KEY") is None, reason="OPENAI_API_KEY is not set in environment or .env")
 @pytest.mark.asyncio
 async def test_listen_a():
     # Define constants
     SENTENCE = "A short sentence about the difference between green and blue"
-    TEMPERATURE = 0.0
-    # TODO: Rework this such that it doesn't risk being flaky. If you get a different system behind the scenes, even 
-    #       the seed won't be enough
-    SEED = 42
 
-    chat = Jane.copy()
+    chat = Chat("Be helpful and concise.")
     cp = chat.user(SENTENCE)
     assert cp.last == SENTENCE
 
     cp.stream = True
-    cp.temperature = TEMPERATURE
-    cp.seed = SEED
 
     # listen to the response asynchronously
     output = []
@@ -103,13 +97,11 @@ async def test_listen_a():
     output = ''.join(output)
     print(output)
 
-    chat = Jane.copy()
+    chat = Chat("Be helpful and concise.")
     cp = chat.user(SENTENCE)
     assert cp.last == SENTENCE
 
     cp.stream = False
-    cp.temperature = TEMPERATURE
-    cp.seed = SEED
 
     # ask the same question
     ask_output = cp.ask()
@@ -118,8 +110,9 @@ async def test_listen_a():
     assert output is not None
     assert len(output) > 0
 
-    # assert that the output of listen is the same as the output of ask
-    assert output == ask_output
+    # assert that the output of listen is the same as the output of ask 
+    # NOTE: (can't control without TEMP/SEED)
+    #assert output == ask_output
 
 from types import SimpleNamespace
 from chatsnack.runtime.types import RuntimeStreamEvent
