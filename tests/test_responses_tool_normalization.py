@@ -12,6 +12,11 @@ from types import SimpleNamespace
 import pytest
 
 from chatsnack.runtime.responses_common import ResponsesNormalizationMixin
+from chatsnack.runtime.responses_websocket_adapter import (
+    ResponsesWebSocketAdapter,
+    ResponsesWebSocketSession,
+    ResponsesWebSocketTransportError,
+)
 from chatsnack.chat.mixin_params import ChatParams
 
 
@@ -263,11 +268,6 @@ class TestWebSocketSessionToolShape:
 
     def test_websocket_request_builds_flat_tools(self):
         """WebSocket adapter's _request_with_session should produce flat tools."""
-        from chatsnack.runtime.responses_websocket_adapter import (
-            ResponsesWebSocketAdapter,
-            ResponsesWebSocketSession,
-        )
-
         session = ResponsesWebSocketSession(mode="inherit")
         mock_client = MagicMock()
         adapter = ResponsesWebSocketAdapter(mock_client, session=session)
@@ -294,10 +294,6 @@ class TestWebSocketSessionToolShape:
 class TestWebSocketErrorSurface:
 
     def _make_adapter(self):
-        from chatsnack.runtime.responses_websocket_adapter import (
-            ResponsesWebSocketAdapter,
-            ResponsesWebSocketSession,
-        )
         session = ResponsesWebSocketSession(mode="inherit")
         mock_client = MagicMock()
         adapter = ResponsesWebSocketAdapter(mock_client, session=session)
@@ -314,7 +310,6 @@ class TestWebSocketErrorSurface:
 
     def test_response_failed_includes_provider_details(self):
         """response.failed events should surface provider_message, response_id, response_status."""
-        from chatsnack.runtime.responses_websocket_adapter import ResponsesWebSocketTransportError
 
         adapter = self._make_adapter()
         resp_error = SimpleNamespace(code="invalid_tools", message="Tool schema is invalid")
@@ -337,7 +332,6 @@ class TestWebSocketErrorSurface:
 
     def test_response_failed_preserves_provider_param_and_type(self):
         """response.failed details should include provider_param and provider_type when present."""
-        from chatsnack.runtime.responses_websocket_adapter import ResponsesWebSocketTransportError
 
         adapter = self._make_adapter()
         resp_error = SimpleNamespace(
@@ -361,7 +355,6 @@ class TestWebSocketErrorSurface:
 
     def test_response_failed_includes_request_summary(self):
         """Error details should include a request_summary with model and tool info."""
-        from chatsnack.runtime.responses_websocket_adapter import ResponsesWebSocketTransportError
 
         adapter = self._make_adapter()
         resp_error = SimpleNamespace(code="bad_request", message="bad")
@@ -383,7 +376,6 @@ class TestWebSocketErrorSurface:
 
     def test_response_failed_includes_raw_payloads(self):
         """Error details should include raw_event, raw_response, raw_error when available."""
-        from chatsnack.runtime.responses_websocket_adapter import ResponsesWebSocketTransportError
 
         adapter = self._make_adapter()
         # Use objects with model_dump so raw payloads are populated.
@@ -416,7 +408,6 @@ class TestWebSocketErrorSurface:
 
     def test_top_level_error_event_preserves_message_and_code(self):
         """A top-level 'error' stream event should preserve code and message in details."""
-        from chatsnack.runtime.responses_websocket_adapter import ResponsesWebSocketTransportError
 
         adapter = self._make_adapter()
         event = SimpleNamespace(type="error", code="rate_limit_exceeded", message="Rate limit hit")
@@ -437,7 +428,6 @@ class TestWebSocketErrorSurface:
 
     def test_sdk_api_error_from_response_create_preserves_details(self):
         """An SDK API error during response.create should surface provider fields, not generic socket_send_failed."""
-        from chatsnack.runtime.responses_websocket_adapter import ResponsesWebSocketTransportError
 
         adapter = self._make_adapter()
         connection = MagicMock()
@@ -476,7 +466,6 @@ class TestWebSocketErrorSurface:
 
     def test_generic_transport_failure_from_response_create_still_works(self):
         """A generic exception from response.create should still produce socket_send_failed."""
-        from chatsnack.runtime.responses_websocket_adapter import ResponsesWebSocketTransportError
 
         adapter = self._make_adapter()
         connection = MagicMock()
@@ -497,7 +486,6 @@ class TestWebSocketErrorSurface:
 
     def test_generic_response_failed_fallback_when_no_rich_fields(self):
         """When response.failed has no rich error fields, fallback to 'response_failed'."""
-        from chatsnack.runtime.responses_websocket_adapter import ResponsesWebSocketTransportError
 
         adapter = self._make_adapter()
         # Minimal event with no error details
@@ -532,7 +520,6 @@ class TestWebSocketErrorSurface:
 
     def test_raise_from_stream_error_prefers_provider_message(self):
         """_raise_from_stream_error should use provider_message in the exception text."""
-        from chatsnack.runtime.responses_websocket_adapter import ResponsesWebSocketTransportError
 
         error_dict = {
             "code": "invalid_value",
@@ -544,7 +531,6 @@ class TestWebSocketErrorSurface:
             },
         }
         with pytest.raises(ResponsesWebSocketTransportError) as exc_info:
-            from chatsnack.runtime.responses_websocket_adapter import ResponsesWebSocketAdapter
             ResponsesWebSocketAdapter._raise_from_stream_error(error_dict)
 
         assert "Invalid value: 'namespace'." in str(exc_info.value)
