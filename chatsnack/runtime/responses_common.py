@@ -1,6 +1,9 @@
-import warnings
 import json
+import os
+import warnings
 from typing import Any, Dict, List, Optional, Tuple
+
+from loguru import logger
 
 from .attachment_resolver import AttachmentResolver
 from .types import (
@@ -13,6 +16,8 @@ from .types import (
 
 class ResponsesNormalizationMixin:
     """Shared request-building and normalization for Responses transports."""
+
+    _RESPONSES_DEBUG_TRUE_VALUES = frozenset({"1", "true", "yes", "on"})
 
     @staticmethod
     def _to_dict(obj: Any) -> Dict[str, Any]:
@@ -175,6 +180,29 @@ class ResponsesNormalizationMixin:
         suffix = messages[last_assistant_idx + 1 :]
         return suffix or [messages[-1]]
 
+    @classmethod
+    def _responses_debug_enabled(cls) -> bool:
+        value = os.getenv("CHATSNACK_DEBUG_RESPONSES", "")
+        return value.strip().lower() in cls._RESPONSES_DEBUG_TRUE_VALUES
+
+    @classmethod
+    def _debug_responses_payload(cls, label: str, payload: Any) -> None:
+        """Emit an env-gated pretty JSON debug log for Responses plumbing.
+
+        This is intentionally opt-in because it can be verbose, but it is
+        valuable when debugging final request shape or provider failures.
+        """
+        if not cls._responses_debug_enabled():
+            return
+        try:
+            rendered = json.dumps(payload, indent=2, sort_keys=True, default=str)
+        except Exception as exc:
+            try:
+                rendered = repr(payload)
+            except Exception:
+                rendered = f"<unrenderable payload: {exc!r}>"
+        logger.debug("{}:\n{}", label, rendered)
+
     # Provider-native tool types that must pass through unchanged.
     _NATIVE_TOOL_TYPES = frozenset({
         "web_search", "file_search", "tool_search",
@@ -248,6 +276,7 @@ class ResponsesNormalizationMixin:
         # YAML config) can set it explicitly.  Phase 2a WebSocket continuation
         # with store=False is valid and must not be overridden.
         options.setdefault("store", False)
+        self._debug_responses_payload("Responses request (built)", options)
         return options
 
     @staticmethod

@@ -1,15 +1,14 @@
 import asyncio
-import logging
 import threading
 import time
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 
+from loguru import logger
+
 from .attachment_resolver import AttachmentResolver
 from .responses_common import ResponsesNormalizationMixin
 from .types import RuntimeErrorPayload, RuntimeStreamEvent, RuntimeTerminalMetadata
-
-logger = logging.getLogger(__name__)
 
 # Minimum SDK version string for clear error messages.
 _SDK_VERSION_GUIDANCE = (
@@ -446,6 +445,7 @@ class ResponsesWebSocketAdapter(ResponsesNormalizationMixin):
         request_kwargs = self._request_with_session(messages, kwargs, include_prev=include_prev)
         create_kw = self._create_kwargs(request_kwargs)
         connection = self._connect_sync()
+        self._debug_responses_payload("Responses WS response.create payload", create_kw)
 
         try:
             connection.response.create(**create_kw)
@@ -456,24 +456,19 @@ class ResponsesWebSocketAdapter(ResponsesNormalizationMixin):
             details = self._extract_sdk_api_error_details(exc, request_kwargs)
             provider_msg = details.get("provider_message")
             provider_code = details.get("provider_code")
+            self._debug_responses_payload("Responses WS response.create exception details", details or {"error": str(exc)})
+            if self._responses_debug_enabled():
+                logger.exception("Responses WS response.create raised")
             if provider_msg or provider_code:
                 # SDK parsed a structured provider error.
                 human_msg = provider_msg or provider_code
                 code = provider_code or "api_error"
-                logger.debug(
-                    "Responses WebSocket response.create failed: %s (code=%s) | request=%r",
-                    human_msg, code, self._request_summary(request_kwargs),
-                )
                 raise ResponsesWebSocketTransportError(
                     human_msg, code=code,
                     retriable=not self._is_auth_error_code(code),
                     details=details,
                 ) from exc
             # Generic transport-level failure.
-            logger.debug(
-                "Responses WebSocket response.create transport failure: %s | request=%r",
-                exc, self._request_summary(request_kwargs),
-            )
             raise ResponsesWebSocketTransportError(
                 "socket_send_failed", code="socket_send_failed", retriable=True,
                 details={"request_summary": self._request_summary(request_kwargs)},
@@ -537,13 +532,10 @@ class ResponsesWebSocketAdapter(ResponsesNormalizationMixin):
                     break
 
                 elif etype in {"error", "response.failed"}:
+                    self._debug_responses_payload("Responses WS failure event", self._event_dict(event))
                     error_details = self._extract_stream_error_details(event, request_kwargs)
                     code = error_details.get("provider_code", "response_failed")
                     message = error_details.get("provider_message", code)
-                    logger.debug(
-                        "Responses WebSocket stream %s: %s (code=%s) | request=%r",
-                        etype, message, code, error_details.get("request_summary"),
-                    )
                     if code == "previous_response_not_found":
                         raise RuntimeError(code)
                     raise ResponsesWebSocketTransportError(
@@ -584,6 +576,7 @@ class ResponsesWebSocketAdapter(ResponsesNormalizationMixin):
         request_kwargs = self._request_with_session(messages, kwargs, include_prev=include_prev)
         create_kw = self._create_kwargs(request_kwargs)
         connection = await self._connect_async()
+        self._debug_responses_payload("Responses WS response.create payload", create_kw)
 
         try:
             await connection.response.create(**create_kw)
@@ -593,22 +586,17 @@ class ResponsesWebSocketAdapter(ResponsesNormalizationMixin):
             details = self._extract_sdk_api_error_details(exc, request_kwargs)
             provider_msg = details.get("provider_message")
             provider_code = details.get("provider_code")
+            self._debug_responses_payload("Responses WS response.create exception details", details or {"error": str(exc)})
+            if self._responses_debug_enabled():
+                logger.exception("Responses WS response.create raised")
             if provider_msg or provider_code:
                 human_msg = provider_msg or provider_code
                 code = provider_code or "api_error"
-                logger.debug(
-                    "Responses WebSocket async response.create failed: %s (code=%s) | request=%r",
-                    human_msg, code, self._request_summary(request_kwargs),
-                )
                 raise ResponsesWebSocketTransportError(
                     human_msg, code=code,
                     retriable=not self._is_auth_error_code(code),
                     details=details,
                 ) from exc
-            logger.debug(
-                "Responses WebSocket async response.create transport failure: %s | request=%r",
-                exc, self._request_summary(request_kwargs),
-            )
             raise ResponsesWebSocketTransportError(
                 "socket_send_failed", code="socket_send_failed", retriable=True,
                 details={"request_summary": self._request_summary(request_kwargs)},
@@ -672,13 +660,10 @@ class ResponsesWebSocketAdapter(ResponsesNormalizationMixin):
                     break
 
                 elif etype in {"error", "response.failed"}:
+                    self._debug_responses_payload("Responses WS failure event", self._event_dict(event))
                     error_details = self._extract_stream_error_details(event, request_kwargs)
                     code = error_details.get("provider_code", "response_failed")
                     message = error_details.get("provider_message", code)
-                    logger.debug(
-                        "Responses WebSocket async stream %s: %s (code=%s) | request=%r",
-                        etype, message, code, error_details.get("request_summary"),
-                    )
                     if code == "previous_response_not_found":
                         raise RuntimeError(code)
                     raise ResponsesWebSocketTransportError(

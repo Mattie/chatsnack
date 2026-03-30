@@ -1,9 +1,12 @@
+from contextlib import contextmanager
+from io import StringIO
 import sys
 import threading
 import types
 from types import SimpleNamespace
 
 import pytest
+from loguru import logger
 
 from chatsnack.runtime import (
     ResponsesWebSocketAdapter,
@@ -14,6 +17,16 @@ from chatsnack.runtime.responses_websocket_adapter import (
     ResponsesWebSocketTransportError,
     _SDK_VERSION_GUIDANCE,
 )
+
+
+@contextmanager
+def _capture_loguru():
+    sink = StringIO()
+    sink_id = logger.add(sink, format="{message}")
+    try:
+        yield sink
+    finally:
+        logger.remove(sink_id)
 
 
 def test_session_busy_raises_fail_fast(monkeypatch):
@@ -395,6 +408,77 @@ def test_stream_sync_request_fails_fast_when_stream_ends_before_completed(monkey
         list(adapter._stream_sync_request(messages=[{"role": "user", "content": "hi"}], kwargs={"model": "gpt-4.1"}))
 
     assert exc_info.value.details["reason"] == "stream_ended_before_response_completed"
+
+
+def test_stream_sync_request_logs_ws_payload_and_failure_event_when_debug_enabled(monkeypatch):
+    ai = SimpleNamespace(api_key="x", base_url=None, client=None, aclient=None)
+    session = ResponsesWebSocketSession(mode="inherit")
+    adapter = ResponsesWebSocketAdapter(ai, session=session)
+    monkeypatch.setenv("CHATSNACK_DEBUG_RESPONSES", "1")
+
+    class DumpableError:
+        code = "invalid_tools"
+        message = "Tool schema is invalid"
+
+        def model_dump(self):
+            return {"code": self.code, "message": self.message}
+
+    class DumpableResponse:
+        id = "resp_dbg"
+        status = "failed"
+        error = DumpableError()
+
+        def model_dump(self):
+            return {
+                "id": self.id,
+                "status": self.status,
+                "error": self.error.model_dump(),
+            }
+
+    class DumpableEvent:
+        type = "response.failed"
+        response = DumpableResponse()
+
+        def model_dump(self):
+            return {
+                "type": self.type,
+                "response": self.response.model_dump(),
+            }
+
+    class SyncConnection:
+        def __init__(self):
+            self.response = SimpleNamespace(create=lambda **kwargs: None)
+            self._events = [DumpableEvent()]
+
+        def __iter__(self):
+            return self
+
+        def __next__(self):
+            if self._events:
+                return self._events.pop(0)
+            raise StopIteration
+
+        def close(self):
+            return None
+
+    connection = SyncConnection()
+    session.sync_connection = connection
+    monkeypatch.setattr(adapter, "_connect_sync", lambda: connection)
+
+    with _capture_loguru() as sink:
+        with pytest.raises(ResponsesWebSocketTransportError, match="Tool schema is invalid"):
+            list(
+                adapter._stream_sync_request(
+                    messages=[{"role": "user", "content": "hi"}],
+                    kwargs={"model": "gpt-4.1", "tools": [{"type": "function", "name": "lookup", "description": "d"}]},
+                )
+            )
+
+    output = sink.getvalue()
+    assert "Responses WS response.create payload" in output
+    assert "Responses WS failure event" in output
+    assert '"type": "response.failed"' in output
+    assert '"code": "invalid_tools"' in output
 
 
 @pytest.mark.asyncio
