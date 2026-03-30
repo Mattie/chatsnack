@@ -294,24 +294,23 @@ class TestWebSocketErrorSurface:
         mock_client = MagicMock()
         adapter = ResponsesWebSocketAdapter(mock_client, session=session)
 
-        # Build a fake response.failed event
+        # Build a fake response.failed event that the adapter should see.
         resp_error = SimpleNamespace(code="invalid_tools", message="Tool schema is invalid")
         resp = SimpleNamespace(error=resp_error, id="resp_abc", status="failed")
         event = SimpleNamespace(type="response.failed", response=resp)
 
-        # The sync stream processes events in a for-loop. We'll simulate
-        # the error extraction logic directly by calling the same code path.
-        code = getattr(resp_error, "code", None) or "response_failed"
-        message = getattr(resp_error, "message", None) or code
-        error_details = {
-            "provider_code": code,
-            "provider_message": message,
-            "response_id": getattr(resp, "id", None),
-            "response_status": getattr(resp, "status", None),
-        }
-        exc = ResponsesWebSocketTransportError(
-            message, code=code, retriable=True, details=error_details,
-        )
+        # Mock the underlying client's stream so that _stream_sync_request
+        # processes our response.failed event from its for-loop.
+        stream_events = iter([event])
+        mock_client.responses.stream.return_value = stream_events
+
+        # Invoke the real streaming code path and assert on the raised error.
+        dummy_request = {"input": "test"}  # minimal placeholder request
+        with pytest.raises(ResponsesWebSocketTransportError) as exc_info:
+            # Consume the generator to trigger processing of the event.
+            list(adapter._stream_sync_request(dummy_request, stream=True))
+
+        exc = exc_info.value
         assert exc.details["provider_code"] == "invalid_tools"
         assert exc.details["provider_message"] == "Tool schema is invalid"
         assert exc.details["response_id"] == "resp_abc"
