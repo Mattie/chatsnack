@@ -6,8 +6,7 @@ request shape, while preserving provider-native tools, tool order, and
 the internal Chat Completions representation.
 """
 
-import json
-from unittest.mock import MagicMock, AsyncMock, patch
+from unittest.mock import MagicMock
 from types import SimpleNamespace
 
 import pytest
