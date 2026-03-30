@@ -433,6 +433,20 @@ class ChatQueryMixin(ChatMessagesMixin, ChatParamsMixin):
         runtime = getattr(self, "runtime", None)
         return isinstance(runtime, (ResponsesAdapter, ResponsesWebSocketAdapter))
 
+    def _runtime_supports_provider_continuation(self) -> bool:
+        """Return True only for runtimes with provider-side session continuation.
+
+        The WebSocket Responses transport maintains a persistent connection
+        with server-side session state, so auto-injecting previous_response_id
+        is valid.  Plain HTTP Responses does not retain server-side state when
+        store=False (the default), so auto-continuation would cause
+        previous_response_not_found errors.  HTTP follow-ups should resend the
+        local message history instead.
+        """
+        from ..runtime import ResponsesWebSocketAdapter
+        runtime = getattr(self, "runtime", None)
+        return isinstance(runtime, ResponsesWebSocketAdapter)
+
     def _normalize_runtime_metadata(self, normalized_response) -> Dict[str, object]:
         metadata = {}
         if normalized_response is not None:
@@ -529,7 +543,7 @@ class ChatQueryMixin(ChatMessagesMixin, ChatParamsMixin):
             # store=False is a valid and important path.
             if (
                 track_continuation
-                and self._runtime_supports_continuation()
+                and self._runtime_supports_provider_continuation()
                 and not request_kwargs.get("previous_response_id")
             ):
                 last_response_id = (getattr(self, "_last_runtime_metadata", {}) or {}).get("response_id")
