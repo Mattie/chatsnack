@@ -660,9 +660,10 @@ class TestProviderNativeToolPassthrough:
             tools=[{"type": "web_search"}, {"type": "function", "function": {"name": "my_func"}}],
         )
 
+        # After normalization, function tools are flattened for Responses API.
         assert captured["tools"] == [
             {"type": "web_search"},
-            {"type": "function", "function": {"name": "my_func"}},
+            {"type": "function", "name": "my_func"},
         ]
 
 

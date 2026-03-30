@@ -404,18 +404,25 @@ class ResponsesWebSocketAdapter(ResponsesNormalizationMixin):
                     if etype == "error":
                         code = getattr(event, "code", None) or "response_failed"
                         message = getattr(event, "message", None) or code
+                        error_details: Dict[str, Any] = {"provider_code": code}
                     else:
                         resp = getattr(event, "response", None)
                         resp_err = getattr(resp, "error", None) if resp else None
                         code = getattr(resp_err, "code", None) or "response_failed"
                         message = getattr(resp_err, "message", None) or code
+                        error_details = {
+                            "provider_code": code,
+                            "provider_message": message,
+                            "response_id": getattr(resp, "id", None),
+                            "response_status": getattr(resp, "status", None),
+                        }
                     if code == "previous_response_not_found":
                         raise RuntimeError(code)
                     raise ResponsesWebSocketTransportError(
                         message,
                         code=("auth_error" if self._is_auth_error_code(code) else code),
                         retriable=not self._is_auth_error_code(code),
-                        details={"provider_code": code},
+                        details=error_details,
                     )
                 # Safely ignore all other lifecycle events (response.created,
                 # response.in_progress, response.content_part.added, etc.)
@@ -519,18 +526,25 @@ class ResponsesWebSocketAdapter(ResponsesNormalizationMixin):
                     if etype == "error":
                         code = getattr(event, "code", None) or "response_failed"
                         message = getattr(event, "message", None) or code
+                        error_details_a: Dict[str, Any] = {"provider_code": code}
                     else:
                         resp = getattr(event, "response", None)
                         resp_err = getattr(resp, "error", None) if resp else None
                         code = getattr(resp_err, "code", None) or "response_failed"
                         message = getattr(resp_err, "message", None) or code
+                        error_details_a = {
+                            "provider_code": code,
+                            "provider_message": message,
+                            "response_id": getattr(resp, "id", None),
+                            "response_status": getattr(resp, "status", None),
+                        }
                     if code == "previous_response_not_found":
                         raise RuntimeError(code)
                     raise ResponsesWebSocketTransportError(
                         message,
                         code=("auth_error" if self._is_auth_error_code(code) else code),
                         retriable=not self._is_auth_error_code(code),
-                        details={"provider_code": code},
+                        details=error_details_a,
                     )
         except RuntimeError:
             raise

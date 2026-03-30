@@ -175,12 +175,65 @@ class ResponsesNormalizationMixin:
         suffix = messages[last_assistant_idx + 1 :]
         return suffix or [messages[-1]]
 
+    # Provider-native tool types that must pass through unchanged.
+    _NATIVE_TOOL_TYPES = frozenset({
+        "web_search", "file_search", "tool_search",
+        "code_interpreter", "image_generation", "mcp",
+        "namespace",
+    })
+
+    @classmethod
+    def _normalize_tools_for_responses_request(cls, tools: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """Flatten nested Chat Completions function tools into the Responses API shape.
+
+        The internal chatsnack tool model (and Chat Completions) uses::
+
+            {"type": "function", "function": {"name": ..., "description": ..., ...}}
+
+        The Responses API expects the flat shape::
+
+            {"type": "function", "name": ..., "description": ..., ...}
+
+        Provider-native tools (web_search, file_search, mcp, namespace, etc.)
+        and tools that are already flat pass through unchanged.  Original list
+        order is preserved exactly.
+        """
+        normalized: List[Dict[str, Any]] = []
+        for tool in tools:
+            tool_type = tool.get("type", "function")
+
+            # Provider-native tools: pass through as-is.
+            if tool_type in cls._NATIVE_TOOL_TYPES:
+                normalized.append(tool)
+                continue
+
+            # Function tool with a nested "function" payload → flatten.
+            nested = tool.get("function")
+            if tool_type == "function" and isinstance(nested, dict):
+                flat: Dict[str, Any] = {"type": "function"}
+                # Carry over any unknown top-level keys already on the dict
+                # (future-proofing), but skip "type" and "function".
+                for k, v in tool.items():
+                    if k not in ("type", "function"):
+                        flat[k] = v
+                # Merge nested function fields (name, description, parameters, strict, …).
+                flat.update(nested)
+                normalized.append(flat)
+                continue
+
+            # Already-flat function tool or unknown shape: pass through.
+            normalized.append(tool)
+        return normalized
+
     def build_responses_request(self, messages: List[Dict[str, Any]], kwargs: Dict[str, Any]) -> Dict[str, Any]:
         options = self._apply_profile_defaults(kwargs)
         input_messages = messages
         if options.get("previous_response_id"):
             input_messages = self._select_continuation_messages(messages)
         options["input"] = self._map_messages_to_input(input_messages)
+        # Normalize function tools from Chat Completions shape to Responses shape.
+        if options.get("tools"):
+            options["tools"] = self._normalize_tools_for_responses_request(options["tools"])
         # Default store to False.  Callers (or params.responses.store from the
         # YAML config) can set it explicitly.  Phase 2a WebSocket continuation
         # with store=False is valid and must not be overridden.
