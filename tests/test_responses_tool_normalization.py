@@ -104,8 +104,19 @@ class TestNativeToolsPassthrough:
     ])
     def test_native_tool_passes_through(self, tool_type):
         tool = {"type": tool_type, "some_config": "value"}
+        if tool_type == "namespace":
+            tool["tools"] = [_nested_function_tool(name="inner")]
         [result] = ResponsesNormalizationMixin._normalize_tools_for_responses_request([tool])
-        assert result is tool  # exact same object, not copied
+        if tool_type == "namespace":
+            # Namespace wrappers are copied so child tools can be normalized recursively.
+            assert result is not tool
+            assert result["type"] == "namespace"
+            assert result["some_config"] == "value"
+            assert result["tools"][0]["type"] == "function"
+            assert result["tools"][0]["name"] == "inner"
+            assert "function" not in result["tools"][0]
+        else:
+            assert result is tool  # exact same object, not copied
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -299,16 +310,18 @@ class TestWebSocketErrorSurface:
         resp = SimpleNamespace(error=resp_error, id="resp_abc", status="failed")
         event = SimpleNamespace(type="response.failed", response=resp)
 
-        # Mock the underlying client's stream so that _stream_sync_request
-        # processes our response.failed event from its for-loop.
-        stream_events = iter([event])
-        mock_client.responses.stream.return_value = stream_events
+        # Mock the sync connection object consumed by _stream_sync_request.
+        connection = MagicMock()
+        connection.__iter__.return_value = iter([event])
+        adapter._connect_sync = MagicMock(return_value=connection)
 
-        # Invoke the real streaming code path and assert on the raised error.
-        dummy_request = {"input": "test"}  # minimal placeholder request
+        # Invoke the real streaming code path with the helper's real signature
+        # so response.failed handling executes and enriches error details.
+        messages = [{"role": "user", "content": "test"}]
+        kwargs = {"model": "gpt-5.4-mini"}
         with pytest.raises(ResponsesWebSocketTransportError) as exc_info:
             # Consume the generator to trigger processing of the event.
-            list(adapter._stream_sync_request(dummy_request, stream=True))
+            list(adapter._stream_sync_request(messages, kwargs))
 
         exc = exc_info.value
         assert exc.details["provider_code"] == "invalid_tools"
