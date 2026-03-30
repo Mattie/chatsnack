@@ -35,6 +35,12 @@ def test_responses_debug_helper_is_env_gated(monkeypatch):
 
     assert sink.getvalue() == ""
 
+    monkeypatch.setenv("CHATSNACK_DEBUG_RESPONSES", "maybe")
+    with _capture_loguru() as sink:
+        ResponsesNormalizationMixin._debug_responses_payload("Responses test payload", {"alpha": 1})
+
+    assert sink.getvalue() == ""
+
 
 def test_responses_debug_helper_logs_pretty_json_when_enabled(monkeypatch):
     monkeypatch.setenv("CHATSNACK_DEBUG_RESPONSES", "1")

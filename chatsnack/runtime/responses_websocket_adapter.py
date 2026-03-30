@@ -456,8 +456,9 @@ class ResponsesWebSocketAdapter(ResponsesNormalizationMixin):
             details = self._extract_sdk_api_error_details(exc, request_kwargs)
             provider_msg = details.get("provider_message")
             provider_code = details.get("provider_code")
-            self._debug_responses_payload("Responses WS response.create exception details", details or {"error": str(exc)})
-            if self._responses_debug_enabled():
+            debug_enabled = self._responses_debug_enabled()
+            if debug_enabled:
+                self._debug_responses_payload("Responses WS response.create exception details", details or {"error": str(exc)})
                 logger.exception("Responses WS response.create raised")
             if provider_msg or provider_code:
                 # SDK parsed a structured provider error.
@@ -586,8 +587,9 @@ class ResponsesWebSocketAdapter(ResponsesNormalizationMixin):
             details = self._extract_sdk_api_error_details(exc, request_kwargs)
             provider_msg = details.get("provider_message")
             provider_code = details.get("provider_code")
-            self._debug_responses_payload("Responses WS response.create exception details", details or {"error": str(exc)})
-            if self._responses_debug_enabled():
+            debug_enabled = self._responses_debug_enabled()
+            if debug_enabled:
+                self._debug_responses_payload("Responses WS response.create exception details", details or {"error": str(exc)})
                 logger.exception("Responses WS response.create raised")
             if provider_msg or provider_code:
                 human_msg = provider_msg or provider_code
