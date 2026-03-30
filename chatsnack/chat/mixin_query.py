@@ -398,11 +398,14 @@ class ChatQueryMixin(ChatMessagesMixin, ChatParamsMixin):
             # Phase 3: merge provider-facing Responses options (text, reasoning,
             # include, store, …) into the request kwargs so they reach the
             # Responses API.  These are lower-priority than explicit kwargs.
-            responses_opts = self.params._get_responses_api_options()
-            if responses_opts:
-                merged = responses_opts.copy()
-                merged.update(kwargs)
-                kwargs = merged
+            # Only merge when the active runtime is a Responses-family adapter;
+            # Chat Completions does not understand these keys.
+            if self._runtime_supports_continuation():
+                responses_opts = self.params._get_responses_api_options()
+                if responses_opts:
+                    merged = responses_opts.copy()
+                    merged.update(kwargs)
+                    kwargs = merged
         
         # Add tools if available
         if hasattr(self, 'get_tools'):

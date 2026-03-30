@@ -12,8 +12,28 @@ from .types import (
 
 
 class ChatCompletionsAdapter:
+    # Keys that belong to the Responses API surface and must never reach
+    # chat.completions.create().  Acts as a defensive backstop in case the
+    # request-compilation layer accidentally leaks them.
+    _RESPONSES_ONLY_KEYS = frozenset({
+        "reasoning",
+        "include",
+        "store",
+        "previous_response_id",
+        "conversation",
+        "text",
+        "prompt_cache_key",
+        "prompt_cache_retention",
+        "input",
+    })
+
     def __init__(self, ai_client):
         self.ai_client = ai_client
+
+    @classmethod
+    def _strip_responses_keys(cls, kwargs: Dict[str, Any]) -> Dict[str, Any]:
+        """Remove Responses-only keys so they never reach the CC SDK call."""
+        return {k: v for k, v in kwargs.items() if k not in cls._RESPONSES_ONLY_KEYS}
 
     @staticmethod
     def _to_dict(obj: Any) -> Dict[str, Any]:
@@ -63,11 +83,13 @@ class ChatCompletionsAdapter:
 
     def create_completion(self, messages: List[Dict[str, Any]], **kwargs: Any) -> NormalizedCompletionResult:
         kwargs.pop("profile", None)
+        kwargs = self._strip_responses_keys(kwargs)
         response = self.ai_client.client.chat.completions.create(messages=messages, **kwargs)
         return self._normalize_completion(response)
 
     async def create_completion_a(self, messages: List[Dict[str, Any]], **kwargs: Any) -> NormalizedCompletionResult:
         kwargs.pop("profile", None)
+        kwargs = self._strip_responses_keys(kwargs)
         response = await self.ai_client.aclient.chat.completions.create(messages=messages, **kwargs)
         return self._normalize_completion(response)
 
@@ -105,6 +127,7 @@ class ChatCompletionsAdapter:
     def stream_completion(self, messages: List[Dict[str, Any]], **kwargs: Any):
         kwargs = kwargs.copy()
         kwargs.pop("profile", None)
+        kwargs = self._strip_responses_keys(kwargs)
         kwargs["stream"] = True
         response_gen = self.ai_client.client.chat.completions.create(messages=messages, **kwargs)
 
@@ -133,6 +156,7 @@ class ChatCompletionsAdapter:
     async def stream_completion_a(self, messages: List[Dict[str, Any]], **kwargs: Any):
         kwargs = kwargs.copy()
         kwargs.pop("profile", None)
+        kwargs = self._strip_responses_keys(kwargs)
         kwargs["stream"] = True
         response_gen = await self.ai_client.aclient.chat.completions.create(messages=messages, **kwargs)
 
