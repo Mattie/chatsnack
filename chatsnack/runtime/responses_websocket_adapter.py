@@ -1,4 +1,5 @@
 import asyncio
+import logging
 import threading
 import time
 from dataclasses import dataclass, field
@@ -7,6 +8,8 @@ from typing import Any, Dict, List, Optional
 from .attachment_resolver import AttachmentResolver
 from .responses_common import ResponsesNormalizationMixin
 from .types import RuntimeErrorPayload, RuntimeStreamEvent, RuntimeTerminalMetadata
+
+logger = logging.getLogger(__name__)
 
 # Minimum SDK version string for clear error messages.
 _SDK_VERSION_GUIDANCE = (
@@ -272,6 +275,115 @@ class ResponsesWebSocketAdapter(ResponsesNormalizationMixin):
             return RuntimeErrorPayload(message=str(exc), code="previous_response_not_found", retriable=True)
         return RuntimeErrorPayload(message=str(exc), code="transport_error", retriable=True)
 
+    @staticmethod
+    def _request_summary(request_kwargs: Dict[str, Any]) -> Dict[str, Any]:
+        """Build a safe summary of the request for error diagnostics.
+
+        Includes model, tool count/types, and whether continuation was used,
+        but never includes secrets or user prompt content.
+        """
+        tools = request_kwargs.get("tools") or []
+        return {
+            "model": request_kwargs.get("model"),
+            "tool_count": len(tools),
+            "tool_types": [t.get("type") for t in tools if isinstance(t, dict)],
+            "has_previous_response_id": bool(request_kwargs.get("previous_response_id")),
+        }
+
+    @classmethod
+    def _extract_sdk_api_error_details(cls, exc: Exception, request_kwargs: Dict[str, Any]) -> Dict[str, Any]:
+        """Extract structured error fields from an OpenAI SDK API exception.
+
+        Works with ``openai.APIStatusError`` and its subclasses (BadRequestError,
+        AuthenticationError, etc.) which carry ``status_code``, ``request_id``,
+        and a parsed ``body`` with ``code``/``message``/``param``/``type``.
+        Falls back gracefully when fields are absent.
+        """
+        details: Dict[str, Any] = {}
+        # HTTP status
+        status_code = getattr(exc, "status_code", None)
+        if status_code is not None:
+            details["http_status"] = status_code
+        # Request ID
+        request_id = getattr(exc, "request_id", None)
+        if request_id:
+            details["request_id"] = request_id
+        # Parsed body (OpenAI SDK parses JSON body into .body dict)
+        body = getattr(exc, "body", None)
+        if isinstance(body, dict):
+            for key in ("code", "message", "param", "type"):
+                val = body.get(key)
+                if val is not None:
+                    details[f"provider_{key}"] = val
+            details["raw_error"] = body
+        elif body is not None:
+            details["raw_error"] = str(body)
+        # Request context
+        details["request_summary"] = cls._request_summary(request_kwargs)
+        return details
+
+    @classmethod
+    def _extract_stream_error_details(
+        cls, event, request_kwargs: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        """Extract structured error details from a streamed ``error`` or
+        ``response.failed`` event.
+
+        Prefers dict-based extraction via ``_event_dict()`` for robustness,
+        falling back to attribute reads when ``model_dump`` is unavailable.
+        Preserves raw event/response/error payloads for future-proofing.
+        """
+        etype = cls._event_type(event)
+        event_d = cls._event_dict(event)
+        details: Dict[str, Any] = {}
+
+        if etype == "error":
+            # Top-level error event: fields live directly on the event.
+            code = event_d.get("code") or getattr(event, "code", None) or "response_failed"
+            message = event_d.get("message") or getattr(event, "message", None) or code
+            details["provider_code"] = code
+            details["provider_message"] = message
+            if event_d:
+                details["raw_event"] = event_d
+        else:
+            # response.failed: error is nested inside event.response.error
+            resp = getattr(event, "response", None)
+            resp_d = cls._event_dict(resp) if resp else event_d.get("response", {})
+            err_obj = getattr(resp, "error", None) if resp else None
+            err_d = cls._event_dict(err_obj) if err_obj else resp_d.get("error", {})
+
+            code = (
+                err_d.get("code")
+                or getattr(err_obj, "code", None)
+                or "response_failed"
+            )
+            message = (
+                err_d.get("message")
+                or getattr(err_obj, "message", None)
+                or code
+            )
+            details["provider_code"] = code
+            details["provider_message"] = message
+            # Additional provider fields
+            for key in ("param", "type"):
+                val = err_d.get(key) or getattr(err_obj, key, None)
+                if val is not None:
+                    details[f"provider_{key}"] = val
+            # Response-level metadata
+            details["response_id"] = resp_d.get("id") or getattr(resp, "id", None)
+            details["response_status"] = resp_d.get("status") or getattr(resp, "status", None)
+            # Raw payloads for diagnostics
+            if event_d:
+                details["raw_event"] = event_d
+            if resp_d:
+                details["raw_response"] = resp_d
+            if err_d:
+                details["raw_error"] = err_d
+
+        # Attach request context
+        details["request_summary"] = cls._request_summary(request_kwargs)
+        return details
+
     # ------------------------------------------------------------------
     # In-flight guards
     # ------------------------------------------------------------------
@@ -339,8 +451,32 @@ class ResponsesWebSocketAdapter(ResponsesNormalizationMixin):
             connection.response.create(**create_kw)
         except Exception as exc:
             self._drop_sync_connection()
+            # Distinguish SDK API errors (BadRequestError, etc.) from
+            # true transport failures (socket disconnect, timeout, etc.).
+            details = self._extract_sdk_api_error_details(exc, request_kwargs)
+            provider_msg = details.get("provider_message")
+            provider_code = details.get("provider_code")
+            if provider_msg or provider_code:
+                # SDK parsed a structured provider error.
+                human_msg = provider_msg or provider_code
+                code = provider_code or "api_error"
+                logger.debug(
+                    "Responses WebSocket response.create failed: %s (code=%s) | request=%r",
+                    human_msg, code, self._request_summary(request_kwargs),
+                )
+                raise ResponsesWebSocketTransportError(
+                    human_msg, code=code,
+                    retriable=not self._is_auth_error_code(code),
+                    details=details,
+                ) from exc
+            # Generic transport-level failure.
+            logger.debug(
+                "Responses WebSocket response.create transport failure: %s | request=%r",
+                exc, self._request_summary(request_kwargs),
+            )
             raise ResponsesWebSocketTransportError(
                 "socket_send_failed", code="socket_send_failed", retriable=True,
+                details={"request_summary": self._request_summary(request_kwargs)},
             ) from exc
 
         index = 0
@@ -401,21 +537,13 @@ class ResponsesWebSocketAdapter(ResponsesNormalizationMixin):
                     break
 
                 elif etype in {"error", "response.failed"}:
-                    if etype == "error":
-                        code = getattr(event, "code", None) or "response_failed"
-                        message = getattr(event, "message", None) or code
-                        error_details: Dict[str, Any] = {"provider_code": code}
-                    else:
-                        resp = getattr(event, "response", None)
-                        resp_err = getattr(resp, "error", None) if resp else None
-                        code = getattr(resp_err, "code", None) or "response_failed"
-                        message = getattr(resp_err, "message", None) or code
-                        error_details = {
-                            "provider_code": code,
-                            "provider_message": message,
-                            "response_id": getattr(resp, "id", None),
-                            "response_status": getattr(resp, "status", None),
-                        }
+                    error_details = self._extract_stream_error_details(event, request_kwargs)
+                    code = error_details.get("provider_code", "response_failed")
+                    message = error_details.get("provider_message", code)
+                    logger.debug(
+                        "Responses WebSocket stream %s: %s (code=%s) | request=%r",
+                        etype, message, code, error_details.get("request_summary"),
+                    )
                     if code == "previous_response_not_found":
                         raise RuntimeError(code)
                     raise ResponsesWebSocketTransportError(
@@ -461,8 +589,29 @@ class ResponsesWebSocketAdapter(ResponsesNormalizationMixin):
             await connection.response.create(**create_kw)
         except Exception as exc:
             await self._drop_async_connection()
+            # Distinguish SDK API errors from true transport failures.
+            details = self._extract_sdk_api_error_details(exc, request_kwargs)
+            provider_msg = details.get("provider_message")
+            provider_code = details.get("provider_code")
+            if provider_msg or provider_code:
+                human_msg = provider_msg or provider_code
+                code = provider_code or "api_error"
+                logger.debug(
+                    "Responses WebSocket async response.create failed: %s (code=%s) | request=%r",
+                    human_msg, code, self._request_summary(request_kwargs),
+                )
+                raise ResponsesWebSocketTransportError(
+                    human_msg, code=code,
+                    retriable=not self._is_auth_error_code(code),
+                    details=details,
+                ) from exc
+            logger.debug(
+                "Responses WebSocket async response.create transport failure: %s | request=%r",
+                exc, self._request_summary(request_kwargs),
+            )
             raise ResponsesWebSocketTransportError(
                 "socket_send_failed", code="socket_send_failed", retriable=True,
+                details={"request_summary": self._request_summary(request_kwargs)},
             ) from exc
 
         index = 0
@@ -523,28 +672,20 @@ class ResponsesWebSocketAdapter(ResponsesNormalizationMixin):
                     break
 
                 elif etype in {"error", "response.failed"}:
-                    if etype == "error":
-                        code = getattr(event, "code", None) or "response_failed"
-                        message = getattr(event, "message", None) or code
-                        error_details_a: Dict[str, Any] = {"provider_code": code}
-                    else:
-                        resp = getattr(event, "response", None)
-                        resp_err = getattr(resp, "error", None) if resp else None
-                        code = getattr(resp_err, "code", None) or "response_failed"
-                        message = getattr(resp_err, "message", None) or code
-                        error_details_a = {
-                            "provider_code": code,
-                            "provider_message": message,
-                            "response_id": getattr(resp, "id", None),
-                            "response_status": getattr(resp, "status", None),
-                        }
+                    error_details = self._extract_stream_error_details(event, request_kwargs)
+                    code = error_details.get("provider_code", "response_failed")
+                    message = error_details.get("provider_message", code)
+                    logger.debug(
+                        "Responses WebSocket async stream %s: %s (code=%s) | request=%r",
+                        etype, message, code, error_details.get("request_summary"),
+                    )
                     if code == "previous_response_not_found":
                         raise RuntimeError(code)
                     raise ResponsesWebSocketTransportError(
                         message,
                         code=("auth_error" if self._is_auth_error_code(code) else code),
                         retriable=not self._is_auth_error_code(code),
-                        details=error_details_a,
+                        details=error_details,
                     )
         except RuntimeError:
             raise
@@ -652,11 +793,22 @@ class ResponsesWebSocketAdapter(ResponsesNormalizationMixin):
         Preserves the error taxonomy so that ``ask()`` / ``chat()`` callers
         see ``ResponsesSessionBusyError`` or ``ResponsesWebSocketTransportError``
         with full metadata instead of a generic ``RuntimeError``.
+
+        Prefers the provider's real error message over generic codes so
+        callers see actionable diagnostics like *"Invalid value: 'namespace'"*
+        instead of just *"response_failed"*.
         """
         code = error_dict.get("code") or ""
-        message = error_dict.get("message") or code or "streaming response failed"
+        details = error_dict.get("details") or {}
         retriable = error_dict.get("retriable", True)
-        details = error_dict.get("details")
+
+        # Prefer the richer provider message if available.
+        message = (
+            details.get("provider_message")
+            or error_dict.get("message")
+            or code
+            or "streaming response failed"
+        )
 
         if code == "session_busy":
             raise ResponsesSessionBusyError(message)

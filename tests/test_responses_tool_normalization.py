@@ -288,39 +288,43 @@ class TestWebSocketSessionToolShape:
 
 
 # ═══════════════════════════════════════════════════════════════════════
-# 8. WebSocket error surface carries provider details
+# 8. WebSocket error surface carries enriched provider details
 # ═══════════════════════════════════════════════════════════════════════
 
 class TestWebSocketErrorSurface:
 
-    def test_response_failed_includes_provider_details(self):
-        """response.failed events should surface provider_message, response_id, response_status."""
+    def _make_adapter(self):
         from chatsnack.runtime.responses_websocket_adapter import (
             ResponsesWebSocketAdapter,
             ResponsesWebSocketSession,
-            ResponsesWebSocketTransportError,
         )
-
         session = ResponsesWebSocketSession(mode="inherit")
         mock_client = MagicMock()
         adapter = ResponsesWebSocketAdapter(mock_client, session=session)
+        return adapter
 
-        # Build a fake response.failed event that the adapter should see.
+    def _wire_sync_connection(self, adapter, events):
+        """Attach a mock sync connection that yields the given events."""
+        connection = MagicMock()
+        connection.__iter__.return_value = iter(events)
+        adapter._connect_sync = MagicMock(return_value=connection)
+        return connection
+
+    # -- 1. Streamed response.failed with nested fields --
+
+    def test_response_failed_includes_provider_details(self):
+        """response.failed events should surface provider_message, response_id, response_status."""
+        from chatsnack.runtime.responses_websocket_adapter import ResponsesWebSocketTransportError
+
+        adapter = self._make_adapter()
         resp_error = SimpleNamespace(code="invalid_tools", message="Tool schema is invalid")
         resp = SimpleNamespace(error=resp_error, id="resp_abc", status="failed")
         event = SimpleNamespace(type="response.failed", response=resp)
+        self._wire_sync_connection(adapter, [event])
 
-        # Mock the sync connection object consumed by _stream_sync_request.
-        connection = MagicMock()
-        connection.__iter__.return_value = iter([event])
-        adapter._connect_sync = MagicMock(return_value=connection)
-
-        # Invoke the real streaming code path with the helper's real signature
-        # so response.failed handling executes and enriches error details.
         messages = [{"role": "user", "content": "test"}]
         kwargs = {"model": "gpt-5.4-mini"}
         with pytest.raises(ResponsesWebSocketTransportError) as exc_info:
-            # Consume the generator to trigger processing of the event.
             list(adapter._stream_sync_request(messages, kwargs))
 
         exc = exc_info.value
@@ -328,3 +332,220 @@ class TestWebSocketErrorSurface:
         assert exc.details["provider_message"] == "Tool schema is invalid"
         assert exc.details["response_id"] == "resp_abc"
         assert exc.details["response_status"] == "failed"
+        # Exception string should carry the provider message.
+        assert "Tool schema is invalid" in str(exc)
+
+    def test_response_failed_preserves_provider_param_and_type(self):
+        """response.failed details should include provider_param and provider_type when present."""
+        from chatsnack.runtime.responses_websocket_adapter import ResponsesWebSocketTransportError
+
+        adapter = self._make_adapter()
+        resp_error = SimpleNamespace(
+            code="invalid_value", message="Invalid value: 'namespace'. Supported values are: 'function', 'custom'.",
+            param="tools[0].type", type="invalid_request_error",
+        )
+        resp = SimpleNamespace(error=resp_error, id="resp_xyz", status="failed")
+        event = SimpleNamespace(type="response.failed", response=resp)
+        self._wire_sync_connection(adapter, [event])
+
+        with pytest.raises(ResponsesWebSocketTransportError) as exc_info:
+            list(adapter._stream_sync_request(
+                [{"role": "user", "content": "t"}], {"model": "gpt-5.4-mini"},
+            ))
+
+        d = exc_info.value.details
+        assert d["provider_code"] == "invalid_value"
+        assert d["provider_message"] == "Invalid value: 'namespace'. Supported values are: 'function', 'custom'."
+        assert d["provider_param"] == "tools[0].type"
+        assert d["provider_type"] == "invalid_request_error"
+
+    def test_response_failed_includes_request_summary(self):
+        """Error details should include a request_summary with model and tool info."""
+        from chatsnack.runtime.responses_websocket_adapter import ResponsesWebSocketTransportError
+
+        adapter = self._make_adapter()
+        resp_error = SimpleNamespace(code="bad_request", message="bad")
+        resp = SimpleNamespace(error=resp_error, id="resp_1", status="failed")
+        event = SimpleNamespace(type="response.failed", response=resp)
+        self._wire_sync_connection(adapter, [event])
+
+        with pytest.raises(ResponsesWebSocketTransportError) as exc_info:
+            list(adapter._stream_sync_request(
+                [{"role": "user", "content": "t"}],
+                {"model": "gpt-5.4-mini", "tools": [{"type": "function", "name": "f", "description": "d"}]},
+            ))
+
+        summary = exc_info.value.details.get("request_summary", {})
+        assert summary["model"] == "gpt-5.4-mini"
+        assert summary["tool_count"] == 1
+        assert "function" in summary["tool_types"]
+        assert summary["has_previous_response_id"] is False
+
+    def test_response_failed_includes_raw_payloads(self):
+        """Error details should include raw_event, raw_response, raw_error when available."""
+        from chatsnack.runtime.responses_websocket_adapter import ResponsesWebSocketTransportError
+
+        adapter = self._make_adapter()
+        # Use objects with model_dump so raw payloads are populated.
+        resp_error = MagicMock()
+        resp_error.code = "test_code"
+        resp_error.message = "test msg"
+        resp_error.model_dump.return_value = {"code": "test_code", "message": "test msg"}
+        resp = MagicMock()
+        resp.error = resp_error
+        resp.id = "resp_raw"
+        resp.status = "failed"
+        resp.model_dump.return_value = {"id": "resp_raw", "status": "failed", "error": {"code": "test_code", "message": "test msg"}}
+        event = MagicMock()
+        event.type = "response.failed"
+        event.response = resp
+        event.model_dump.return_value = {"type": "response.failed", "response": {"id": "resp_raw"}}
+        self._wire_sync_connection(adapter, [event])
+
+        with pytest.raises(ResponsesWebSocketTransportError) as exc_info:
+            list(adapter._stream_sync_request(
+                [{"role": "user", "content": "t"}], {"model": "gpt-5.4-mini"},
+            ))
+
+        d = exc_info.value.details
+        assert "raw_event" in d
+        assert "raw_response" in d
+        assert "raw_error" in d
+
+    # -- 2. Top-level streamed error event --
+
+    def test_top_level_error_event_preserves_message_and_code(self):
+        """A top-level 'error' stream event should preserve code and message in details."""
+        from chatsnack.runtime.responses_websocket_adapter import ResponsesWebSocketTransportError
+
+        adapter = self._make_adapter()
+        event = SimpleNamespace(type="error", code="rate_limit_exceeded", message="Rate limit hit")
+        self._wire_sync_connection(adapter, [event])
+
+        with pytest.raises(ResponsesWebSocketTransportError) as exc_info:
+            list(adapter._stream_sync_request(
+                [{"role": "user", "content": "t"}], {"model": "gpt-5.4-mini"},
+            ))
+
+        exc = exc_info.value
+        assert exc.details["provider_code"] == "rate_limit_exceeded"
+        assert exc.details["provider_message"] == "Rate limit hit"
+        assert "Rate limit hit" in str(exc)
+        assert "request_summary" in exc.details
+
+    # -- 3. SDK BadRequest from response.create --
+
+    def test_sdk_api_error_from_response_create_preserves_details(self):
+        """An SDK API error during response.create should surface provider fields, not generic socket_send_failed."""
+        from chatsnack.runtime.responses_websocket_adapter import ResponsesWebSocketTransportError
+
+        adapter = self._make_adapter()
+        connection = MagicMock()
+        # Simulate an SDK API error with body/status_code/request_id
+        sdk_error = Exception("Bad Request")
+        sdk_error.status_code = 400
+        sdk_error.request_id = "req_abc123"
+        sdk_error.body = {
+            "code": "invalid_value",
+            "message": "Invalid value: 'namespace'. Supported values are: 'function', 'custom'.",
+            "param": "tools[0].type",
+            "type": "invalid_request_error",
+        }
+        connection.response.create.side_effect = sdk_error
+        adapter._connect_sync = MagicMock(return_value=connection)
+
+        with pytest.raises(ResponsesWebSocketTransportError) as exc_info:
+            list(adapter._stream_sync_request(
+                [{"role": "user", "content": "t"}],
+                {"model": "gpt-5.4-mini", "tools": [{"type": "namespace", "name": "ns"}]},
+            ))
+
+        exc = exc_info.value
+        assert "Invalid value: 'namespace'" in str(exc)
+        assert exc.code == "invalid_value"
+        d = exc.details
+        assert d["http_status"] == 400
+        assert d["request_id"] == "req_abc123"
+        assert d["provider_code"] == "invalid_value"
+        assert d["provider_message"] == "Invalid value: 'namespace'. Supported values are: 'function', 'custom'."
+        assert d["provider_param"] == "tools[0].type"
+        assert d["provider_type"] == "invalid_request_error"
+        assert "raw_error" in d
+        assert d["request_summary"]["model"] == "gpt-5.4-mini"
+        assert d["request_summary"]["tool_count"] == 1
+
+    def test_generic_transport_failure_from_response_create_still_works(self):
+        """A generic exception from response.create should still produce socket_send_failed."""
+        from chatsnack.runtime.responses_websocket_adapter import ResponsesWebSocketTransportError
+
+        adapter = self._make_adapter()
+        connection = MagicMock()
+        connection.response.create.side_effect = ConnectionError("socket died")
+        adapter._connect_sync = MagicMock(return_value=connection)
+
+        with pytest.raises(ResponsesWebSocketTransportError) as exc_info:
+            list(adapter._stream_sync_request(
+                [{"role": "user", "content": "t"}], {"model": "gpt-5.4-mini"},
+            ))
+
+        exc = exc_info.value
+        assert exc.code == "socket_send_failed"
+        assert exc.retriable is True
+        assert "request_summary" in exc.details
+
+    # -- 4. Generic response_failed fallback --
+
+    def test_generic_response_failed_fallback_when_no_rich_fields(self):
+        """When response.failed has no rich error fields, fallback to 'response_failed'."""
+        from chatsnack.runtime.responses_websocket_adapter import ResponsesWebSocketTransportError
+
+        adapter = self._make_adapter()
+        # Minimal event with no error details
+        resp = SimpleNamespace(error=None, id=None, status="failed")
+        event = SimpleNamespace(type="response.failed", response=resp)
+        self._wire_sync_connection(adapter, [event])
+
+        with pytest.raises(ResponsesWebSocketTransportError) as exc_info:
+            list(adapter._stream_sync_request(
+                [{"role": "user", "content": "t"}], {"model": "gpt-5.4-mini"},
+            ))
+
+        exc = exc_info.value
+        assert exc.details["provider_code"] == "response_failed"
+
+    # -- 5. previous_response_not_found preserves special handling --
+
+    def test_previous_response_not_found_still_triggers_retry_path(self):
+        """previous_response_not_found should still raise RuntimeError for retry logic."""
+        adapter = self._make_adapter()
+        resp_error = SimpleNamespace(code="previous_response_not_found", message="Not found")
+        resp = SimpleNamespace(error=resp_error, id="resp_old", status="failed")
+        event = SimpleNamespace(type="response.failed", response=resp)
+        self._wire_sync_connection(adapter, [event])
+
+        with pytest.raises(RuntimeError, match="previous_response_not_found"):
+            list(adapter._stream_sync_request(
+                [{"role": "user", "content": "t"}], {"model": "gpt-5.4-mini"},
+            ))
+
+    # -- 6. _raise_from_stream_error prefers provider_message --
+
+    def test_raise_from_stream_error_prefers_provider_message(self):
+        """_raise_from_stream_error should use provider_message in the exception text."""
+        from chatsnack.runtime.responses_websocket_adapter import ResponsesWebSocketTransportError
+
+        error_dict = {
+            "code": "invalid_value",
+            "message": "response_failed",
+            "retriable": False,
+            "details": {
+                "provider_message": "Invalid value: 'namespace'.",
+                "provider_code": "invalid_value",
+            },
+        }
+        with pytest.raises(ResponsesWebSocketTransportError) as exc_info:
+            from chatsnack.runtime.responses_websocket_adapter import ResponsesWebSocketAdapter
+            ResponsesWebSocketAdapter._raise_from_stream_error(error_dict)
+
+        assert "Invalid value: 'namespace'." in str(exc_info.value)
+        assert exc_info.value.details["provider_code"] == "invalid_value"
