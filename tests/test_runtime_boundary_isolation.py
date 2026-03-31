@@ -137,10 +137,10 @@ class TestChatCompletionsStreamStripsKeys:
 
 
 # ═══════════════════════════════════════════════════════════════════════
-# 3. Positive: Responses runtime still receives reasoning defaults
+# 3. Positive: Responses runtime preserves authored reasoning
 # ═══════════════════════════════════════════════════════════════════════
 
-class TestResponsesRuntimeReceivesReasoningDefaults:
+class TestResponsesRuntimePreservesReasoning:
 
     def test_responses_build_request_preserves_reasoning(self):
         """build_responses_request should preserve reasoning options."""
@@ -185,7 +185,7 @@ class TestWebSocketReceivesResponsesOptions:
 
 
 # ═══════════════════════════════════════════════════════════════════════
-# 5. Integration: Chat with CC runtime + reasoning model doesn't leak
+# 5. Integration: Chat runtime boundaries stay clean
 # ═══════════════════════════════════════════════════════════════════════
 
 class TestChatCCRuntimeNoResponsesLeak:
@@ -216,8 +216,8 @@ class TestChatCCRuntimeNoResponsesLeak:
         assert "include" not in kwargs
         assert "store" not in kwargs
 
-    def test_chat_responses_runtime_gpt54_mini_gets_reasoning(self):
-        """Chat with runtime='responses' and gpt-5.4-mini should get implicit reasoning."""
+    def test_chat_responses_runtime_gpt54_mini_has_no_implicit_reasoning(self):
+        """Chat with runtime='responses' should only send reasoning when authored."""
         from chatsnack.chat import Chat
         from chatsnack.chat.mixin_params import ChatParams
 
@@ -227,7 +227,5 @@ class TestChatCCRuntimeNoResponsesLeak:
         )
         chat.model = "gpt-5.4-mini"
 
-        # Verify the Responses options include reasoning for this model.
         responses_opts = chat.params._get_responses_api_options()
-        assert "reasoning" in responses_opts
-        assert responses_opts["reasoning"] == {"effort": "low"}
+        assert "reasoning" not in responses_opts

@@ -523,11 +523,6 @@ class ChatParams:
             for k, v in self.responses.items()
             if k not in self._RESPONSES_INTERNAL_KEYS and v is not None
         }
-        # Phase 4: smart default for reasoning-capable models only when
-        # reasoning was not authored.
-        if "reasoning" not in responses_opts and self._is_reasoning_capable_model():
-            responses_opts["reasoning"] = {"effort": "low"}
-
         self._validate_reasoning_options(responses_opts.get("reasoning"))
         return responses_opts
 
