@@ -433,19 +433,33 @@ class ChatQueryMixin(ChatMessagesMixin, ChatParamsMixin):
         runtime = getattr(self, "runtime", None)
         return isinstance(runtime, (ResponsesAdapter, ResponsesWebSocketAdapter))
 
-    def _runtime_supports_provider_continuation(self) -> bool:
-        """Return True only for runtimes with provider-side session continuation.
+    def _runtime_supports_provider_continuation(self, request_kwargs: Optional[Dict[str, object]] = None) -> bool:
+        """Return True when provider-side continuation is safe for this turn.
 
-        The WebSocket Responses transport maintains a persistent connection
-        with server-side session state, so auto-injecting previous_response_id
-        is valid.  Plain HTTP Responses does not retain server-side state when
-        store=False (the default), so auto-continuation would cause
-        previous_response_not_found errors.  HTTP follow-ups should resend the
-        local message history instead.
+        WebSocket Responses keeps server-side session state, so continuation
+        via ``previous_response_id`` is always valid there.
+
+        HTTP Responses is more constrained. We should still continue there when
+        the prior response was explicitly stored, and while we are still inside
+        an in-progress tool-recursion chain. Outside those cases, HTTP should
+        fall back to local message replay instead of auto-injecting a previous
+        response id.
         """
-        from ..runtime import ResponsesWebSocketAdapter
+        from ..runtime import ResponsesAdapter, ResponsesWebSocketAdapter
+
         runtime = getattr(self, "runtime", None)
-        return isinstance(runtime, ResponsesWebSocketAdapter)
+        if isinstance(runtime, ResponsesWebSocketAdapter):
+            return True
+        if not isinstance(runtime, ResponsesAdapter):
+            return False
+
+        request_kwargs = request_kwargs or {}
+        if request_kwargs.get("store") is True:
+            return True
+
+        metadata = (getattr(self, "_last_runtime_metadata", None) or {})
+        assistant_phase = metadata.get("assistant_phase")
+        return assistant_phase not in (None, "completed")
 
     def _normalize_runtime_metadata(self, normalized_response) -> Dict[str, object]:
         metadata = {}
@@ -543,7 +557,7 @@ class ChatQueryMixin(ChatMessagesMixin, ChatParamsMixin):
             # store=False is a valid and important path.
             if (
                 track_continuation
-                and self._runtime_supports_provider_continuation()
+                and self._runtime_supports_provider_continuation(request_kwargs)
                 and not request_kwargs.get("previous_response_id")
             ):
                 last_response_id = (getattr(self, "_last_runtime_metadata", {}) or {}).get("response_id")
