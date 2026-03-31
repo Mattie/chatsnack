@@ -337,11 +337,31 @@ class ResponsesWebSocketAdapter(ResponsesNormalizationMixin):
         details: Dict[str, Any] = {}
 
         if etype == "error":
-            # Top-level error event: fields live directly on the event.
-            code = event_d.get("code") or getattr(event, "code", None) or "response_failed"
-            message = event_d.get("message") or getattr(event, "message", None) or code
+            # Top-level error events may either expose fields directly on the
+            # event or nest them under ``error``.
+            nested_error = event_d.get("error", {})
+            if not isinstance(nested_error, dict):
+                nested_error = {}
+            code = (
+                nested_error.get("code")
+                or event_d.get("code")
+                or getattr(event, "code", None)
+                or "response_failed"
+            )
+            message = (
+                nested_error.get("message")
+                or event_d.get("message")
+                or getattr(event, "message", None)
+                or code
+            )
             details["provider_code"] = code
             details["provider_message"] = message
+            for key in ("param", "type"):
+                val = nested_error.get(key)
+                if val is not None:
+                    details[f"provider_{key}"] = val
+            if nested_error:
+                details["raw_error"] = nested_error
             if event_d:
                 details["raw_event"] = event_d
         else:
