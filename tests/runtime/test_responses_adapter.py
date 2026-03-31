@@ -325,7 +325,7 @@ def test_mapping_developer_system_user_assistant_messages_assistant_tool_calls_a
     assert captured["input"][3] == {
         "type": "message",
         "role": "assistant",
-        "content": [{"type": "input_text", "text": "Prior answer"}],
+        "content": [{"type": "output_text", "text": "Prior answer"}],
     }
     assert captured["input"][4] == {
         "type": "function_call",

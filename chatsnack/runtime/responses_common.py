@@ -42,6 +42,7 @@ class ResponsesNormalizationMixin:
     def _message_to_input_items(self, message: Dict[str, Any]) -> List[Dict[str, Any]]:
         role = message.get("role")
         content = message.get("content")
+        text_part_type = "output_text" if role == "assistant" else "input_text"
 
         if role == "tool":
             output_type = message.get("output_type")
@@ -70,7 +71,7 @@ class ResponsesNormalizationMixin:
                     {
                         "type": "message",
                         "role": "assistant",
-                        "content": [{"type": "input_text", "text": text_content}],
+                        "content": [{"type": text_part_type, "text": text_content}],
                     }
                 )
             for tool_call in tool_calls:
@@ -92,7 +93,7 @@ class ResponsesNormalizationMixin:
         content_parts: List[Dict[str, Any]] = []
         text = self._coerce_text(content)
         if text:
-            content_parts.append({"type": "input_text", "text": text})
+            content_parts.append({"type": text_part_type, "text": text})
 
         # Phase 3: images on user/assistant turns → input_image items.
         for img in message.get("images") or []:
@@ -125,7 +126,7 @@ class ResponsesNormalizationMixin:
 
         # Fall back to at least one input_text part even if empty.
         if not content_parts:
-            content_parts.append({"type": "input_text", "text": ""})
+            content_parts.append({"type": text_part_type, "text": ""})
 
         return [
             {

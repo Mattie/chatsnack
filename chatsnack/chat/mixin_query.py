@@ -849,11 +849,33 @@ class ChatQueryMixin(ChatMessagesMixin, ChatParamsMixin):
         """ Returns a new ChatPrompt object that is a copy of this one, optionally with a new name ⭐"""
         import copy
         copied_params = copy.copy(self.params)
+        copied_runtime = getattr(self, "runtime", None)
+        copied_runtime_selector = None
+        copied_session = None
+        from ..runtime import ResponsesWebSocketAdapter
+
+        # Template-style chats (for example default packs) should not leak a
+        # stale WebSocket session into fresh copies when they have never owned
+        # a response of their own. Keep session lineage only once response
+        # metadata exists on the source chat.
+        if isinstance(copied_runtime, ResponsesWebSocketAdapter):
+            response_id = (getattr(self, "_last_runtime_metadata", None) or {}).get("response_id")
+            if not response_id:
+                source_session = copied_runtime.session
+                copied_runtime = None
+                copied_runtime_selector = "responses"
+                copied_session = (
+                    getattr(copied_params, "session", None)
+                    or getattr(source_session, "mode", None)
+                    or "inherit"
+                )
         if name is not None:
             new_chat = self.__class__(
                 name=name,
                 params=copied_params,
-                runtime=getattr(self, "runtime", None),
+                runtime=copied_runtime,
+                runtime_selector=copied_runtime_selector,
+                session=copied_session,
                 tool_search_handler=getattr(self, "tool_search_handler", None),
             )
         else:
@@ -869,7 +891,9 @@ class ChatQueryMixin(ChatMessagesMixin, ChatParamsMixin):
             new_chat = self.__class__(
                 name=name + f"_{datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}-{uuid.uuid4()}",
                 params=copied_params,
-                runtime=getattr(self, "runtime", None),
+                runtime=copied_runtime,
+                runtime_selector=copied_runtime_selector,
+                session=copied_session,
                 tool_search_handler=getattr(self, "tool_search_handler", None),
             )
 

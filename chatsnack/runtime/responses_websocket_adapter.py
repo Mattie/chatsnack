@@ -418,6 +418,10 @@ class ResponsesWebSocketAdapter(ResponsesNormalizationMixin):
         kw = dict(request)
         kw.pop("stream", None)
         kw.pop("background", None)
+        # The WS transport currently behaves differently for exact-zero
+        # temperature when encoded as a float. Normalize 0.0 to int zero.
+        if kw.get("temperature") == 0.0:
+            kw["temperature"] = 0
         return kw
 
     # ------------------------------------------------------------------

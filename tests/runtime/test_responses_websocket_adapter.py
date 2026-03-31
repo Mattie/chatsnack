@@ -350,6 +350,15 @@ def test_create_kwargs_strips_transport_fields():
     assert result["store"] is False
 
 
+def test_create_kwargs_coerces_exact_zero_temperature_to_int_for_ws_transport():
+    request = {"model": "gpt-4.1", "input": [], "temperature": 0.0}
+
+    result = ResponsesWebSocketAdapter._create_kwargs(request)
+
+    assert result["temperature"] == 0
+    assert isinstance(result["temperature"], int)
+
+
 def test_stream_sync_request_wraps_iterator_receive_failure(monkeypatch):
     ai = SimpleNamespace(api_key="x", base_url=None, client=None, aclient=None)
     session = ResponsesWebSocketSession(mode="inherit")
