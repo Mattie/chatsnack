@@ -545,6 +545,11 @@ class ChatParams:
         if not model:
             return None
 
+        # Chat-optimized aliases like gpt-5-chat-latest and
+        # gpt-5.3-chat-latest currently reject reasoning controls.
+        if "-chat" in model:
+            return None
+
         for pattern, capabilities in _KNOWN_REASONING_MODELS:
             if model == pattern or model.startswith(f"{pattern}-"):
                 return capabilities

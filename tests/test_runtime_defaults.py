@@ -58,6 +58,12 @@ def test_reasoning_default_not_injected_for_non_reasoning_model():
     assert "reasoning" not in opts
 
 
+def test_reasoning_default_not_injected_for_chat_latest_alias():
+    params = ChatParams(model="gpt-5-chat-latest", runtime="responses")
+    opts = params._get_responses_api_options()
+    assert "reasoning" not in opts
+
+
 def test_reasoning_unknown_values_warn_but_pass_through():
     params = ChatParams(model="gpt-5.4", runtime="responses", responses={"reasoning": {"effort": "turbo"}})
     with warnings.catch_warnings(record=True) as caught:
