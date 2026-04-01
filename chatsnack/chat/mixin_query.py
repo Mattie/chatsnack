@@ -866,7 +866,7 @@ class ChatQueryMixin(ChatMessagesMixin, ChatParamsMixin):
         copied_runtime = getattr(self, "runtime", None)
         copied_runtime_selector = None
         copied_session = None
-        from ..runtime import ResponsesWebSocketAdapter
+        from ..runtime import ResponsesWebSocketAdapter, ResponsesWebSocketSession
 
         # Template-style chats (for example default packs) should not leak a
         # stale WebSocket session into fresh copies when they have never owned
@@ -876,12 +876,15 @@ class ChatQueryMixin(ChatMessagesMixin, ChatParamsMixin):
             response_id = (getattr(self, "_last_runtime_metadata", None) or {}).get("response_id")
             if not response_id:
                 source_session = copied_runtime.session
-                copied_runtime = None
-                copied_runtime_selector = "responses"
-                copied_session = (
-                    getattr(copied_params, "session", None)
-                    or getattr(source_session, "mode", None)
-                    or "inherit"
+                authored_session = (
+                    copied_params.get("session") if isinstance(copied_params, dict)
+                    else getattr(copied_params, "session", None)
+                )
+                copied_runtime = ResponsesWebSocketAdapter(
+                    self.ai,
+                    session=ResponsesWebSocketSession(
+                        mode=authored_session or getattr(source_session, "mode", None) or "inherit"
+                    ),
                 )
         if name is not None:
             new_chat = self.__class__(
