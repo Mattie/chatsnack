@@ -10,7 +10,6 @@ Responses adapter so both transports get the same upload behaviour.
 """
 
 import os
-import warnings
 from typing import Any, Dict, Optional, Tuple
 
 from loguru import logger
@@ -18,6 +17,18 @@ from .attachment_inputs import _MATERIALIZED_TEMP_PATHS, is_materialized_tempfil
 
 # Cache key: (absolute_path, file_size, mtime_ns, kind)
 _CacheKey = Tuple[str, int, int, str]
+
+
+class AttachmentResolutionError(RuntimeError):
+    """Raised when an explicit local attachment cannot be resolved."""
+
+
+class AttachmentNotFoundError(FileNotFoundError, AttachmentResolutionError):
+    """Raised when an explicit local attachment path does not exist."""
+
+
+class AttachmentUploadError(AttachmentResolutionError):
+    """Raised when an explicit local attachment cannot be uploaded."""
 
 
 class AttachmentResolver:
@@ -43,7 +54,7 @@ class AttachmentResolver:
     def _cache_key(path: str, kind: str) -> Optional[_CacheKey]:
         """Build a cache key from a local path.
 
-        Returns ``None`` if the file does not exist (caller should skip/warn).
+        Returns ``None`` if the file does not exist.
         """
         try:
             abs_path = os.path.abspath(path)
@@ -107,7 +118,7 @@ class AttachmentResolver:
         choosing between ``input_image`` and ``input_file`` content parts.
 
         Returns a **new** dict with ``file_id`` set (leaving the original
-        ``path`` entry untouched), or ``None`` if resolution fails.
+        ``path`` entry untouched).
         """
         if not isinstance(entry, dict):
             return entry
@@ -120,22 +131,19 @@ class AttachmentResolver:
         if not path:
             return entry
 
-        if self.ai_client is None:
-            warnings.warn(
-                f"Skipping local-path {kind} '{path}': no ai_client available for upload.",
-                stacklevel=3,
-            )
+        uploader = None if self.ai_client is None else getattr(self.ai_client, "upload_file", None)
+        if not callable(uploader):
             self._cleanup_temp_attachment(entry)
-            return None
+            raise AttachmentResolutionError(
+                f"Cannot resolve local-path {kind} '{path}': no ai_client upload support is configured."
+            )
 
         cache_key = self._cache_key(path, kind)
         if cache_key is None:
-            warnings.warn(
-                f"Skipping local-path {kind} '{path}': file not found.",
-                stacklevel=3,
-            )
             self._cleanup_temp_attachment(entry)
-            return None
+            raise AttachmentNotFoundError(
+                f"Cannot resolve local-path {kind} '{path}': file not found."
+            )
 
         cached = self._get_cached(cache_key)
         if cached:
@@ -146,12 +154,10 @@ class AttachmentResolver:
         try:
             file_id = self._upload_sync(path, kind)
         except Exception as exc:
-            warnings.warn(
-                f"Skipping local-path {kind} '{path}': upload failed ({exc}).",
-                stacklevel=3,
-            )
             self._cleanup_temp_attachment(entry)
-            return None
+            raise AttachmentUploadError(
+                f"Cannot resolve local-path {kind} '{path}': upload failed ({exc})."
+            ) from exc
 
         self._set_cached(cache_key, file_id)
         logger.debug("Uploaded {kind}: {name} → {fid}", kind=kind, name=os.path.basename(path), fid=file_id)
@@ -170,22 +176,19 @@ class AttachmentResolver:
         if not path:
             return entry
 
-        if self.ai_client is None:
-            warnings.warn(
-                f"Skipping local-path {kind} '{path}': no ai_client available for upload.",
-                stacklevel=3,
-            )
+        uploader = None if self.ai_client is None else getattr(self.ai_client, "upload_file_async", None)
+        if not callable(uploader):
             self._cleanup_temp_attachment(entry)
-            return None
+            raise AttachmentResolutionError(
+                f"Cannot resolve local-path {kind} '{path}': no ai_client upload support is configured."
+            )
 
         cache_key = self._cache_key(path, kind)
         if cache_key is None:
-            warnings.warn(
-                f"Skipping local-path {kind} '{path}': file not found.",
-                stacklevel=3,
-            )
             self._cleanup_temp_attachment(entry)
-            return None
+            raise AttachmentNotFoundError(
+                f"Cannot resolve local-path {kind} '{path}': file not found."
+            )
 
         cached = self._get_cached(cache_key)
         if cached:
@@ -196,12 +199,10 @@ class AttachmentResolver:
         try:
             file_id = await self._upload_async(path, kind)
         except Exception as exc:
-            warnings.warn(
-                f"Skipping local-path {kind} '{path}': upload failed ({exc}).",
-                stacklevel=3,
-            )
             self._cleanup_temp_attachment(entry)
-            return None
+            raise AttachmentUploadError(
+                f"Cannot resolve local-path {kind} '{path}': upload failed ({exc})."
+            ) from exc
 
         self._set_cached(cache_key, file_id)
         logger.debug("Uploaded {kind}: {name} → {fid}", kind=kind, name=os.path.basename(path), fid=file_id)
