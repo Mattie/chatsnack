@@ -119,7 +119,6 @@ def test_text_chat_expansion():
     chat = Chat(name="test_text_chat_expansion")
     chat.system("Respond only with 'DUCK!' regardless of what is said.")
     chat.user("Should I buy a goose or a duck?")
-    chat.params = ChatParams(temperature = 0.0)
     chat.save()   
 
     # we need a text object saved to disk
@@ -130,7 +129,6 @@ def test_text_chat_expansion():
     # we need a chat object to use it
     chat2 = Chat()
     chat2.system("{text.test_text_expansion}")
-    chat2.params = ChatParams(temperature = 0.0)
     # right now we have to use chat.chat() to get get it to expand variables
     output = chat2.chat("Is blue a color?")
     
@@ -140,7 +138,6 @@ def test_text_chat_expansion():
     # test changing the file on disk
     chat3 = Chat(name="test_text_chat_expansion")
     chat3.load()
-    chat3.params = ChatParams(temperature = 0.0)
     chat3.messages = []
     chat3.system("Respond only with 'GOOSE!' regardless of what is said.")
     chat3.user("Should I buy a goose or a duck?")

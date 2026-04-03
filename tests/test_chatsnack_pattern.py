@@ -44,7 +44,6 @@ def test_set_response_filter():
 @pytest.mark.skipif(os.environ.get("OPENAI_API_KEY") is None, reason="OPENAI_API_KEY is not set in environment or .env")
 def test_ask_with_pattern():
     chat = Chat()
-    chat.temperature = 0.0
     chat.system("Respond only with 'POPSICLE!!' from now on.")
     chat.user("What is your name?")
     chat.pattern = r"\bPOPSICLE\b" 
@@ -63,7 +62,6 @@ def test_response_with_pattern():
 @pytest.mark.skipif(os.environ.get("OPENAI_API_KEY") is None, reason="OPENAI_API_KEY is not set in environment or .env")
 def test_ask_without_pattern():
     chat = Chat()
-    chat.temperature = 0.0
     chat.system("Respond only with 'POPSICLE!!' from now on.")
     chat.user("What is your name?")
     response = chat.ask()

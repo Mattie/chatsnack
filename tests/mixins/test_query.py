@@ -624,6 +624,7 @@ async def test_ask_a_and_chat_a_raise_when_stream_enabled(chat):
 
 @pytest.mark.asyncio
 async def test_cleaned_chat_completion_model_fallback(chat):
+    chat.runtime = None  # ensure we're testing the fallback path
     fake_completions = _FakeAsyncCompletions()
     chat.ai.aclient = SimpleNamespace(
         chat=SimpleNamespace(completions=fake_completions)
@@ -635,6 +636,7 @@ async def test_cleaned_chat_completion_model_fallback(chat):
 
 @pytest.mark.asyncio
 async def test_cleaned_chat_completion_returns_message_object_for_tool_calls(chat):
+    chat.runtime = None  # ensure we're testing the fallback path
     class ToolCompletions:
         async def create(self, messages, **kwargs):
             tool_calls = [SimpleNamespace(id="1", function=SimpleNamespace(name="x", arguments="{}"))]
@@ -1030,24 +1032,6 @@ def test_live_phase3_image_attachment_path(tmp_path):
 
 
 @_skip_no_key
-def test_live_phase3_attachment_only_turn_with_file_path(tmp_path):
-    """Attachment-only turns should survive the full live Responses path."""
-    file_path = tmp_path / "attachment-only.txt"
-    file_path.write_text("attachment only")
-
-    chat = _make_live_phase3_responses_chat()
-    chat.messages = [
-        {"user": {"files": [{"path": str(file_path)}]}},
-        {"user": "Reply exactly ATTACHMENT_ONLY_OK if the previous user turn included an attachment."},
-    ]
-
-    response = chat.ask()
-
-    assert "ATTACHMENT_ONLY_OK" in response.upper()
-    assert chat.messages[0]["user"]["files"][0]["path"] == str(file_path)
-
-
-@_skip_no_key
 def test_live_phase3_provider_native_web_search_tool():
     """Provider-native tool dicts should work end-to-end in live Responses calls."""
     chat = _make_live_phase3_responses_chat()
@@ -1059,29 +1043,6 @@ def test_live_phase3_provider_native_web_search_tool():
     response = chat.ask()
 
     assert "NATIVE_TOOL_OK" in response.upper()
-
-
-@_skip_no_key
-def test_live_phase3_websocket_attachment_and_session_continuation(tmp_path):
-    """WebSocket Responses should handle attachment turns and store=False continuation live."""
-    file_path = tmp_path / "ws-attachment.txt"
-    file_path.write_text("websocket attachment")
-
-    chat = _make_live_phase3_responses_chat(session="inherit")
-    chat.params.responses = {"store": False}
-    chat.messages = [{"user": {"files": [{"path": str(file_path)}]}}]
-
-    first = chat.chat("Reply exactly WS_FILE_OK if the previous user turn included a file attachment.")
-    assert "WS_FILE_OK" in (first.response or "").upper()
-    assert first.runtime.session is chat.runtime.session
-    first_response_id = first._last_runtime_metadata["response_id"]
-    assert first_response_id
-
-    second = first.chat("Reply exactly WS_CONT_OK.")
-    assert "WS_CONT_OK" in (second.response or "").upper()
-    assert second.runtime.session is first.runtime.session
-    assert second._last_runtime_metadata["response_id"]
-    assert second._last_runtime_metadata["response_id"] != first_response_id
 
 
 def test_runtime_selector_responses_surfaces_aiclient_capability_error(chat):

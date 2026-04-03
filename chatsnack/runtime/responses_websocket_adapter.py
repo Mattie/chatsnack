@@ -57,6 +57,7 @@ class ResponsesWebSocketAdapter(ResponsesNormalizationMixin):
     """
 
     _GLOBAL_SESSIONS: List[ResponsesWebSocketSession] = []
+    _MAX_REOPEN_RETRIES = 2
 
     def __init__(self, ai_client, session: Optional[ResponsesWebSocketSession] = None):
         self.ai_client = ai_client
@@ -566,7 +567,7 @@ class ResponsesWebSocketAdapter(ResponsesNormalizationMixin):
                 acquired_in_flight = True
             retry_kwargs = dict(kwargs)
             include_prev = True
-            reopened = False
+            reopen_attempts = 0
             emitted_output = False
             while True:
                 try:
@@ -580,8 +581,13 @@ class ResponsesWebSocketAdapter(ResponsesNormalizationMixin):
                         retry_kwargs.pop("previous_response_id", None)
                         include_prev = False
                         continue
-                    if isinstance(exc, ResponsesWebSocketTransportError) and exc.retriable and not reopened and not emitted_output:
-                        reopened = True
+                    if (
+                        isinstance(exc, ResponsesWebSocketTransportError)
+                        and exc.retriable
+                        and reopen_attempts < self._MAX_REOPEN_RETRIES
+                        and not emitted_output
+                    ):
+                        reopen_attempts += 1
                         self._drop_sync_connection()
                         continue
                     raise
@@ -601,7 +607,7 @@ class ResponsesWebSocketAdapter(ResponsesNormalizationMixin):
                 acquired_in_flight = True
             retry_kwargs = dict(kwargs)
             include_prev = True
-            reopened = False
+            reopen_attempts = 0
             emitted_output = False
             while True:
                 try:
@@ -615,8 +621,13 @@ class ResponsesWebSocketAdapter(ResponsesNormalizationMixin):
                         retry_kwargs.pop("previous_response_id", None)
                         include_prev = False
                         continue
-                    if isinstance(exc, ResponsesWebSocketTransportError) and exc.retriable and not reopened and not emitted_output:
-                        reopened = True
+                    if (
+                        isinstance(exc, ResponsesWebSocketTransportError)
+                        and exc.retriable
+                        and reopen_attempts < self._MAX_REOPEN_RETRIES
+                        and not emitted_output
+                    ):
+                        reopen_attempts += 1
                         await self._drop_async_connection()
                         continue
                     raise

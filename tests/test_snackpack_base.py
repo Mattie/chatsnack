@@ -18,9 +18,12 @@ def test_snackpack_chat():
 @pytest.mark.skipif(os.environ.get("OPENAI_API_KEY") is None, reason="OPENAI_API_KEY is not set in environment or .env")
 def test_snackpack_ask_with_existing_asst():
     cp = chat.copy()
+    # ask the question using the legacy runtime because
+    # assistant-message continuation does not work with responses/websocket runtime
+    cp.runtime = None
+
     cp.user("Is the sky blue?")
     cp.asst("No! ")
-    # ask the question
     output = cp.ask()
     # is there a response and it's longer than 0 characters?
     assert output is not None

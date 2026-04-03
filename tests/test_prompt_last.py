@@ -8,7 +8,7 @@ def empty_prompt():
 
 @pytest.fixture
 def populated_prompt():
-    prompt = Chat()
+    prompt = Chat(runtime = "chat_completions")  # Use legacy runtime for testing prompt behavior without API calls
     prompt.add_message("user", "Hello!")
     prompt.add_message("assistant", "Hi there!")
     return prompt
@@ -56,6 +56,8 @@ def test_message_order(empty_prompt):
 #         empty_prompt.add_message("invalid_role", "Test content")
 @pytest.mark.skipif(os.environ.get("OPENAI_API_KEY") is None, reason="OPENAI_API_KEY is not set in environment or .env")
 def test_chaining_methods_execution(populated_prompt):
+    # ask the question using the legacy runtime because
+    # assistant-message continuation does not work with responses/websocket runtime
     new_prompt = populated_prompt().user("How's the weather?")
     assert new_prompt.last == "How's the weather?"
 
