@@ -73,6 +73,7 @@ def _runtime_policy_from_env() -> tuple[str, Optional[str]]:
 
 @datafile(CHATSNACK_BASE_DIR + "/{self.name}.txt", manual=True)
 class Text(DatafileMixin):
+    """Reusable text asset that can be saved and expanded in other prompts."""
     name: str
     content: Optional[str] = None
     # TODO: All Text and Chat objects should automatically be added as snack fillings (even if not saved to disk)
@@ -87,21 +88,12 @@ class Chat(ChatQueryMixin, ChatSerializationMixin, ChatUtensilMixin):
     messages: List[Dict[str,Union[str,List[Dict[str,str]]]]] = field(default_factory=lambda: [])
 
     def __init__(self, *args, **kwargs):
-        """ 
-        Initializes the chat prompt
-        :param args: if we get one arg, we'll assume it's the system message
-                        if we get two args, the first is the name and the second is the system message
+        """
+        Initialize a chat from a terse authored shape.
 
-        :param kwargs: (keyword arguments are as follows)
-        :param name: the name of the chat prompt (optional, defaults to _ChatPrompt-<date>-<uuid>)
-        :param params: the engine parameters (optional, defaults to None)
-        :param messages: the messages (optional, defaults to [])
-        :param system: the initial system message (optional, defaults to None)
-        :param engine: the engine name (optional, defaults to None, will overwrite params if specified)
-        :param utensils: tools available to this chat (optional, defaults to None)
-        :param auto_execute: whether to automatically execute tool calls (optional, defaults to True)
-        :param auto_feed: whether to automatically feed tool results back to the model (optional, defaults to True)
-        :param tool_choice: how to choose which tool to use (optional, defaults to "auto")
+        Common forms include `Chat("system message")`,
+        `Chat("Name", "system message")`, `Chat(name="SavedPrompt")`, and
+        `Chat(..., utensils=[...])`.
         """
         # Extract utensil-related parameters first
         utensils = kwargs.pop("utensils", None)
@@ -304,16 +296,18 @@ class Chat(ChatQueryMixin, ChatSerializationMixin, ChatUtensilMixin):
         return ChatCompletionsAdapter(self.ai)
 
     def close_session(self):
+        """Close the active runtime session if the selected runtime supports it."""
         runtime = getattr(self, "runtime", None)
         if hasattr(runtime, "close_session"):
             runtime.close_session()
 
     @classmethod
     def close_all_sessions(cls):
+        """Close every tracked shared Responses WebSocket session."""
         ResponsesWebSocketAdapter.close_all_sessions()
 
     def reset(self) -> object:
-        """ Resets the chat prompt to its initial state, returns itself """
+        """Restore the chat to the state captured immediately after initialization."""
         self.name = self._initial_name
         self.params = self._initial_params
         self.messages = self._initial_messages

@@ -1,3 +1,5 @@
+"""Built-in snack packs and vending helpers exposed from `chatsnack.packs`."""
+
 import os
 from ..chat import Chat
 from .module_help_vendor import get_module_inspection_report
@@ -20,6 +22,7 @@ default_pack_path = get_data_path("default_packs")
 
 # ChatPromptProxy class such that whenever you try to call a method on it, it creates a new ChatPrompt and calls the method on that
 class ChatPromptProxy:
+    """Lazy proxy that materializes a `Chat` only when a method is accessed."""
     def __init__(self, default_system_message: str = None, default_engine: str = None):
         self.default_system_message = default_system_message
         self.default_engine = default_engine
@@ -81,6 +84,7 @@ locals().update(default_packs)
 # vending machine class that looks up snackpacks from the default_packs dict as a named attribute of itself
 # e.g. vending.Jane
 class VendingMachine:
+    """Attribute-based access to copies of the built-in snack packs."""
     def __getattr__(self, name):
         if name in default_packs:
             return default_packs[name].copy()

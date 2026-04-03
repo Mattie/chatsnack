@@ -672,7 +672,7 @@ class ChatQueryMixin(ChatMessagesMixin, ChatParamsMixin):
             return self.response
 
     def __call__(self, usermsg=None, **additional_vars) -> object:
-        """ Executes the query as-is and returns a Chat object with the response, shortcut for Chat.chat()"""
+        """Continue the conversation, matching the behavior of `chat()`."""
         if usermsg is not None:
             additional_vars["__user"] = usermsg
         return self.chat(**additional_vars)
@@ -685,7 +685,7 @@ class ChatQueryMixin(ChatMessagesMixin, ChatParamsMixin):
         additional_vars = self._prepare_query_vars(usermsg, files=files, images=images, **additional_vars)
         return self._run_sync(self.ask_a(**additional_vars), "ask")
     async def ask_a(self, usermsg=None, files=None, images=None, **additional_vars) -> str:
-        """ Executes the query as-is, async version of ask()"""
+        """Async form of `ask()`."""
         if self.stream:
             raise Exception("Cannot use ask() with a stream")
         additional_vars = self._prepare_query_vars(usermsg, files=files, images=images, **additional_vars)
@@ -707,7 +707,7 @@ class ChatQueryMixin(ChatMessagesMixin, ChatParamsMixin):
             response.start()
         return response
     async def listen_a(self, usermsg=None, async_listen=True, events=False, event_schema="legacy", files=None, images=None, **additional_vars) -> ChatStreamListener:
-        """ Executes the query as-is, async version of listen()"""
+        """Async form of `listen()`."""
         if not self.stream:
             raise Exception("Cannot use listen() without a stream")
         additional_vars = self._prepare_query_vars(usermsg, files=files, images=images, **additional_vars)
@@ -727,7 +727,7 @@ class ChatQueryMixin(ChatMessagesMixin, ChatParamsMixin):
         return self._run_sync(self.chat_a(**additional_vars), "chat")
         
     async def chat_a(self, usermsg=None, files=None, images=None, **additional_vars) -> object:
-        """Executes the query as-is, and returns a ChatPrompt object that contains the response. Async version of chat()"""
+        """Async form of `chat()`."""
         additional_vars = self._prepare_query_vars(usermsg, files=files, images=images, **additional_vars)
             
         if self.stream:

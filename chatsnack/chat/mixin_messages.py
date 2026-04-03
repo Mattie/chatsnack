@@ -61,7 +61,7 @@ class ChatMessagesMixin:
         return self.add_message("include", chatprompt_name, chat)
     
     def developer(self, content: str, chat=False) -> object:
-        """Alias for system(); accepts a ``developer`` message and stores it as ``system``."""
+        """Alias for `system()` that accepts a `developer` role name."""
         return self.system(content, chat=chat)
 
     def add_message(self, role: str, content: Union[str, List, Dict], chat: bool = False) -> object:

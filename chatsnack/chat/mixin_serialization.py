@@ -8,14 +8,14 @@ def _safe_del_path(datafile_mapper):
 
 class DatafileMixin:
     def save(self, path: str = None):
-        """ Saves the text to disk """
+        """Persist the current datafile-backed object to disk."""
         # path is a cached property so we're going to delete it so it'll get recalculated
         _safe_del_path(self.datafile)
         if path is not None:
             self.datafile.path = Path(path)
         self.datafile.save()
     def load(self, path: str = None):
-        """ Loads the chat prompt from a file, can load from a new path but it won't work with snack expansion/vending """
+        """Load the object from disk, optionally from an explicit path."""
         # path is a cached property so we're going to delete it so it'll get recalculated
         _safe_del_path(self.datafile)
         if path is not None:
@@ -26,12 +26,12 @@ class DatafileMixin:
 class ChatSerializationMixin(DatafileMixin):
     @property
     def json(self) -> str:
-        """ Returns the flattened JSON for use in the API"""
+        """Return the expanded chat messages as JSON for API submission."""
         return json.dumps(self.get_messages())
     
     @property
     def json_unexpanded(self) -> str:
-        """ Returns the unflattened JSON for use in the API"""
+        """Return the chat messages as JSON before include expansion."""
         return json.dumps(self.get_messages(includes_expanded=False))
 
     @property
