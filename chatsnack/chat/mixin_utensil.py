@@ -124,7 +124,7 @@ class ChatUtensilMixin:
             if hasattr(self.params, 'tool_choice') and self.params.tool_choice is None:
                 self.params.tool_choice = "auto"
 
-    def set_utensils(self, utensils):
+    def set_utensils(self, utensils: Any):
         """
         Set the utensils available for this chat.
         

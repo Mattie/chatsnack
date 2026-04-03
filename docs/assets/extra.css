@@ -1,0 +1,23 @@
+:root {
+  --md-primary-fg-color: #0f766e;
+  --md-accent-fg-color: #d97706;
+}
+
+.hero-copy {
+  font-size: 1.08rem;
+  max-width: 48rem;
+}
+
+.callout-grid {
+  display: grid;
+  gap: 1rem;
+  grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr));
+  margin: 1.5rem 0;
+}
+
+.callout-grid > div {
+  border: 1px solid var(--md-default-fg-color--lightest);
+  border-radius: 0.75rem;
+  padding: 1rem;
+  background: linear-gradient(180deg, rgba(15, 118, 110, 0.05), rgba(217, 119, 6, 0.04));
+}

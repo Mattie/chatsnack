@@ -5,6 +5,7 @@ datafiles/plunkylib/*/*.*
 samples*/*
 dist/**
 build/**
+site/**
 logs/**
 *.db
 _*.yml
@@ -15,6 +16,9 @@ __pycache__
 
 # don't ignore the .gitignore or the env template
 !.gitignore
+!.github/
+!.github/workflows/
+!.github/workflows/*.yml
 
 # we don't want completions even if they are samples
 datafiles/plunkylib/completions/**
