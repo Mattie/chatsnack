@@ -46,14 +46,20 @@ def test_reasoning_proxy_reads_and_writes_nested_params():
     assert chat.params.responses["reasoning"]["summary"] == "auto"
 
 
-def test_reasoning_default_injected_for_reasoning_model():
+def test_reasoning_default_not_injected_for_reasoning_model():
     params = ChatParams(model="gpt-5.4", runtime="responses")
     opts = params._get_responses_api_options()
-    assert opts["reasoning"]["effort"] == "low"
+    assert "reasoning" not in opts
 
 
 def test_reasoning_default_not_injected_for_non_reasoning_model():
     params = ChatParams(model="gpt-4o", runtime="responses")
+    opts = params._get_responses_api_options()
+    assert "reasoning" not in opts
+
+
+def test_reasoning_default_not_injected_for_chat_latest_alias():
+    params = ChatParams(model="gpt-5-chat-latest", runtime="responses")
     opts = params._get_responses_api_options()
     assert "reasoning" not in opts
 

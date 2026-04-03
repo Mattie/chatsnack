@@ -8,7 +8,6 @@ without being wrapped in function-tool schema.
 All tests are offline (no live API calls).
 """
 
-import warnings
 from types import SimpleNamespace
 
 import pytest
@@ -228,8 +227,8 @@ class TestExpandedTurnsProduceMixedContent:
         assert len(content_parts) == 1
         assert content_parts[0] == {"type": "input_text", "text": "Hello"}
 
-    def test_local_path_image_skipped_with_warning(self):
-        """A user image with only path: should be skipped (not sent as file_id)."""
+    def test_local_path_image_raises_before_request(self):
+        """A missing local image path should fail before any provider request."""
         captured = {}
 
         def create(**kwargs):
@@ -239,8 +238,7 @@ class TestExpandedTurnsProduceMixedContent:
         ai = SimpleNamespace(client=SimpleNamespace(responses=SimpleNamespace(create=create)))
         adapter = ResponsesAdapter(ai)
 
-        with warnings.catch_warnings(record=True) as w:
-            warnings.simplefilter("always")
+        with pytest.raises(Exception, match="photo.png"):
             adapter.create_completion(
                 messages=[{
                     "role": "user",
@@ -249,20 +247,10 @@ class TestExpandedTurnsProduceMixedContent:
                 }],
                 model="gpt-5.4",
             )
+        assert captured == {}
 
-        # The local-path image should NOT appear in the input.
-        content_parts = captured["input"][0]["content"]
-        assert all(p["type"] != "input_image" for p in content_parts), \
-            "Local-path image should be skipped, not sent as input_image"
-        # Only the text part should remain.
-        assert len(content_parts) == 1
-        assert content_parts[0] == {"type": "input_text", "text": "Describe this image."}
-        # A warning should have been emitted.
-        path_warnings = [x for x in w if "photo.png" in str(x.message)]
-        assert len(path_warnings) == 1
-
-    def test_local_path_file_skipped_with_warning(self):
-        """A user file with only path: should be skipped (not sent as file_id)."""
+    def test_local_path_file_raises_before_request(self):
+        """A missing local file path should fail before any provider request."""
         captured = {}
 
         def create(**kwargs):
@@ -272,27 +260,19 @@ class TestExpandedTurnsProduceMixedContent:
         ai = SimpleNamespace(client=SimpleNamespace(responses=SimpleNamespace(create=create)))
         adapter = ResponsesAdapter(ai)
 
-        with warnings.catch_warnings(record=True) as w:
-            warnings.simplefilter("always")
+        with pytest.raises(Exception, match="sales-missing.csv"):
             adapter.create_completion(
                 messages=[{
                     "role": "user",
                     "content": "Summarize this file.",
-                    "files": [{"path": "./data/sales.csv"}],
+                    "files": [{"path": "./data/sales-missing.csv"}],
                 }],
                 model="gpt-5.4",
             )
+        assert captured == {}
 
-        content_parts = captured["input"][0]["content"]
-        assert all(p["type"] != "input_file" for p in content_parts), \
-            "Local-path file should be skipped, not sent as input_file"
-        assert len(content_parts) == 1
-        assert content_parts[0] == {"type": "input_text", "text": "Summarize this file."}
-        path_warnings = [x for x in w if "sales.csv" in str(x.message)]
-        assert len(path_warnings) == 1
-
-    def test_mixed_file_id_and_local_path_keeps_file_id_only(self):
-        """When a turn has both file_id and path entries, only file_id should be sent."""
+    def test_mixed_file_id_and_local_path_raises_before_request(self):
+        """A missing local attachment should fail even when another file_id is present."""
         captured = {}
 
         def create(**kwargs):
@@ -302,26 +282,19 @@ class TestExpandedTurnsProduceMixedContent:
         ai = SimpleNamespace(client=SimpleNamespace(responses=SimpleNamespace(create=create)))
         adapter = ResponsesAdapter(ai)
 
-        with warnings.catch_warnings(record=True) as w:
-            warnings.simplefilter("always")
+        with pytest.raises(Exception, match="data-missing.csv"):
             adapter.create_completion(
                 messages=[{
                     "role": "user",
                     "content": "Analyze these.",
                     "files": [
                         {"file_id": "file_real_123"},
-                        {"path": "./local/data.csv"},
+                        {"path": "./local/data-missing.csv"},
                     ],
                 }],
                 model="gpt-5.4",
             )
-
-        content_parts = captured["input"][0]["content"]
-        file_parts = [p for p in content_parts if p["type"] == "input_file"]
-        assert len(file_parts) == 1
-        assert file_parts[0]["file_id"] == "file_real_123"
-        path_warnings = [x for x in w if "data.csv" in str(x.message)]
-        assert len(path_warnings) == 1
+        assert captured == {}
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -660,9 +633,10 @@ class TestProviderNativeToolPassthrough:
             tools=[{"type": "web_search"}, {"type": "function", "function": {"name": "my_func"}}],
         )
 
+        # After normalization, function tools are flattened for Responses API.
         assert captured["tools"] == [
             {"type": "web_search"},
-            {"type": "function", "function": {"name": "my_func"}},
+            {"type": "function", "name": "my_func"},
         ]
 
 
@@ -689,30 +663,24 @@ class TestAttachmentResolver:
         result = resolver.resolve_attachment(entry, kind="file")
         assert result == entry
 
-    def test_path_entry_without_ai_client_warns_and_skips(self):
-        """path: entry with no ai_client should warn and return None."""
-        from chatsnack.runtime.attachment_resolver import AttachmentResolver
+    def test_path_entry_without_ai_client_raises(self):
+        """path: entry with no ai_client should fail fast."""
+        from chatsnack.runtime.attachment_resolver import AttachmentResolver, AttachmentResolutionError
         resolver = AttachmentResolver(ai_client=None)
-        with warnings.catch_warnings(record=True) as w:
-            warnings.simplefilter("always")
-            result = resolver.resolve_attachment({"path": "/tmp/test.png"}, kind="image")
-        assert result is None
-        assert any("no ai_client" in str(x.message) for x in w)
+        with pytest.raises(AttachmentResolutionError, match="no ai_client upload support"):
+            resolver.resolve_attachment({"path": "/tmp/test.png"}, kind="image")
 
-    def test_path_entry_nonexistent_file_warns_and_skips(self, tmp_path):
-        """path: entry for a file that doesn't exist should warn and return None."""
-        from chatsnack.runtime.attachment_resolver import AttachmentResolver
+    def test_path_entry_nonexistent_file_raises(self, tmp_path):
+        """path: entry for a file that doesn't exist should fail fast."""
+        from chatsnack.runtime.attachment_resolver import AttachmentResolver, AttachmentNotFoundError
         fake_client = SimpleNamespace(
             upload_file=lambda path, purpose="assistants": "file_123",
         )
         resolver = AttachmentResolver(ai_client=fake_client)
-        with warnings.catch_warnings(record=True) as w:
-            warnings.simplefilter("always")
-            result = resolver.resolve_attachment(
+        with pytest.raises(AttachmentNotFoundError, match="file not found"):
+            resolver.resolve_attachment(
                 {"path": str(tmp_path / "nonexistent.png")}, kind="image",
             )
-        assert result is None
-        assert any("file not found" in str(x.message) for x in w)
 
     def test_path_entry_uploads_and_returns_file_id(self, tmp_path):
         """path: entry for a real file should upload and return file_id."""
@@ -800,9 +768,9 @@ class TestAttachmentResolver:
         assert r2 == {"file_id": "file_v2"}
         assert upload_count[0] == 2
 
-    def test_upload_failure_warns_and_skips(self, tmp_path):
-        """If upload raises, should warn and return None (not crash)."""
-        from chatsnack.runtime.attachment_resolver import AttachmentResolver
+    def test_upload_failure_raises(self, tmp_path):
+        """If upload raises, the explicit local attachment should fail fast."""
+        from chatsnack.runtime.attachment_resolver import AttachmentResolver, AttachmentUploadError
         test_file = tmp_path / "bad.csv"
         test_file.write_text("data")
 
@@ -812,12 +780,8 @@ class TestAttachmentResolver:
         fake_client = SimpleNamespace(upload_file=failing_upload)
         resolver = AttachmentResolver(ai_client=fake_client)
 
-        with warnings.catch_warnings(record=True) as w:
-            warnings.simplefilter("always")
-            result = resolver.resolve_attachment({"path": str(test_file)}, kind="file")
-
-        assert result is None
-        assert any("upload failed" in str(x.message) for x in w)
+        with pytest.raises(AttachmentUploadError, match="upload failed"):
+            resolver.resolve_attachment({"path": str(test_file)}, kind="file")
 
     def test_resolve_messages_resolves_paths_in_batch(self, tmp_path):
         """resolve_messages should resolve all local path entries in a message list."""
@@ -1023,6 +987,21 @@ class TestAttachmentResolverAsync:
         r2 = await resolver.resolve_attachment_async({"path": str(test_file)}, kind="file")
         assert r2 == {"file_id": "file_async_123"}
         assert upload_count[0] == 1  # Cached
+
+    @pytest.mark.asyncio
+    async def test_async_path_entry_nonexistent_file_raises(self, tmp_path):
+        """Async resolve should fail fast for a missing explicit local path."""
+        from chatsnack.runtime.attachment_resolver import AttachmentResolver, AttachmentNotFoundError
+        fake_client = SimpleNamespace(
+            upload_file_async=lambda path, purpose="assistants": "file_async_unused",
+        )
+        resolver = AttachmentResolver(ai_client=fake_client)
+
+        with pytest.raises(AttachmentNotFoundError, match="file not found"):
+            await resolver.resolve_attachment_async(
+                {"path": str(tmp_path / "missing-async.csv")},
+                kind="file",
+            )
 
     @pytest.mark.asyncio
     async def test_async_resolve_messages(self, tmp_path):

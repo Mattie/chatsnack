@@ -624,6 +624,7 @@ async def test_ask_a_and_chat_a_raise_when_stream_enabled(chat):
 
 @pytest.mark.asyncio
 async def test_cleaned_chat_completion_model_fallback(chat):
+    _set_runtime_mode(chat, False)
     fake_completions = _FakeAsyncCompletions()
     chat.ai.aclient = SimpleNamespace(
         chat=SimpleNamespace(completions=fake_completions)
@@ -635,6 +636,7 @@ async def test_cleaned_chat_completion_model_fallback(chat):
 
 @pytest.mark.asyncio
 async def test_cleaned_chat_completion_returns_message_object_for_tool_calls(chat):
+    _set_runtime_mode(chat, False)
     class ToolCompletions:
         async def create(self, messages, **kwargs):
             tool_calls = [SimpleNamespace(id="1", function=SimpleNamespace(name="x", arguments="{}"))]

@@ -310,6 +310,20 @@ def test_copy_inherits_runtime_and_metadata(monkeypatch):
     assert copied._last_runtime_metadata["response_id"] == "resp_copy"
 
 
+def test_copy_of_template_style_websocket_chat_gets_fresh_session_when_no_response_metadata():
+    """Fresh copies should not inherit stale provider session lineage from reusable templates."""
+    chat = Chat("You are helpful.", runtime="responses", session="inherit")
+    chat.runtime.session.last_response_id = "resp_stale"
+    chat.runtime.session.last_model = "gpt-5.4"
+
+    copied = chat.copy()
+
+    assert isinstance(copied.runtime, ResponsesWebSocketAdapter)
+    assert copied.runtime.session is not chat.runtime.session
+    assert copied.runtime.session.last_response_id is None
+    assert copied.runtime.session.last_model is None
+
+
 # ---------------------------------------------------------------------------
 # Error taxonomy: structured errors propagate through create_completion
 # ---------------------------------------------------------------------------

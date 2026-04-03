@@ -12,8 +12,49 @@ from .types import (
 
 
 class ChatCompletionsAdapter:
+    # Keys that belong to the Responses API surface and must never reach
+    # chat.completions.create().  Acts as a defensive backstop in case the
+    # request-compilation layer accidentally leaks them.
+    _RESPONSES_ONLY_KEYS = frozenset({
+        "reasoning",
+        "include",
+        "store",
+        "previous_response_id",
+        "conversation",
+        "text",
+        "prompt_cache_key",
+        "prompt_cache_retention",
+        "input",
+    })
+
     def __init__(self, ai_client):
         self.ai_client = ai_client
+
+    @classmethod
+    def _strip_responses_keys(cls, kwargs: Dict[str, Any]) -> Dict[str, Any]:
+        """Remove Responses-only keys so they never reach the CC SDK call."""
+        cleaned = {k: v for k, v in kwargs.items() if k not in cls._RESPONSES_ONLY_KEYS}
+        # Flatten namespace tools — CC only accepts type="function".
+        if "tools" in cleaned and isinstance(cleaned["tools"], list):
+            cleaned["tools"] = cls._flatten_namespace_tools(cleaned["tools"])
+        return cleaned
+
+    @classmethod
+    def _flatten_namespace_tools(cls, tools: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """Promote namespace children to top-level function tools for Chat Completions.
+
+        The ``namespace`` tool type is a Responses API concept. Chat Completions
+        only accepts ``type="function"``.  When a namespace tool appears, its
+        children are extracted and promoted to individual top-level tools.
+        """
+        flat: List[Dict[str, Any]] = []
+        for tool in tools:
+            if isinstance(tool, dict) and tool.get("type") == "namespace":
+                for child in tool.get("tools") or []:
+                    flat.append(child)
+            else:
+                flat.append(tool)
+        return flat
 
     @staticmethod
     def _to_dict(obj: Any) -> Dict[str, Any]:
@@ -63,11 +104,13 @@ class ChatCompletionsAdapter:
 
     def create_completion(self, messages: List[Dict[str, Any]], **kwargs: Any) -> NormalizedCompletionResult:
         kwargs.pop("profile", None)
+        kwargs = self._strip_responses_keys(kwargs)
         response = self.ai_client.client.chat.completions.create(messages=messages, **kwargs)
         return self._normalize_completion(response)
 
     async def create_completion_a(self, messages: List[Dict[str, Any]], **kwargs: Any) -> NormalizedCompletionResult:
         kwargs.pop("profile", None)
+        kwargs = self._strip_responses_keys(kwargs)
         response = await self.ai_client.aclient.chat.completions.create(messages=messages, **kwargs)
         return self._normalize_completion(response)
 
@@ -105,6 +148,7 @@ class ChatCompletionsAdapter:
     def stream_completion(self, messages: List[Dict[str, Any]], **kwargs: Any):
         kwargs = kwargs.copy()
         kwargs.pop("profile", None)
+        kwargs = self._strip_responses_keys(kwargs)
         kwargs["stream"] = True
         response_gen = self.ai_client.client.chat.completions.create(messages=messages, **kwargs)
 
@@ -133,6 +177,7 @@ class ChatCompletionsAdapter:
     async def stream_completion_a(self, messages: List[Dict[str, Any]], **kwargs: Any):
         kwargs = kwargs.copy()
         kwargs.pop("profile", None)
+        kwargs = self._strip_responses_keys(kwargs)
         kwargs["stream"] = True
         response_gen = await self.ai_client.aclient.chat.completions.create(messages=messages, **kwargs)
 

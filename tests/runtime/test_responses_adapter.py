@@ -1,8 +1,12 @@
+from contextlib import contextmanager
+from io import StringIO
 from types import SimpleNamespace
 
 import pytest
+from loguru import logger
 
 from chatsnack.runtime import ResponsesAdapter
+from chatsnack.runtime.responses_common import ResponsesNormalizationMixin
 
 
 class _FakeObj:
@@ -11,6 +15,43 @@ class _FakeObj:
 
     def model_dump(self):
         return self.payload
+
+
+@contextmanager
+def _capture_loguru():
+    sink = StringIO()
+    sink_id = logger.add(sink, format="{message}")
+    try:
+        yield sink
+    finally:
+        logger.remove(sink_id)
+
+
+def test_responses_debug_helper_is_env_gated(monkeypatch):
+    monkeypatch.delenv("CHATSNACK_DEBUG_RESPONSES", raising=False)
+
+    with _capture_loguru() as sink:
+        ResponsesNormalizationMixin._debug_responses_payload("Responses test payload", {"alpha": 1})
+
+    assert sink.getvalue() == ""
+
+    monkeypatch.setenv("CHATSNACK_DEBUG_RESPONSES", "maybe")
+    with _capture_loguru() as sink:
+        ResponsesNormalizationMixin._debug_responses_payload("Responses test payload", {"alpha": 1})
+
+    assert sink.getvalue() == ""
+
+
+def test_responses_debug_helper_logs_pretty_json_when_enabled(monkeypatch):
+    monkeypatch.setenv("CHATSNACK_DEBUG_RESPONSES", "1")
+
+    with _capture_loguru() as sink:
+        ResponsesNormalizationMixin._debug_responses_payload("Responses test payload", {"alpha": 1})
+
+    output = sink.getvalue()
+    assert "Responses test payload" in output
+    assert '"alpha": 1' in output
+    assert "{\n" in output
 
 
 def test_sync_request_path_passes_expected_kwargs_and_defaults_store_false():
@@ -61,6 +102,32 @@ async def test_async_request_path_passes_expected_kwargs():
     assert captured["model"] == "gpt-4.1"
     assert captured["store"] is True
     assert captured["input"][0]["role"] == "developer"
+
+
+def test_http_request_path_logs_built_and_transport_payload_when_debug_enabled(monkeypatch):
+    captured = {}
+
+    def create(**kwargs):
+        captured.update(kwargs)
+        return _FakeObj({"id": "resp_dbg", "status": "completed", "model": "gpt-4.1", "output": []})
+
+    monkeypatch.setenv("CHATSNACK_DEBUG_RESPONSES", "true")
+    ai = SimpleNamespace(client=SimpleNamespace(responses=SimpleNamespace(create=create)))
+    adapter = ResponsesAdapter(ai)
+
+    with _capture_loguru() as sink:
+        adapter.create_completion(
+            messages=[{"role": "user", "content": "hello"}],
+            model="gpt-4.1",
+            tools=[{"type": "function", "function": {"name": "lookup", "description": "Find one thing."}}],
+        )
+
+    output = sink.getvalue()
+    assert "Responses request (built)" in output
+    assert "Responses HTTP create payload" in output
+    assert '"name": "lookup"' in output
+    assert '"type": "function"' in output
+    assert captured["tools"][0]["name"] == "lookup"
 
 
 def test_continuation_previous_response_id_passthrough_and_metadata_mirror():
@@ -258,7 +325,7 @@ def test_mapping_developer_system_user_assistant_messages_assistant_tool_calls_a
     assert captured["input"][3] == {
         "type": "message",
         "role": "assistant",
-        "content": [{"type": "input_text", "text": "Prior answer"}],
+        "content": [{"type": "output_text", "text": "Prior answer"}],
     }
     assert captured["input"][4] == {
         "type": "function_call",

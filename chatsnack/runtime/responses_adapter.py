@@ -30,12 +30,14 @@ class ResponsesAdapter(ResponsesNormalizationMixin):
     def create_completion(self, messages: List[Dict[str, Any]], **kwargs: Any):
         resolved = self.attachment_resolver.resolve_messages(messages)
         request_kwargs = self.build_responses_request(resolved, kwargs)
+        self._debug_responses_payload("Responses HTTP create payload", request_kwargs)
         response = self._get_responses_create(async_mode=False)(**request_kwargs)
         return self.normalize_completion(response, request_kwargs)
 
     async def create_completion_a(self, messages: List[Dict[str, Any]], **kwargs: Any):
         resolved = await self.attachment_resolver.resolve_messages_async(messages)
         request_kwargs = self.build_responses_request(resolved, kwargs)
+        self._debug_responses_payload("Responses HTTP create payload", request_kwargs)
         response = await self._get_responses_create(async_mode=True)(**request_kwargs)
         return self.normalize_completion(response, request_kwargs)
 

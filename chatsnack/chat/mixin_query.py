@@ -398,11 +398,14 @@ class ChatQueryMixin(ChatMessagesMixin, ChatParamsMixin):
             # Phase 3: merge provider-facing Responses options (text, reasoning,
             # include, store, …) into the request kwargs so they reach the
             # Responses API.  These are lower-priority than explicit kwargs.
-            responses_opts = self.params._get_responses_api_options()
-            if responses_opts:
-                merged = responses_opts.copy()
-                merged.update(kwargs)
-                kwargs = merged
+            # Only merge when the active runtime is a Responses-family adapter;
+            # Chat Completions does not understand these keys.
+            if self._runtime_supports_continuation():
+                responses_opts = self.params._get_responses_api_options()
+                if responses_opts:
+                    merged = responses_opts.copy()
+                    merged.update(kwargs)
+                    kwargs = merged
         
         # Add tools if available
         if hasattr(self, 'get_tools'):
@@ -429,6 +432,34 @@ class ChatQueryMixin(ChatMessagesMixin, ChatParamsMixin):
         from ..runtime import ResponsesAdapter, ResponsesWebSocketAdapter
         runtime = getattr(self, "runtime", None)
         return isinstance(runtime, (ResponsesAdapter, ResponsesWebSocketAdapter))
+
+    def _runtime_supports_provider_continuation(self, request_kwargs: Optional[Dict[str, object]] = None) -> bool:
+        """Return True when provider-side continuation is safe for this turn.
+
+        WebSocket Responses keeps server-side session state, so continuation
+        via ``previous_response_id`` is always valid there.
+
+        HTTP Responses is more constrained. We should still continue there when
+        the prior response was explicitly stored, and while we are still inside
+        an in-progress tool-recursion chain. Outside those cases, HTTP should
+        fall back to local message replay instead of auto-injecting a previous
+        response id.
+        """
+        from ..runtime import ResponsesAdapter, ResponsesWebSocketAdapter
+
+        runtime = getattr(self, "runtime", None)
+        if isinstance(runtime, ResponsesWebSocketAdapter):
+            return True
+        if not isinstance(runtime, ResponsesAdapter):
+            return False
+
+        request_kwargs = request_kwargs or {}
+        if request_kwargs.get("store") is True:
+            return True
+
+        metadata = (getattr(self, "_last_runtime_metadata", None) or {})
+        assistant_phase = metadata.get("assistant_phase")
+        return assistant_phase not in (None, "completed")
 
     def _normalize_runtime_metadata(self, normalized_response) -> Dict[str, object]:
         metadata = {}
@@ -526,7 +557,7 @@ class ChatQueryMixin(ChatMessagesMixin, ChatParamsMixin):
             # store=False is a valid and important path.
             if (
                 track_continuation
-                and self._runtime_supports_continuation()
+                and self._runtime_supports_provider_continuation(request_kwargs)
                 and not request_kwargs.get("previous_response_id")
             ):
                 last_response_id = (getattr(self, "_last_runtime_metadata", {}) or {}).get("response_id")
@@ -832,11 +863,36 @@ class ChatQueryMixin(ChatMessagesMixin, ChatParamsMixin):
         """ Returns a new ChatPrompt object that is a copy of this one, optionally with a new name ⭐"""
         import copy
         copied_params = copy.copy(self.params)
+        copied_runtime = getattr(self, "runtime", None)
+        copied_runtime_selector = None
+        copied_session = None
+        from ..runtime import ResponsesWebSocketAdapter, ResponsesWebSocketSession
+
+        # Template-style chats (for example default packs) should not leak a
+        # stale WebSocket session into fresh copies when they have never owned
+        # a response of their own. Keep session lineage only once response
+        # metadata exists on the source chat.
+        if isinstance(copied_runtime, ResponsesWebSocketAdapter):
+            response_id = (getattr(self, "_last_runtime_metadata", None) or {}).get("response_id")
+            if not response_id:
+                source_session = copied_runtime.session
+                authored_session = (
+                    copied_params.get("session") if isinstance(copied_params, dict)
+                    else getattr(copied_params, "session", None)
+                )
+                copied_runtime = ResponsesWebSocketAdapter(
+                    self.ai,
+                    session=ResponsesWebSocketSession(
+                        mode=authored_session or getattr(source_session, "mode", None) or "inherit"
+                    ),
+                )
         if name is not None:
             new_chat = self.__class__(
                 name=name,
                 params=copied_params,
-                runtime=getattr(self, "runtime", None),
+                runtime=copied_runtime,
+                runtime_selector=copied_runtime_selector,
+                session=copied_session,
                 tool_search_handler=getattr(self, "tool_search_handler", None),
             )
         else:
@@ -852,7 +908,9 @@ class ChatQueryMixin(ChatMessagesMixin, ChatParamsMixin):
             new_chat = self.__class__(
                 name=name + f"_{datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}-{uuid.uuid4()}",
                 params=copied_params,
-                runtime=getattr(self, "runtime", None),
+                runtime=copied_runtime,
+                runtime_selector=copied_runtime_selector,
+                session=copied_session,
                 tool_search_handler=getattr(self, "tool_search_handler", None),
             )
 

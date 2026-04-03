@@ -1,0 +1,13 @@
+city,state,year,month,avg_temp_F,avg_high_F,avg_low_F,precipitation_in,days_precip,snowfall_in,avg_humidity_pct,avg_wind_mph,predominant_weather
+Conway,AR,2024,January,43.0,54.0,32.0,3.2,7,0.8,72,8,Cloudy/Chilly
+Conway,AR,2024,February,47.0,59.0,35.0,4.0,8,0.5,69,9,Showers/Cold Fronts
+Conway,AR,2024,March,58.0,68.0,46.0,4.2,7,0.0,68,9,Spring Showers
+Conway,AR,2024,April,66.0,76.0,56.0,4.5,7,0.0,70,8,Periods of Rain
+Conway,AR,2024,May,74.0,83.0,64.0,4.9,8,0.0,72,9,Humid/Thunderstorms
+Conway,AR,2024,June,79.0,89.0,69.0,5.1,7,0.0,74,10,Hot/Humid
+Conway,AR,2024,July,81.0,92.0,71.0,3.8,5,0.0,75,10,Hot/Humid
+Conway,AR,2024,August,82.0,92.0,72.0,4.0,5,0.0,76,9,Hot/Humid
+Conway,AR,2024,September,76.0,86.0,66.0,3.6,5,0.0,73,9,Warm/Variable
+Conway,AR,2024,October,66.0,76.0,56.0,3.1,6,0.0,69,8,Cool/Mostly Clear
+Conway,AR,2024,November,56.0,66.0,46.0,3.2,6,0.0,71,8,Cool/Showers
+Conway,AR,2024,December,48.0,58.0,38.0,3.4,7,0.4,73,8,Cold/Cloudy

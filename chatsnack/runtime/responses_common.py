@@ -1,6 +1,9 @@
-import warnings
 import json
+import os
+import warnings
 from typing import Any, Dict, List, Optional, Tuple
+
+from loguru import logger
 
 from .attachment_resolver import AttachmentResolver
 from .types import (
@@ -13,6 +16,8 @@ from .types import (
 
 class ResponsesNormalizationMixin:
     """Shared request-building and normalization for Responses transports."""
+
+    _RESPONSES_DEBUG_TRUE_VALUES = frozenset({"1", "true", "yes", "on"})
 
     @staticmethod
     def _to_dict(obj: Any) -> Dict[str, Any]:
@@ -37,6 +42,7 @@ class ResponsesNormalizationMixin:
     def _message_to_input_items(self, message: Dict[str, Any]) -> List[Dict[str, Any]]:
         role = message.get("role")
         content = message.get("content")
+        text_part_type = "output_text" if role == "assistant" else "input_text"
 
         if role == "tool":
             output_type = message.get("output_type")
@@ -65,7 +71,7 @@ class ResponsesNormalizationMixin:
                     {
                         "type": "message",
                         "role": "assistant",
-                        "content": [{"type": "input_text", "text": text_content}],
+                        "content": [{"type": text_part_type, "text": text_content}],
                     }
                 )
             for tool_call in tool_calls:
@@ -87,7 +93,7 @@ class ResponsesNormalizationMixin:
         content_parts: List[Dict[str, Any]] = []
         text = self._coerce_text(content)
         if text:
-            content_parts.append({"type": "input_text", "text": text})
+            content_parts.append({"type": text_part_type, "text": text})
 
         # Phase 3: images on user/assistant turns → input_image items.
         for img in message.get("images") or []:
@@ -120,7 +126,7 @@ class ResponsesNormalizationMixin:
 
         # Fall back to at least one input_text part even if empty.
         if not content_parts:
-            content_parts.append({"type": "input_text", "text": ""})
+            content_parts.append({"type": text_part_type, "text": ""})
 
         return [
             {
@@ -175,16 +181,123 @@ class ResponsesNormalizationMixin:
         suffix = messages[last_assistant_idx + 1 :]
         return suffix or [messages[-1]]
 
+    @classmethod
+    def _responses_debug_enabled(cls) -> bool:
+        value = os.getenv("CHATSNACK_DEBUG_RESPONSES", "")
+        return value.strip().lower() in cls._RESPONSES_DEBUG_TRUE_VALUES
+
+    @classmethod
+    def _debug_responses_payload(cls, label: str, payload: Any) -> None:
+        """Emit an env-gated pretty JSON debug log for Responses plumbing.
+
+        This is intentionally opt-in because it can be verbose, but it is
+        valuable when debugging final request shape or provider failures.
+        """
+        if not cls._responses_debug_enabled():
+            return
+        try:
+            rendered = json.dumps(payload, indent=2, sort_keys=True, default=str)
+        except Exception as exc:
+            try:
+                rendered = repr(payload)
+            except Exception:
+                rendered = f"<unrenderable payload: {exc!r}>"
+        logger.debug("{}:\n{}", label, rendered)
+
+    # Provider-native tool types that must pass through unchanged.
+    _NATIVE_TOOL_TYPES = frozenset({
+        "web_search", "file_search", "tool_search",
+        "code_interpreter", "image_generation", "mcp",
+        "namespace",
+    })
+
+    @classmethod
+    def _normalize_tools_for_responses_request(cls, tools: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """Flatten nested Chat Completions function tools into the Responses API shape.
+
+        The internal chatsnack tool model (and Chat Completions) uses::
+
+            {"type": "function", "function": {"name": ..., "description": ..., ...}}
+
+        The Responses API expects the flat shape::
+
+            {"type": "function", "name": ..., "description": ..., ...}
+
+        Provider-native tools (web_search, file_search, mcp, namespace, etc.)
+        and tools that are already flat pass through unchanged.  Original list
+        order is preserved exactly.
+
+        **Namespace flattening:** ``namespace`` tool wrappers are only valid
+        on the Responses API when ``tool_search`` is also present in the
+        tools list.  When ``tool_search`` is absent, namespace children are
+        promoted to individual top-level function tools so the request is
+        accepted by both Responses and Chat Completions providers.  When
+        ``tool_search`` is present, the namespace wrapper is kept and its
+        children are recursively normalized.
+        """
+        has_tool_search = any(
+            isinstance(t, dict) and t.get("type") == "tool_search"
+            for t in tools
+        )
+        normalized: List[Dict[str, Any]] = []
+        for tool in tools:
+            tool_type = tool.get("type", "function")
+
+            # Namespace tools: keep the wrapper when tool_search is present,
+            # otherwise promote children to top-level function tools.
+            if tool_type == "namespace":
+                child_tools = tool.get("tools") or []
+                if has_tool_search:
+                    # Preserve namespace wrapper; recursively normalize children.
+                    ns_tool = dict(tool)
+                    if isinstance(child_tools, list):
+                        ns_tool["tools"] = cls._normalize_tools_for_responses_request(child_tools)
+                    normalized.append(ns_tool)
+                else:
+                    # Flatten: promote each child to a top-level tool.
+                    for child in child_tools:
+                        normalized.extend(
+                            cls._normalize_tools_for_responses_request([child])
+                        )
+                continue
+
+            # Other provider-native tools: pass through as-is.
+            if tool_type in cls._NATIVE_TOOL_TYPES:
+                normalized.append(tool)
+                continue
+
+            # Function tool with a nested "function" payload → flatten.
+            nested = tool.get("function")
+            if tool_type == "function" and isinstance(nested, dict):
+                flat: Dict[str, Any] = {"type": "function"}
+                # Carry over any unknown top-level keys already on the dict
+                # (future-proofing), but skip "type" and "function".
+                for k, v in tool.items():
+                    if k not in ("type", "function"):
+                        flat[k] = v
+                # Merge nested function fields (name, description, parameters, strict, …).
+                flat.update(nested)
+                normalized.append(flat)
+                continue
+
+            # Already-flat function tool or unknown shape: pass through.
+            normalized.append(tool)
+        return normalized
+
     def build_responses_request(self, messages: List[Dict[str, Any]], kwargs: Dict[str, Any]) -> Dict[str, Any]:
         options = self._apply_profile_defaults(kwargs)
         input_messages = messages
         if options.get("previous_response_id"):
             input_messages = self._select_continuation_messages(messages)
         options["input"] = self._map_messages_to_input(input_messages)
+        # Normalize function tools from Chat Completions shape to Responses shape.
+        if options.get("tools"):
+            options["tools"] = self._normalize_tools_for_responses_request(options["tools"])
         # Default store to False.  Callers (or params.responses.store from the
         # YAML config) can set it explicitly.  Phase 2a WebSocket continuation
         # with store=False is valid and must not be overridden.
         options.setdefault("store", False)
+        self._debug_responses_payload("Responses request (built)", options)
         return options
 
     @staticmethod
