@@ -2,10 +2,16 @@
 
 chatsnack treats prompt work as something we author, save, remix, and compose.
 
+Wouldn't you rather your prompts be reusable rather than one-off code?
+
+Wouldn't you like to be able to work with them quickly in notebooks as you develop, but also save them as YAML files that can be version controlled, shared with non-coders, and loaded back into Python objects when you need to run them?
+
+If so, then chatsnack is your kind of library. It is a bit magical, silly, and opinionated, but it's intended to hide a lot of the provider API surface in a way that is flexible and compact.
+
 ![chatsnack features](chatsnack_features_smaller.jpg)
 
 {:.hero-copy}
-It's snack time. These docs start with a tiny smoke test, then move into YAML-backed chats, saved prompt assets, fillings, and utensils.
+## Chatsnack Guides
 
 <div class="callout-grid" markdown>
 <div>
