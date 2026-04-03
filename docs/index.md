@@ -1,41 +1,34 @@
 # chatsnack
 
-chatsnack is a Python library for authored chat workflows with reusable prompt assets, YAML-backed chats, and Python-native tools.
+chatsnack treats prompt work as something we author, save, remix, and compose.
 
 ![chatsnack features](chatsnack_features_smaller.jpg)
 
 {:.hero-copy}
-These docs focus on the common path we want people to learn first: start from `Chat(...)`, use `ask()` and `chat()` intentionally, save durable YAML assets, compose prompts with fillings, and add tools through `utensils=[...]`.
+It's snack time. These docs start with a tiny smoke test, then move into YAML-backed chats, saved prompt assets, fillings, and utensils.
 
 <div class="callout-grid" markdown>
 <div>
-### Start Here
+### Start Snacking
 
 - [Getting Started](getting-started.md)
 - [Chat Basics](guides/chat-basics.md)
 </div>
 <div>
-### Build With Assets
+### Save Ingredients
 
 - [YAML and Saved Assets](guides/yaml-and-assets.md)
 - [Fillings and Composition](guides/fillings.md)
 </div>
 <div>
-### Add Tools
+### Reach For Utensils
 
 - [Utensils](guides/utensils.md)
 - [API Reference](reference/index.md)
 </div>
 </div>
 
-## Why chatsnack
-
-- `Chat` is the center of gravity for one-shot prompts and continuing threads.
-- Chats serialize cleanly to YAML, so prompt work can live in version control.
-- Reusable `Text` and saved chats make composition part of the product.
-- `utensils=[...]` keeps local functions and hosted tools on one authored surface.
-
-## Quick snack
+## Enjoy a quick snack
 
 ```python
 from chatsnack import Chat
@@ -44,7 +37,19 @@ chat = Chat("Respond only with the word POPSICLE from now on.")
 print(chat.ask("What is your name?"))
 ```
 
-## What is in this site
+> *"POPSICLE."*
+
+If that works, chatsnack is up and ready.
+
+## Why chatsnack feels like chatsnack
+
+- `Chat` is the center of gravity for one-shot prompts and continuing threads.
+- Chats serialize cleanly to YAML, so prompt work can live in version control.
+- Reusable `Text` and saved chats make composition part of the product.
+- `utensils=[...]` keeps local functions and hosted tools on one authored surface.
+- The same small mental model scales from a tiny snack to more ambitious prompt craft.
+
+## Learn more
 
 - **Getting Started** trims the README and notebook flow into one short first run.
 - **Guides** explain the product story in the order people tend to need it.

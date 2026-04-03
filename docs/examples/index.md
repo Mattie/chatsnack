@@ -1,6 +1,6 @@
 # Examples
 
-These examples are shorter and cleaner than the notebooks, but they come from the same authored patterns.
+These examples are short, copyable snacks pulled from the same authored patterns as the notebooks.
 
 ## Good starting points
 
