@@ -3,6 +3,7 @@ from __future__ import annotations
 import ast
 import builtins
 import json
+import linecache
 import os
 import re
 import shlex
@@ -252,6 +253,7 @@ class NotebookRunner:
         self._seed_notebook_assets()
 
     def ensure_cell(self, notebook_cell_index: int) -> None:
+        __tracebackhide__ = True
         target_cell = self.notebook.cell_for_index(notebook_cell_index)
         target_record = self.execution_ledger.get(notebook_cell_index)
         if target_record is not None:
@@ -309,6 +311,7 @@ class NotebookRunner:
                 shutil.copy2(sibling, destination)
 
     def _run_shell_cell(self, command: str) -> None:
+        __tracebackhide__ = True
         env = os.environ.copy()
         temp_dir = self.workdir / ".tmp-shell"
         temp_dir.mkdir(parents=True, exist_ok=True)
@@ -321,10 +324,9 @@ class NotebookRunner:
         if len(parsed) >= 3 and parsed[0].lower() == "pip" and parsed[1].lower() == "install":
             requested = [part for part in parsed[2:] if not part.startswith("-")]
             if requested == ["chatsnack"]:
-                subprocess.run(
+                self._run_subprocess(
                     [sys.executable, "-c", "import chatsnack"],
                     cwd=self.workdir,
-                    check=True,
                     env=env,
                 )
                 return
@@ -332,7 +334,7 @@ class NotebookRunner:
             target_dir = self.workdir / ".notebook-site-packages"
             target_dir.mkdir(parents=True, exist_ok=True)
             env["PYTHONPATH"] = str(target_dir) + os.pathsep + env.get("PYTHONPATH", "")
-            subprocess.run(
+            self._run_subprocess(
                 [
                     sys.executable,
                     "-m",
@@ -344,7 +346,6 @@ class NotebookRunner:
                     *parsed[2:],
                 ],
                 cwd=self.workdir,
-                check=True,
                 env=env,
             )
             target_dir_str = str(target_dir)
@@ -352,9 +353,11 @@ class NotebookRunner:
                 sys.path.insert(0, target_dir_str)
             return
 
-        subprocess.run(command, cwd=self.workdir, check=True, env=env, shell=True)
+        self._run_subprocess(command, cwd=self.workdir, env=env, shell=True)
 
     def _execute_cell(self, cell: NotebookCell) -> None:
+        __tracebackhide__ = True
+        _register_cell_source_in_linecache(cell)
         code = compile(cell.source, cell.synthetic_filename, "exec")
         self.globals["__file__"] = cell.synthetic_filename
         with _temporary_cwd(self.workdir):
@@ -369,8 +372,49 @@ class NotebookRunner:
                     )
                     if blocking_reason is not None:
                         raise pytest.skip.Exception(blocking_reason)
+                _add_notebook_cell_exception_note(exc, cell, self.workdir)
+                raise
+            except BaseException as exc:
+                if isinstance(exc, pytest.skip.Exception):
+                    raise
+                _add_notebook_cell_exception_note(exc, cell, self.workdir)
                 raise
         self.execution_ledger[cell.notebook_cell_index] = CellExecutionRecord(status="completed")
+
+    def _run_subprocess(
+        self,
+        command: str | list[str],
+        *,
+        cwd: Path,
+        env: dict[str, str],
+        shell: bool = False,
+    ) -> subprocess.CompletedProcess[str]:
+        __tracebackhide__ = True
+        result = subprocess.run(
+            command,
+            cwd=cwd,
+            env=env,
+            shell=shell,
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+        if result.returncode == 0:
+            return result
+
+        if result.stdout:
+            sys.stdout.write(result.stdout)
+        if result.stderr:
+            sys.stderr.write(result.stderr)
+
+        exc = subprocess.CalledProcessError(
+            result.returncode,
+            result.args,
+            output=result.stdout,
+            stderr=result.stderr,
+        )
+        _add_shell_command_exception_note(exc, command=result.args, cwd=cwd)
+        raise exc
 
     def _blocking_reason(self, cell: NotebookCell) -> str | None:
         failed_prerequisite = self._first_prior_status(cell, "failed")
@@ -487,3 +531,56 @@ def _make_unique_directory(parent: Path, prefix: str) -> Path:
         except FileExistsError:
             continue
     raise RuntimeError(f"Could not create a unique directory under {parent}")
+
+
+def _register_cell_source_in_linecache(cell: NotebookCell) -> None:
+    linecache.cache[cell.synthetic_filename] = (
+        len(cell.original_source),
+        None,
+        cell.original_source.splitlines(keepends=True),
+        cell.synthetic_filename,
+    )
+
+
+def _add_notebook_cell_exception_note(
+    exc: BaseException,
+    cell: NotebookCell,
+    workdir: Path,
+) -> None:
+    note = (
+        "Notebook cell context:\n"
+        f"notebook: {cell.notebook_name}\n"
+        f"cell: {cell.notebook_cell_index}\n"
+        f"workdir: {workdir}\n"
+        "cell source:\n"
+        f"{cell.original_source.rstrip()}"
+    )
+    _add_exception_note_once(exc, note)
+
+
+def _add_shell_command_exception_note(
+    exc: BaseException,
+    *,
+    command: str | list[str],
+    cwd: Path,
+) -> None:
+    note = (
+        "Notebook shell command failed:\n"
+        f"command: {_format_command_for_note(command)}\n"
+        f"exit code: {getattr(exc, 'returncode', 'unknown')}\n"
+        f"cwd: {cwd}"
+    )
+    _add_exception_note_once(exc, note)
+
+
+def _add_exception_note_once(exc: BaseException, note: str) -> None:
+    notes = getattr(exc, "__notes__", ())
+    if note in notes:
+        return
+    exc.add_note(note)
+
+
+def _format_command_for_note(command: str | list[str]) -> str:
+    if isinstance(command, str):
+        return command
+    return subprocess.list2cmdline([str(part) for part in command])

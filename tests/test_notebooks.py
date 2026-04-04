@@ -34,5 +34,6 @@ def notebook_runners() -> dict[str, NotebookRunner]:
 
 @pytest.mark.parametrize("cell", notebook_test_params())
 def test_notebook_code_cell_executes(cell, notebook_runners):
+    __tracebackhide__ = True
     runner = notebook_runners[str(cell.notebook_path)]
     runner.ensure_cell(cell.notebook_cell_index)
