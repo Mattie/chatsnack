@@ -347,11 +347,19 @@ class ChatQueryMixin(ChatMessagesMixin, ChatParamsMixin):
         for message in new_messages:
             async def format_key(message):
                 logger.trace("formatting key: {role}", role=message['role'])
-                message["role"] = await format_coro(message["role"], **kwargs)
+                if isinstance(message["role"], str):
+                    message["role"] = await format_coro(message["role"], **kwargs)
                 return
             async def format_message(message):
                 logger.trace("formatting content: {content}", content=message['content'])
-                message["content"] = await format_coro(message["content"], **kwargs)
+                if message.get("role") == "tool":
+                    return
+                if isinstance(message["content"], str):
+                    try:
+                        message["content"] = await format_coro(message["content"], **kwargs)
+                    except Exception:
+                        if message.get("role") != "assistant":
+                            raise
                 return
             coros.append(format_key(message))
             coros.append(format_message(message))
