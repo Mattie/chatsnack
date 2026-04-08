@@ -2,6 +2,8 @@
 
 chatsnack is the easiest Python library for rapid development with OpenAI's ChatGPT API. It provides an intuitive interface for creating and managing chat-based prompts and responses, making it convenient to build complex, interactive conversations with AI.
 
+[Documentation site](https://mattie.github.io/chatsnack/)
+
 ![chatsnack features](/docs/chatsnack_features_smaller.jpg)
 ## Setup
 
@@ -23,7 +25,7 @@ Read more below, watch the [intro video](https://www.youtube.com/watch?v=Yjwi54r
 
 ### Responses API Support
 `Chat()` now defaults to the Responses family over WebSocket with `session="inherit"`.
-If you stay on that default path—or explicitly choose another Responses transport—
+If you stay on that default pathâ€”or explicitly choose another Responses transportâ€”
 chatsnack requires the OpenAI Python client to be `openai>=1.66.0` (or newer) to
 ensure compatibility.
 
