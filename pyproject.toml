@@ -29,9 +29,12 @@ questionary = ["questionary"]
 rich = ["rich"]
 examples = ["questionary", "rich", "Flask"]
 
-
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
+markers = [
+    "notebooks: notebook-derived pytest coverage",
+    "notebooks_live: live notebook-derived pytest coverage",
+]
 
 [build-system]
 requires = ["poetry-core"]
