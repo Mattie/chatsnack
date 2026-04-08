@@ -10,28 +10,29 @@ If so, then chatsnack is your kind of library. It is a bit magical, silly, and o
 
 ![chatsnack features](chatsnack_features_smaller.jpg)
 
-{:.hero-copy}
+<p class="hero-copy">
+Start with the common path: learn `Chat(...)`, save prompt assets as YAML, compose
+with fillings, and add tools through `utensils=[...]`.
+</p>
+
 ## Chatsnack Guides
 
-<div class="callout-grid" markdown>
-<div>
-### Start Snacking
-
-- [Getting Started](getting-started.md)
-- [Chat Basics](guides/chat-basics.md)
-</div>
-<div>
-### Save Ingredients
-
-- [YAML and Saved Assets](guides/yaml-and-assets.md)
-- [Fillings and Composition](guides/fillings.md)
-</div>
-<div>
-### Reach For Utensils
-
-- [Utensils](guides/utensils.md)
-- [API Reference](reference/index.md)
-</div>
+<div class="callout-grid">
+  <div>
+    <h3>Start Snacking</h3>
+    <p><a href="getting-started/">Getting Started</a></p>
+    <p><a href="guides/chat-basics/">Chat Basics</a></p>
+  </div>
+  <div>
+    <h3>Save Ingredients</h3>
+    <p><a href="guides/yaml-and-assets/">YAML and Saved Assets</a></p>
+    <p><a href="guides/fillings/">Fillings and Composition</a></p>
+  </div>
+  <div>
+    <h3>Reach For Utensils</h3>
+    <p><a href="guides/utensils/">Utensils</a></p>
+    <p><a href="reference/">API Reference</a></p>
+  </div>
 </div>
 
 ## Enjoy a quick snack
