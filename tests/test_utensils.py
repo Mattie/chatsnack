@@ -1,9 +1,11 @@
 import os
 import json
 import pytest
+from chatsnack.runtime.responses_common import ResponsesNormalizationMixin
+from chatsnack.yamlformat import YAML as ChatsnackYAML
 from chatsnack.utensil import _REGISTRY, utensil, get_openai_tools, handle_tool_call, get_tool_definitions
 from chatsnack.chat import Chat
-from chatsnack.chat.mixin_params import ChatParams
+from chatsnack.chat.mixin_params import ChatParams, ToolDefinition
 
 # List of engines that support tool calls based on your compatibility chart
 TOOL_COMPATIBLE_ENGINES = [
@@ -125,6 +127,118 @@ def test_get_openai_tools():
     
     assert isinstance(args_val, str), "arguments should be a string"
     assert func_data.get("name") == "test_format_tool"
+
+def _assert_complex_schema_properties(properties):
+    armor_anyof = properties["armor_class"]["anyOf"]
+    speed_anyof = properties["speed"]["anyOf"]
+    traits_anyof = properties["traits"]["anyOf"]
+
+    armor_schema = next(schema for schema in armor_anyof if schema.get("type") == "integer")
+    speed_schema = next(schema for schema in speed_anyof if schema.get("type") == "object")
+    traits_schema = next(schema for schema in traits_anyof if schema.get("type") == "array")
+
+    assert armor_schema["type"] == "integer"
+    assert speed_schema["additionalProperties"]["type"] == "string"
+    assert traits_schema["items"]["type"] == "object"
+    assert traits_schema["items"]["additionalProperties"]["type"] == "string"
+
+def test_tool_definition_round_trip_preserves_complex_parameter_schema():
+    @utensil(name="test_complex_schema_roundtrip_tool", description="A tool with nested parameter shapes")
+    def test_complex_schema_roundtrip_tool(
+        armor_class: int | None = None,
+        speed: dict[str, str] | None = None,
+        traits: list[dict[str, str]] | None = None,
+    ):
+        return {"ok": True}
+
+    tool_dict = get_openai_tools([test_complex_schema_roundtrip_tool])[0]
+    round_tripped = ToolDefinition.from_dict(tool_dict).to_dict()
+    properties = round_tripped["function"]["parameters"]["properties"]
+
+    _assert_complex_schema_properties(properties)
+
+def test_chat_preserves_complex_tool_parameter_schema():
+    @utensil(name="test_complex_schema_tool", description="A tool with nested parameter shapes")
+    def test_complex_schema_tool(
+        armor_class: int | None = None,
+        speed: dict[str, str] | None = None,
+        traits: list[dict[str, str]] | None = None,
+    ):
+        return {"ok": True}
+
+    chat = Chat(
+        name="complex_schema_tool_chat",
+        utensils=[test_complex_schema_tool],
+    )
+
+    tools = chat.params.get_tools()
+    sample = next((t for t in tools if t.get("function", {}).get("name") == "test_complex_schema_tool"), None)
+
+    assert sample is not None, "Complex schema tool should be present in params.get_tools()"
+
+    properties = sample["function"]["parameters"]["properties"]
+
+    _assert_complex_schema_properties(properties)
+
+def test_chat_yaml_round_trip_preserves_complex_tool_parameter_schema():
+    @utensil(name="test_complex_schema_yaml_tool", description="A tool with nested parameter shapes")
+    def test_complex_schema_yaml_tool(
+        armor_class: int | None = None,
+        speed: dict[str, str] | None = None,
+        traits: list[dict[str, str]] | None = None,
+    ):
+        return {"ok": True}
+
+    from io import StringIO
+
+    chat = Chat(
+        name="complex_schema_yaml_chat",
+        utensils=[test_complex_schema_yaml_tool],
+    )
+    data = ChatsnackYAML.deserialize(StringIO(chat.yaml))
+
+    restored_params = ChatParams()
+    restored_params.responses = data["params"].get("responses")
+    restored_params.set_tools(data["params"]["tools"])
+
+    tools = restored_params.get_tools()
+    sample = next((t for t in tools if t.get("function", {}).get("name") == "test_complex_schema_yaml_tool"), None)
+
+    assert sample is not None, "Complex schema tool should survive YAML round-trip"
+
+    properties = sample["function"]["parameters"]["properties"]
+
+    _assert_complex_schema_properties(properties)
+
+def test_build_responses_request_preserves_complex_tool_parameter_schema():
+    @utensil(name="test_complex_schema_request_tool", description="A tool with nested parameter shapes")
+    def test_complex_schema_request_tool(
+        armor_class: int | None = None,
+        speed: dict[str, str] | None = None,
+        traits: list[dict[str, str]] | None = None,
+    ):
+        return {"ok": True}
+
+    chat = Chat(
+        name="complex_schema_request_chat",
+        utensils=[test_complex_schema_request_tool],
+    )
+    mixin = ResponsesNormalizationMixin()
+    request = mixin.build_responses_request(
+        [{"role": "user", "content": "hi"}],
+        {
+            "model": "gpt-5.4",
+            "tools": chat.params.get_tools(),
+        },
+    )
+
+    sample = next((t for t in request["tools"] if t.get("name") == "test_complex_schema_request_tool"), None)
+
+    assert sample is not None, "Complex schema tool should survive request build"
+
+    properties = sample["parameters"]["properties"]
+
+    _assert_complex_schema_properties(properties)
 
 # === Test 3: Tool Call Execution and Tool Call ID Propagation ===
 def test_handle_tool_call():
