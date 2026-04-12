@@ -9,8 +9,9 @@ from chatsnack.runtime.types import NormalizedAssistantMessage, NormalizedComple
 from chatsnack.yamlformat import _normalize_data_on_load
 
 
-def test_compact_tools_yaml_round_trip_and_internal_split(tmp_path, monkeypatch):
-    monkeypatch.chdir(tmp_path)
+def test_compact_tools_yaml_round_trip_and_internal_split(monkeypatch, tmp_path):
+    temp_dir = tmp_path
+    monkeypatch.chdir(temp_dir)
     data_dir = Path(CHATSNACK_BASE_DIR)
     data_dir.mkdir(parents=True, exist_ok=True)
     authored = {
@@ -53,6 +54,9 @@ def test_compact_tools_yaml_round_trip_and_internal_split(tmp_path, monkeypatch)
     assert "tool_search" in tool_types
     assert "web_search" in tool_types
     assert "namespace" in tool_types
+    code_interpreter = next((t for t in tools if t.get("type") == "code_interpreter"), None)
+    assert code_interpreter is not None
+    assert code_interpreter["container"]["type"] == "auto"
 
     namespace = [t for t in tools if t.get("type") == "namespace"][0]
     children = namespace["tools"]

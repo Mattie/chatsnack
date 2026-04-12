@@ -442,7 +442,7 @@ class _UtensilNamespace:
 
     @property
     def code_interpreter(self) -> HostedUtensil:
-        return HostedUtensil("code_interpreter")
+        return HostedUtensil("code_interpreter", {"container": {"type": "auto"}})
 
     @property
     def image_generation(self) -> HostedUtensil:

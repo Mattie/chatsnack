@@ -10,6 +10,7 @@ from ruamel.yaml import YAML
 
 from chatsnack import Chat, utensil, HostedUtensil, CHATSNACK_BASE_DIR
 from chatsnack.chat.mixin_params import ChatParams
+from chatsnack.runtime.responses_common import ResponsesNormalizationMixin
 from chatsnack.utensil import (
     UtensilGroup, UtensilFunction, HostedUtensil,
     get_openai_tools, extract_utensil_functions, collect_include_entries,
@@ -173,7 +174,10 @@ class TestHostedUtensils:
     def test_zero_config_code_interpreter(self):
         ci = utensil.code_interpreter
         assert isinstance(ci, HostedUtensil)
-        assert ci.to_tool_dict() == {"type": "code_interpreter"}
+        assert ci.to_tool_dict() == {
+            "type": "code_interpreter",
+            "container": {"type": "auto"},
+        }
 
     def test_zero_config_image_generation(self):
         ig = utensil.image_generation
@@ -298,6 +302,22 @@ class TestChatIntegration:
         assert len(ns_tools) == 1
         assert ns_tools[0]["name"] == "test_ns"
 
+    def test_code_interpreter_builtin_builds_request_with_default_container(self):
+        chat = Chat("Be helpful.", utensils=[utensil.code_interpreter])
+        mixin = ResponsesNormalizationMixin()
+
+        request = mixin.build_responses_request(
+            [{"role": "user", "content": "hi"}],
+            {
+                "model": "gpt-5.4",
+                "tools": chat.params.get_tools(),
+            },
+        )
+
+        ci = next((t for t in request["tools"] if t.get("type") == "code_interpreter"), None)
+        assert ci is not None
+        assert ci["container"]["type"] == "auto"
+
 
 class TestYamlRoundTrip:
     """Hosted utensils and groups round-trip through YAML correctly."""
@@ -342,6 +362,32 @@ class TestYamlRoundTrip:
         # Include entries survive the round-trip
         includes = (loaded.params.responses or {}).get("include", [])
         assert "web_search_call.action.sources" in includes
+
+    def test_code_interpreter_yaml_round_trip_uses_scalar_and_auto_container(self, tmp_path, monkeypatch):
+        monkeypatch.chdir(tmp_path)
+        data_dir = Path(CHATSNACK_BASE_DIR)
+        data_dir.mkdir(parents=True, exist_ok=True)
+
+        chat = Chat(
+            "Use tools when useful.",
+            name="yaml_code_interpreter_round_trip_test",
+            utensils=[utensil.code_interpreter],
+        )
+
+        yaml_text = chat.yaml
+        assert "- code_interpreter" in yaml_text
+
+        yaml_obj = YAML()
+        with open(data_dir / "yaml_code_interpreter_round_trip_test.yml", "w", encoding="utf-8") as f:
+            yaml_obj.dump(yaml_obj.load(yaml_text), f)
+
+        loaded = Chat(name="yaml_code_interpreter_round_trip_test")
+        tools = loaded.params.get_tools()
+        ci = next((t for t in tools if t.get("type") == "code_interpreter"), None)
+
+        assert ci is not None
+        assert ci["container"]["type"] == "auto"
+        assert "- code_interpreter" in loaded.yaml
 
 
 # ── Unit tests ────────────────────────────────────────────────────────
