@@ -363,10 +363,8 @@ class TestYamlRoundTrip:
         includes = (loaded.params.responses or {}).get("include", [])
         assert "web_search_call.action.sources" in includes
 
-    def test_code_interpreter_yaml_round_trip_uses_scalar_and_auto_container(self, monkeypatch):
-        temp_dir = Path.cwd() / ".tmp_code_interpreter_yaml_round_trip"
-        temp_dir.mkdir(parents=True, exist_ok=True)
-        monkeypatch.chdir(temp_dir)
+    def test_code_interpreter_yaml_round_trip_uses_scalar_and_auto_container(self, tmp_path, monkeypatch):
+        monkeypatch.chdir(tmp_path)
         data_dir = Path(CHATSNACK_BASE_DIR)
         data_dir.mkdir(parents=True, exist_ok=True)
 
