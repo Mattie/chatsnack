@@ -1,4 +1,5 @@
 import ast
+import json
 import re
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -215,7 +216,10 @@ def parse_tools_authoring(entries: Optional[List[Any]]) -> List[Dict[str, Any]]:
             raise CompactToolSyntaxError(f"Tool entry must be scalar or mapping, got {type(entry).__name__}")
 
         if "type" in entry:
-            parsed.append(dict(entry))
+            tool = dict(entry)
+            if tool.get("type") == "function":
+                tool = normalize_function_tool_for_datafiles(tool)
+            parsed.append(tool)
             continue
 
         if "tools" in entry:
@@ -424,6 +428,153 @@ def _decompile_args_schema(schema: Dict[str, Any]) -> Dict[str, str]:
     return out
 
 
+# ── Per-parameter _json field mapping ──────────────────────────────────
+# Maps datafiles-internal _json suffixed keys on ParameterSchema to
+# their canonical JSON Schema equivalents.
+_PARAM_JSON_FIELD_MAP: Dict[str, str] = {
+    "properties_json": "properties",
+    "items_json": "items",
+    "additional_properties_json": "additionalProperties",
+    "required_json": "required",
+}
+
+
+def _clean_param_schema(schema: Dict[str, Any]) -> Dict[str, Any]:
+    """Remove ``_json`` suffixed datafiles fields, restoring their JSON Schema originals."""
+    clean: Dict[str, Any] = {}
+    for k, v in schema.items():
+        if k in _PARAM_JSON_FIELD_MAP:
+            target = _PARAM_JSON_FIELD_MAP[k]
+            if isinstance(v, str):
+                try:
+                    clean[target] = json.loads(v)
+                except (json.JSONDecodeError, TypeError):
+                    pass
+            else:
+                clean[target] = v
+        else:
+            clean[k] = v
+    return clean
+
+
+def _reconstruct_params_from_shallow(func: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    """Rebuild a full JSON Schema ``parameters`` object from the shallow per-param mapping."""
+    raw_params = func.get("parameters", {})
+    if not raw_params:
+        return None
+    properties: Dict[str, Any] = {}
+    for name, schema in raw_params.items():
+        if isinstance(schema, dict):
+            properties[name] = _clean_param_schema(schema)
+    if not properties:
+        return None
+    result: Dict[str, Any] = {"type": "object", "properties": properties}
+    required = func.get("required")
+    if isinstance(required, list) and required:
+        result["required"] = list(required)
+    return result
+
+
+def _serialize_function_tool(tool: Dict[str, Any]) -> Dict[str, Any]:
+    """Produce a clean author-facing dict for a top-level function tool.
+
+    * Prefers ``parameters_json`` when available (full-fidelity path).
+    * Falls back to reconstructing from the shallow per-parameter mapping.
+    * Strips all internal ``_json`` preservation fields.
+    """
+    func = tool.get("function")
+    if not isinstance(func, dict):
+        return dict(tool)
+
+    clean_func: Dict[str, Any] = {}
+    if func.get("name"):
+        clean_func["name"] = func["name"]
+    if func.get("description"):
+        clean_func["description"] = func["description"]
+
+    params_json = func.get("parameters_json")
+    if params_json:
+        try:
+            clean_func["parameters"] = json.loads(params_json)
+        except (json.JSONDecodeError, TypeError):
+            rebuilt = _reconstruct_params_from_shallow(func)
+            if rebuilt:
+                clean_func["parameters"] = rebuilt
+    else:
+        rebuilt = _reconstruct_params_from_shallow(func)
+        if rebuilt:
+            clean_func["parameters"] = rebuilt
+
+    if func.get("strict") is not None:
+        clean_func["strict"] = func["strict"]
+
+    return {"type": "function", "function": clean_func}
+
+
+def _is_full_json_schema(params: Dict[str, Any]) -> bool:
+    """Return True when *params* looks like a full JSON Schema object rather than a shallow per-parameter mapping."""
+    return params.get("type") == "object" and isinstance(params.get("properties"), dict)
+
+
+def _to_datafiles_param(schema: Dict[str, Any]) -> Dict[str, Any]:
+    """Convert a single JSON Schema property dict to a datafiles-compatible ParameterSchema dict."""
+    _JSON_TO_DATAFILES: Dict[str, str] = {
+        "properties": "properties_json",
+        "items": "items_json",
+        "additionalProperties": "additional_properties_json",
+        "required": "required_json",
+    }
+    _DIRECT_FIELDS = {
+        "type", "description", "enum", "format", "default",
+        "minimum", "maximum", "minLength", "maxLength", "pattern",
+    }
+    result: Dict[str, Any] = {}
+    for k, v in schema.items():
+        if k in _DIRECT_FIELDS:
+            result[k] = v
+        elif k in _JSON_TO_DATAFILES:
+            result[_JSON_TO_DATAFILES[k]] = json.dumps(v)
+    if "type" not in result:
+        result["type"] = "string"
+    return result
+
+
+def normalize_function_tool_for_datafiles(tool: Dict[str, Any]) -> Dict[str, Any]:
+    """Convert an authored full-schema function tool to the datafiles-compatible internal format.
+
+    Detects whether ``function.parameters`` is a full JSON Schema object
+    (authored format) and, if so, stores the complete schema in
+    ``parameters_json`` while converting ``parameters`` to the shallow
+    per-parameter mapping that datafiles expects.
+    """
+    if not isinstance(tool, dict) or tool.get("type") != "function":
+        return tool
+    func = tool.get("function")
+    if not isinstance(func, dict):
+        return tool
+    params = func.get("parameters")
+    if not isinstance(params, dict):
+        return tool
+    # Already in datafiles format
+    if "parameters_json" in func:
+        return tool
+    if not _is_full_json_schema(params):
+        return tool
+
+    func = dict(func)
+    func["parameters_json"] = json.dumps(params)
+    shallow: Dict[str, Any] = {}
+    for pname, pschema in params.get("properties", {}).items():
+        if isinstance(pschema, dict):
+            shallow[pname] = _to_datafiles_param(pschema)
+    func["parameters"] = shallow
+    if "required" in params and "required" not in func:
+        func["required"] = params["required"]
+    tool = dict(tool)
+    tool["function"] = func
+    return tool
+
+
 def serialize_tools_authoring(provider_tools: Optional[List[Dict[str, Any]]]) -> List[Any]:
     if not isinstance(provider_tools, list):
         return []
@@ -441,6 +592,10 @@ def serialize_tools_authoring(provider_tools: Optional[List[Dict[str, Any]]]) ->
                 if isinstance(child, dict):
                     ns_entry["tools"].append(_serialize_child_tool(child, implicit_defer=has_tool_search))
             out.append(ns_entry)
+            continue
+
+        if t == "function":
+            out.append(_serialize_function_tool(tool))
             continue
 
         cfg = {k: v for k, v in tool.items() if k != "type"}

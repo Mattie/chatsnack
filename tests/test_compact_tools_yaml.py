@@ -430,3 +430,194 @@ def test_set_tools_preserves_interleaved_order():
     ])
     types = [t.get("type") for t in p.get_tools()]
     assert types == ["web_search", "function", "tool_search"]
+
+
+# ── Top-level function tool serialization ─────────────────────────────
+
+def test_serialize_function_tool_strips_parameters_json():
+    """serialize_tools_authoring should remove parameters_json from function tools."""
+    from chatsnack.compact_tools import serialize_tools_authoring
+
+    tool = {
+        "type": "function",
+        "function": {
+            "name": "my_tool",
+            "description": "Does stuff",
+            "parameters": {
+                "query": {"type": "string", "description": "Search query"},
+            },
+            "required": ["query"],
+            "parameters_json": json.dumps({
+                "type": "object",
+                "properties": {"query": {"type": "string", "description": "Search query"}},
+                "required": ["query"],
+            }),
+        },
+    }
+
+    [serialized] = serialize_tools_authoring([tool])
+    assert "parameters_json" not in json.dumps(serialized)
+    assert serialized["function"]["parameters"]["type"] == "object"
+    assert serialized["function"]["parameters"]["properties"]["query"]["type"] == "string"
+    assert serialized["function"]["parameters"]["required"] == ["query"]
+
+
+def test_serialize_function_tool_strips_per_param_json_fields():
+    """Per-parameter _json fields like additional_properties_json must be cleaned."""
+    from chatsnack.compact_tools import serialize_tools_authoring
+
+    tool = {
+        "type": "function",
+        "function": {
+            "name": "speed_tool",
+            "description": "Tool with additionalProperties",
+            "parameters": {
+                "speed": {
+                    "type": "object",
+                    "description": "Speed info",
+                    "additional_properties_json": '{"type": "string"}',
+                },
+            },
+            "required": ["speed"],
+        },
+    }
+
+    [serialized] = serialize_tools_authoring([tool])
+    assert "additional_properties_json" not in json.dumps(serialized)
+    speed = serialized["function"]["parameters"]["properties"]["speed"]
+    assert speed["additionalProperties"] == {"type": "string"}
+
+
+def test_serialize_function_tool_complex_schema_round_trip():
+    """Complex schemas with $defs, anyOf, and additionalProperties round-trip cleanly."""
+    from chatsnack.compact_tools import serialize_tools_authoring, parse_tools_authoring
+
+    complex_schema = {
+        "$defs": {
+            "Entry": {
+                "properties": {"Name": {"type": "string"}, "Text": {"type": "string"}},
+                "required": ["Name", "Text"],
+                "type": "object",
+            }
+        },
+        "type": "object",
+        "properties": {
+            "name": {"type": "string", "description": "Name"},
+            "armor_class": {
+                "anyOf": [{"type": "integer"}, {"type": "null"}],
+                "default": None,
+                "description": "AC",
+            },
+            "traits": {
+                "anyOf": [
+                    {"items": {"$ref": "#/$defs/Entry"}, "type": "array"},
+                    {"type": "null"},
+                ],
+                "default": None,
+                "description": "Traits",
+            },
+        },
+        "required": ["name"],
+    }
+
+    tool = {
+        "type": "function",
+        "function": {
+            "name": "statblock",
+            "description": "Extract a statblock",
+            "parameters": {
+                "name": {"type": "string", "description": "Name"},
+                "armor_class": {"type": "string", "description": "AC"},
+                "traits": {"type": "string", "description": "Traits"},
+            },
+            "required": ["name"],
+            "parameters_json": json.dumps(complex_schema),
+        },
+    }
+
+    # Save path
+    serialized = serialize_tools_authoring([tool])
+    out_func = serialized[0]["function"]
+    assert "parameters_json" not in out_func
+    assert "$defs" in out_func["parameters"]
+    assert out_func["parameters"]["properties"]["armor_class"]["anyOf"] is not None
+
+    # Load path
+    loaded = parse_tools_authoring(serialized)
+    loaded_func = loaded[0]["function"]
+    assert "parameters_json" in loaded_func
+    restored = json.loads(loaded_func["parameters_json"])
+    assert "$defs" in restored
+    assert restored["properties"]["armor_class"]["anyOf"] == [{"type": "integer"}, {"type": "null"}]
+    assert restored["required"] == ["name"]
+
+
+def test_function_tool_full_yaml_round_trip(tmp_path, monkeypatch):
+    """Full YAML save/load round-trip for a function tool with complex parameters."""
+    monkeypatch.chdir(tmp_path)
+    data_dir = Path(CHATSNACK_BASE_DIR)
+    data_dir.mkdir(parents=True, exist_ok=True)
+
+    authored = {
+        "params": {
+            "model": "gpt-5.4",
+            "tools": [
+                {
+                    "type": "function",
+                    "function": {
+                        "name": "lookup",
+                        "description": "Look up data",
+                        "parameters": {
+                            "type": "object",
+                            "properties": {
+                                "query": {"type": "string", "description": "Search query"},
+                                "speed": {
+                                    "type": "object",
+                                    "description": "Speed",
+                                    "additionalProperties": {"type": "string"},
+                                },
+                            },
+                            "required": ["query"],
+                        },
+                    },
+                },
+            ],
+        },
+        "messages": [{"system": "Be helpful."}],
+    }
+
+    yaml = YAML()
+    with open(data_dir / "fn_round_trip.yml", "w", encoding="utf-8") as f:
+        yaml.dump(authored, f)
+
+    loaded = Chat(name="fn_round_trip")
+    tools = loaded.params.get_tools()
+    fn = next(t for t in tools if t.get("type") == "function")
+    props = fn["function"]["parameters"]["properties"]
+    assert props["speed"]["additionalProperties"] == {"type": "string"}
+    assert fn["function"]["parameters"]["required"] == ["query"]
+
+    # Verify saved YAML does not contain parameters_json
+    saved_yaml = loaded.yaml
+    assert "parameters_json" not in saved_yaml
+    assert "additional_properties_json" not in saved_yaml
+    assert "additionalProperties" in saved_yaml
+
+
+def test_function_tool_no_params_serializes_cleanly():
+    """Function tools with no parameters should serialize without errors."""
+    from chatsnack.compact_tools import serialize_tools_authoring
+
+    tool = {
+        "type": "function",
+        "function": {
+            "name": "no_params_tool",
+            "description": "A tool with no parameters",
+        },
+    }
+
+    [serialized] = serialize_tools_authoring([tool])
+    assert serialized["function"]["name"] == "no_params_tool"
+    assert "parameters_json" not in serialized["function"]
+    assert "parameters" not in serialized["function"]
+
