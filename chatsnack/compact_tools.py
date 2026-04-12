@@ -438,6 +438,15 @@ _PARAM_JSON_FIELD_MAP: Dict[str, str] = {
     "required_json": "required",
 }
 
+# Reverse mapping: JSON Schema keys → datafiles _json field names.
+_JSON_SCHEMA_TO_DATAFILES: Dict[str, str] = {v: k for k, v in _PARAM_JSON_FIELD_MAP.items()}
+
+# ParameterSchema fields stored directly (not as _json strings).
+_PARAM_DIRECT_FIELDS = {
+    "type", "description", "enum", "format", "default",
+    "minimum", "maximum", "minLength", "maxLength", "pattern",
+}
+
 
 def _clean_param_schema(schema: Dict[str, Any]) -> Dict[str, Any]:
     """Remove ``_json`` suffixed datafiles fields, restoring their JSON Schema originals."""
@@ -518,22 +527,12 @@ def _is_full_json_schema(params: Dict[str, Any]) -> bool:
 
 def _to_datafiles_param(schema: Dict[str, Any]) -> Dict[str, Any]:
     """Convert a single JSON Schema property dict to a datafiles-compatible ParameterSchema dict."""
-    _JSON_TO_DATAFILES: Dict[str, str] = {
-        "properties": "properties_json",
-        "items": "items_json",
-        "additionalProperties": "additional_properties_json",
-        "required": "required_json",
-    }
-    _DIRECT_FIELDS = {
-        "type", "description", "enum", "format", "default",
-        "minimum", "maximum", "minLength", "maxLength", "pattern",
-    }
     result: Dict[str, Any] = {}
     for k, v in schema.items():
-        if k in _DIRECT_FIELDS:
+        if k in _PARAM_DIRECT_FIELDS:
             result[k] = v
-        elif k in _JSON_TO_DATAFILES:
-            result[_JSON_TO_DATAFILES[k]] = json.dumps(v)
+        elif k in _JSON_SCHEMA_TO_DATAFILES:
+            result[_JSON_SCHEMA_TO_DATAFILES[k]] = json.dumps(v)
     if "type" not in result:
         result["type"] = "string"
     return result
