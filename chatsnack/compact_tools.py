@@ -6,6 +6,19 @@ RESERVED_CHILD_KEYS = {"description", "args", "required", "defer_loading"}
 BUILTIN_TYPES = {"web_search", "file_search", "tool_search", "code_interpreter", "image_generation", "mcp"}
 
 
+def _apply_builtin_defaults(tool: Dict[str, Any]) -> Dict[str, Any]:
+    """Fill provider-required defaults for compact built-in tool authoring."""
+    if tool.get("type") == "code_interpreter" and "container" not in tool:
+        normalized = dict(tool)
+        normalized["container"] = {"type": "auto"}
+        return normalized
+    return tool
+
+
+def _is_default_code_interpreter_config(cfg: Dict[str, Any]) -> bool:
+    return cfg == {"container": {"type": "auto"}}
+
+
 class CompactToolSyntaxError(ValueError):
     """Raised when compact tool YAML cannot be parsed safely."""
 
@@ -195,7 +208,7 @@ def parse_tools_authoring(entries: Optional[List[Any]]) -> List[Dict[str, Any]]:
     parsed: List[Dict[str, Any]] = []
     for entry in entries:
         if isinstance(entry, str):
-            parsed.append({"type": entry})
+            parsed.append(_apply_builtin_defaults({"type": entry}))
             continue
 
         if not isinstance(entry, dict):
@@ -253,7 +266,7 @@ def parse_tools_authoring(entries: Optional[List[Any]]) -> List[Dict[str, Any]]:
                         if required_args:
                             compiled["required"] = required_args
                         tool["args"] = compiled
-                parsed.append(tool)
+                parsed.append(_apply_builtin_defaults(tool))
                 continue
 
         # fallback passthrough for unknown authored mapping
@@ -432,6 +445,9 @@ def serialize_tools_authoring(provider_tools: Optional[List[Dict[str, Any]]]) ->
 
         cfg = {k: v for k, v in tool.items() if k != "type"}
         if t in BUILTIN_TYPES:
+            if t == "code_interpreter" and _is_default_code_interpreter_config(cfg):
+                out.append(t)
+                continue
             if not cfg:
                 out.append(t)
             else:
