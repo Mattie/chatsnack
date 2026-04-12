@@ -1,10 +1,32 @@
 :root {
   --md-primary-fg-color: #0f766e;
   --md-accent-fg-color: #d97706;
+  --snack-cream: #fffaf2;
+  --snack-cream-deep: #f7eddc;
+  --snack-mint-wash: rgba(15, 118, 110, 0.07);
+  --snack-honey-wash: rgba(217, 119, 6, 0.08);
+}
+
+body,
+.md-main {
+  background:
+    radial-gradient(circle at top right, rgba(217, 119, 6, 0.08), transparent 28rem),
+    linear-gradient(180deg, #fffdf9 0%, var(--snack-cream) 100%);
+}
+
+.md-typeset {
+  font-size: 1rem;
+  line-height: 1.7;
+}
+
+.md-typeset p,
+.md-typeset li {
+  line-height: 1.7;
 }
 
 .hero-copy {
-  font-size: 1.08rem;
+  font-size: 1.3rem;
+  line-height: 1.65;
   max-width: 48rem;
 }
 
@@ -16,8 +38,9 @@
 }
 
 .callout-grid > div {
-  border: 1px solid var(--md-default-fg-color--lightest);
+  border: 1px solid var(--snack-cream-deep);
   border-radius: 0.75rem;
   padding: 1rem;
-  background: linear-gradient(180deg, rgba(15, 118, 110, 0.05), rgba(217, 119, 6, 0.04));
+  background: linear-gradient(180deg, var(--snack-mint-wash), var(--snack-honey-wash));
+  box-shadow: 0 0.75rem 1.75rem rgba(15, 23, 42, 0.05);
 }

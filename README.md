@@ -2,6 +2,8 @@
 
 chatsnack is the easiest Python library for rapid development with OpenAI's ChatGPT API. It provides an intuitive interface for creating and managing chat-based prompts and responses, making it convenient to build complex, interactive conversations with AI.
 
+[Documentation site](https://mattie.github.io/chatsnack/)
+
 ![chatsnack features](/docs/chatsnack_features_smaller.jpg)
 ## Setup
 
