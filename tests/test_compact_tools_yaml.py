@@ -621,3 +621,32 @@ def test_function_tool_no_params_serializes_cleanly():
     assert "parameters_json" not in serialized["function"]
     assert "parameters" not in serialized["function"]
 
+
+def test_serialize_function_tool_full_schema_without_parameters_json():
+    """Provider-shaped tool where parameters is already full JSON Schema and parameters_json is absent."""
+    from chatsnack.compact_tools import serialize_tools_authoring
+
+    tool = {
+        "type": "function",
+        "function": {
+            "name": "provider_tool",
+            "description": "A provider-shaped tool",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "query": {"type": "string", "description": "Search query"},
+                    "limit": {"type": "integer", "description": "Max results"},
+                },
+                "required": ["query"],
+            },
+        },
+    }
+
+    [serialized] = serialize_tools_authoring([tool])
+    params = serialized["function"]["parameters"]
+    assert params["type"] == "object"
+    assert params["properties"]["query"]["type"] == "string"
+    assert params["properties"]["limit"]["type"] == "integer"
+    assert params["required"] == ["query"]
+    assert "parameters_json" not in serialized["function"]
+

@@ -510,9 +510,14 @@ def _serialize_function_tool(tool: Dict[str, Any]) -> Dict[str, Any]:
             if rebuilt:
                 clean_func["parameters"] = rebuilt
     else:
-        rebuilt = _reconstruct_params_from_shallow(func)
-        if rebuilt:
-            clean_func["parameters"] = rebuilt
+        raw_params = func.get("parameters", {})
+        if isinstance(raw_params, dict) and _is_full_json_schema(raw_params):
+            # Already a full JSON Schema object — pass through directly.
+            clean_func["parameters"] = raw_params
+        else:
+            rebuilt = _reconstruct_params_from_shallow(func)
+            if rebuilt:
+                clean_func["parameters"] = rebuilt
 
     if func.get("strict") is not None:
         clean_func["strict"] = func["strict"]
