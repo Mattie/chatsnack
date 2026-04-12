@@ -480,3 +480,251 @@ def test_chat_with_utensils_executes_tool_and_feeds_back(monkeypatch):
     # The result should be a Chat with the final response
     assert "Popcorn has 100 calories!" in result.response
     assert call_count["n"] == 2
+
+
+def test_chat_with_websocket_duplicate_provider_tool_call_executes_once(monkeypatch):
+    """A duplicated provider tool call from streamed deltas + terminal payload
+    should execute once and record one assistant/tool turn pair."""
+    from chatsnack.utensil import utensil
+    from chatsnack.runtime import RuntimeStreamEvent
+
+    @utensil
+    def snack_lookup(name: str) -> str:
+        """Look up snack info by name."""
+        return f"{name} has 100 calories"
+
+    chat = Chat(
+        "You are a snack expert.",
+        runtime="responses",
+        session="inherit",
+        utensils=[snack_lookup],
+    )
+
+    call_count = {"n": 0}
+
+    async def fake_stream_completion_a(self, messages, **kwargs):
+        call_count["n"] += 1
+        if call_count["n"] == 1:
+            yield RuntimeStreamEvent(
+                type="tool_call_delta",
+                index=0,
+                data={
+                    "tool_call": {
+                        "id": "call_abc",
+                        "type": "function",
+                        "function": {"name": "snack_lookup", "arguments": '{"name"'},
+                    }
+                },
+            )
+            yield RuntimeStreamEvent(
+                type="tool_call_delta",
+                index=1,
+                data={
+                    "tool_call": {
+                        "id": "call_abc",
+                        "type": "function",
+                        "function": {"name": "snack_lookup", "arguments": ': "popcorn"}'},
+                    }
+                },
+            )
+            yield RuntimeStreamEvent(
+                type="completed",
+                index=2,
+                data={
+                    "terminal": {
+                        "finish_reason": "completed",
+                        "model": "gpt-5.4-mini",
+                        "usage": {"total_tokens": 5},
+                        "response_text": "",
+                        "metadata": {
+                            "response_id": "resp_tool_1",
+                            "response": {
+                                "id": "resp_tool_1",
+                                "status": "completed",
+                                "model": "gpt-5.4-mini",
+                                "usage": {"total_tokens": 5},
+                                "output": [
+                                    {
+                                        "type": "function_call",
+                                        "call_id": "call_abc",
+                                        "name": "snack_lookup",
+                                        "arguments": '{"name": "popcorn"}',
+                                    }
+                                ],
+                            },
+                        },
+                    }
+                },
+            )
+            return
+
+        yield RuntimeStreamEvent(
+            type="completed",
+            index=0,
+            data={
+                "terminal": {
+                    "finish_reason": "completed",
+                    "model": "gpt-5.4-mini",
+                    "usage": {"total_tokens": 3},
+                    "response_text": "Popcorn has 100 calories!",
+                    "metadata": {
+                        "response_id": "resp_tool_2",
+                        "response": {
+                            "id": "resp_tool_2",
+                            "status": "completed",
+                            "model": "gpt-5.4-mini",
+                            "usage": {"total_tokens": 3},
+                            "output": [
+                                {
+                                    "type": "message",
+                                    "role": "assistant",
+                                    "content": [{"type": "output_text", "text": "Popcorn has 100 calories!"}],
+                                }
+                            ],
+                        },
+                    },
+                }
+            },
+        )
+
+    monkeypatch.setattr(ResponsesWebSocketAdapter, "stream_completion_a", fake_stream_completion_a)
+    result = chat.chat("How many calories in popcorn?")
+
+    assistant_tool_turns = [
+        m for m in result.messages
+        if "assistant" in m and isinstance(m["assistant"], dict) and m["assistant"].get("tool_calls")
+    ]
+    tool_turns = [m for m in result.messages if "tool" in m]
+
+    assert result.response == "Popcorn has 100 calories!"
+    assert call_count["n"] == 2
+    assert len(assistant_tool_turns) == 1
+    assert len(assistant_tool_turns[0]["assistant"]["tool_calls"]) == 1
+    assert assistant_tool_turns[0]["assistant"]["tool_calls"][0]["id"] == "call_abc"
+    assert len(tool_turns) == 1
+    assert tool_turns[0]["tool"]["tool_call_id"] == "call_abc"
+
+
+def test_chat_with_websocket_duplicate_invalid_provider_tool_call_errors_once(monkeypatch):
+    """A duplicated invalid provider tool call should surface one execution error."""
+    from chatsnack.utensil import utensil
+    from chatsnack.runtime import RuntimeStreamEvent
+
+    @utensil
+    def snack_lookup(name: str) -> str:
+        """Look up snack info by name."""
+        return f"{name} has 100 calories"
+
+    chat = Chat(
+        "You are a snack expert.",
+        runtime="responses",
+        session="inherit",
+        utensils=[snack_lookup],
+    )
+
+    call_count = {"n": 0}
+
+    async def fake_stream_completion_a(self, messages, **kwargs):
+        call_count["n"] += 1
+        if call_count["n"] == 1:
+            yield RuntimeStreamEvent(
+                type="tool_call_delta",
+                index=0,
+                data={
+                    "tool_call": {
+                        "id": "call_bad",
+                        "type": "function",
+                        "function": {"name": "snack_lookup", "arguments": '{"unexpected"'},
+                    }
+                },
+            )
+            yield RuntimeStreamEvent(
+                type="tool_call_delta",
+                index=1,
+                data={
+                    "tool_call": {
+                        "id": "call_bad",
+                        "type": "function",
+                        "function": {"name": "snack_lookup", "arguments": ': "popcorn"}'},
+                    }
+                },
+            )
+            yield RuntimeStreamEvent(
+                type="completed",
+                index=2,
+                data={
+                    "terminal": {
+                        "finish_reason": "completed",
+                        "model": "gpt-5.4-mini",
+                        "usage": {"total_tokens": 5},
+                        "response_text": "",
+                        "metadata": {
+                            "response_id": "resp_tool_bad_1",
+                            "response": {
+                                "id": "resp_tool_bad_1",
+                                "status": "completed",
+                                "model": "gpt-5.4-mini",
+                                "usage": {"total_tokens": 5},
+                                "output": [
+                                    {
+                                        "type": "function_call",
+                                        "call_id": "call_bad",
+                                        "name": "snack_lookup",
+                                        "arguments": '{"unexpected": "popcorn"}',
+                                    }
+                                ],
+                            },
+                        },
+                    }
+                },
+            )
+            return
+
+        yield RuntimeStreamEvent(
+            type="completed",
+            index=0,
+            data={
+                "terminal": {
+                    "finish_reason": "completed",
+                    "model": "gpt-5.4-mini",
+                    "usage": {"total_tokens": 3},
+                    "response_text": "done",
+                    "metadata": {
+                        "response_id": "resp_tool_bad_2",
+                        "response": {
+                            "id": "resp_tool_bad_2",
+                            "status": "completed",
+                            "model": "gpt-5.4-mini",
+                            "usage": {"total_tokens": 3},
+                            "output": [
+                                {
+                                    "type": "message",
+                                    "role": "assistant",
+                                    "content": [{"type": "output_text", "text": "done"}],
+                                }
+                            ],
+                        },
+                    },
+                }
+            },
+        )
+
+    monkeypatch.setattr(ResponsesWebSocketAdapter, "stream_completion_a", fake_stream_completion_a)
+    result = chat.chat("How many calories in popcorn?")
+
+    assistant_tool_turns = [
+        m for m in result.messages
+        if "assistant" in m and isinstance(m["assistant"], dict) and m["assistant"].get("tool_calls")
+    ]
+    tool_turns = [m for m in result.messages if "tool" in m]
+    error_turns = [
+        m for m in tool_turns
+        if "unexpected keyword argument 'unexpected'" in m["tool"]["content"]
+    ]
+
+    assert result.response == "done"
+    assert call_count["n"] == 2
+    assert len(assistant_tool_turns) == 1
+    assert len(assistant_tool_turns[0]["assistant"]["tool_calls"]) == 1
+    assert len(tool_turns) == 1
+    assert len(error_turns) == 1
