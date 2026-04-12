@@ -295,9 +295,19 @@ class FunctionDefinition:
             name=data.get("name", ""),
             description=data.get("description")
         )
-        
-        # Extract parameters
-        params = data.get("parameters", {})
+
+        # Compact YAML may carry both a shallow authored parameters mapping and
+        # a richer parameters_json field. Prefer the richer schema when present.
+        params_json = data.get("parameters_json")
+        params = {}
+        if params_json:
+            try:
+                params = json.loads(params_json)
+            except (json.JSONDecodeError, TypeError):
+                params = data.get("parameters", {})
+        else:
+            params = data.get("parameters", {})
+
         if params:
             # Store the complete parameters schema as JSON
             function_def.parameters_json = json.dumps(params)
@@ -335,31 +345,13 @@ class ToolDefinition:
     def from_dict(cls, data: Dict) -> 'ToolDefinition':
         """Create a ToolDefinition from an API-format dictionary"""
         tool_type = data.get("type", "function")
-        
-        # Create the function definition
+
+        # Preserve the original function schema so complex parameter shapes
+        # like anyOf, arrays of objects, and additionalProperties survive the
+        # set_tools()/get_tools() round-trip without collapsing to strings.
         function_data = data.get("function", {})
-        function_def = FunctionDefinition(
-            name=function_data.get("name", ""),
-            description=function_data.get("description")
-        )
-        
-        # Extract parameters
-        params = function_data.get("parameters", {})
-        properties = params.get("properties", {})
-        
-        # Store the original parameters dictionary structure
-        function_def.parameters = {
-            param_name: ParameterSchema.from_dict(param_props)
-            for param_name, param_props in properties.items()
-        }
-        
-        # Extract required fields
-        function_def.required = params.get("required", [])
-        
-        # Extract strict flag
-        if "strict" in function_data:
-            function_def.strict = function_data["strict"]
-        
+        function_def = FunctionDefinition.from_dict(function_data)
+
         return cls(type=tool_type, function=function_def)
 
 @datafile
