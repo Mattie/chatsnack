@@ -9,9 +9,8 @@ from chatsnack.runtime.types import NormalizedAssistantMessage, NormalizedComple
 from chatsnack.yamlformat import _normalize_data_on_load
 
 
-def test_compact_tools_yaml_round_trip_and_internal_split(monkeypatch):
-    temp_dir = Path.cwd() / ".tmp_compact_tools_yaml_round_trip"
-    temp_dir.mkdir(parents=True, exist_ok=True)
+def test_compact_tools_yaml_round_trip_and_internal_split(monkeypatch, tmp_path):
+    temp_dir = tmp_path
     monkeypatch.chdir(temp_dir)
     data_dir = Path(CHATSNACK_BASE_DIR)
     data_dir.mkdir(parents=True, exist_ok=True)
