@@ -526,8 +526,34 @@ def _serialize_function_tool(tool: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def _is_full_json_schema(params: Dict[str, Any]) -> bool:
-    """Return True when *params* looks like a full JSON Schema object rather than a shallow per-parameter mapping."""
-    return params.get("type") == "object" and isinstance(params.get("properties"), dict)
+    """Return True when *params* looks like a full JSON Schema object.
+
+    Provider payloads may represent object schemas without a ``properties`` map
+    (for example dictionary-style inputs with only ``additionalProperties``).
+    Those still need the full-schema fast path to avoid being misread as
+    shallow per-parameter mappings.
+    """
+    if params.get("type") != "object":
+        return False
+    if isinstance(params.get("properties"), dict):
+        return True
+    schema_only_keys = {
+        "additionalProperties",
+        "patternProperties",
+        "$defs",
+        "definitions",
+        "required",
+        "oneOf",
+        "anyOf",
+        "allOf",
+        "not",
+        "if",
+        "then",
+        "else",
+        "unevaluatedProperties",
+        "propertyNames",
+    }
+    return any(key in params for key in schema_only_keys)
 
 
 def _to_datafiles_param(schema: Dict[str, Any]) -> Dict[str, Any]:

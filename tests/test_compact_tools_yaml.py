@@ -650,3 +650,28 @@ def test_serialize_function_tool_full_schema_without_parameters_json():
     assert params["required"] == ["query"]
     assert "parameters_json" not in serialized["function"]
 
+
+def test_serialize_function_tool_object_schema_without_properties():
+    """Object schemas with only additionalProperties should stay in full-schema form."""
+    from chatsnack.compact_tools import serialize_tools_authoring
+
+    tool = {
+        "type": "function",
+        "function": {
+            "name": "dict_tool",
+            "description": "Accepts a string dictionary",
+            "parameters": {
+                "type": "object",
+                "additionalProperties": {"type": "string"},
+                "$defs": {"value": {"type": "string"}},
+            },
+        },
+    }
+
+    [serialized] = serialize_tools_authoring([tool])
+    params = serialized["function"]["parameters"]
+    assert params["type"] == "object"
+    assert params["additionalProperties"] == {"type": "string"}
+    assert params["$defs"] == {"value": {"type": "string"}}
+    assert "properties" not in params
+
