@@ -387,6 +387,31 @@ class ChatQueryMixin(ChatMessagesMixin, ChatParamsMixin):
         prompt = await self._gather_format(aformatter.async_format, **filling_machine(promptvars))
         return prompt
 
+    def _build_completion_request_kwargs(self) -> Dict[str, object]:
+        """Build provider-facing kwargs for one completion request."""
+        kwargs = {}
+        params = getattr(self, "params", None)
+        if params is not None:
+            kwargs = params._get_non_none_params()
+
+            # Phase 3: merge provider-facing Responses options into the
+            # request kwargs only for Responses-family runtimes.
+            if self._runtime_supports_continuation():
+                responses_opts = params._get_responses_api_options()
+                if responses_opts:
+                    merged = responses_opts.copy()
+                    merged.update(kwargs)
+                    kwargs = merged
+
+        if hasattr(self, "get_tools"):
+            tools = self.get_tools()
+            if tools:
+                kwargs["tools"] = tools
+                if params and params.tool_choice:
+                    kwargs["tool_choice"] = params.tool_choice
+
+        return kwargs
+
     async def _submit_for_response_and_prompt(self, track_continuation: bool = False, **additional_vars):
         """ Executes the query as-is and returns a tuple of the final prompt and the response"""
         prompter = self
@@ -399,29 +424,7 @@ class ChatQueryMixin(ChatMessagesMixin, ChatParamsMixin):
             del additional_vars["__user"]
         prompt = await prompter._build_final_prompt(additional_vars)
         
-        kwargs = {}
-        if hasattr(self, 'params') and self.params is not None:
-            kwargs = self.params._get_non_none_params()
-
-            # Phase 3: merge provider-facing Responses options (text, reasoning,
-            # include, store, …) into the request kwargs so they reach the
-            # Responses API.  These are lower-priority than explicit kwargs.
-            # Only merge when the active runtime is a Responses-family adapter;
-            # Chat Completions does not understand these keys.
-            if self._runtime_supports_continuation():
-                responses_opts = self.params._get_responses_api_options()
-                if responses_opts:
-                    merged = responses_opts.copy()
-                    merged.update(kwargs)
-                    kwargs = merged
-        
-        # Add tools if available
-        if hasattr(self, 'get_tools'):
-            tools = self.get_tools()
-            if tools:
-                kwargs['tools'] = tools
-                if self.params and self.params.tool_choice:
-                    kwargs['tool_choice'] = self.params.tool_choice
+        kwargs = self._build_completion_request_kwargs()
         
         if hasattr(self, 'params') and self.params and self.params.stream:
             # we're streaming so we need to use the wrapper object
@@ -824,6 +827,7 @@ class ChatQueryMixin(ChatMessagesMixin, ChatParamsMixin):
                         follow_up = await temp_chat._cleaned_chat_completion(
                             new_prompt,
                             track_continuation=True,
+                            **temp_chat._build_completion_request_kwargs(),
                         )
                         
                         # Check if the follow-up response has tool calls

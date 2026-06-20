@@ -2,7 +2,7 @@ import base64
 import pytest
 import json
 from types import SimpleNamespace
-from chatsnack import Chat, Text, CHATSNACK_BASE_DIR
+from chatsnack import Chat, Text, CHATSNACK_BASE_DIR, utensil
 from chatsnack.chat.mixin_params import ChatParams
 from chatsnack.runtime import ChatCompletionsAdapter, ResponsesAdapter, ResponsesWebSocketAdapter
 from chatsnack.chat.mixin_params import DEFAULT_MODEL_FALLBACK
@@ -736,6 +736,57 @@ async def test_chat_a_parity_tool_recursion_history(chat, monkeypatch, use_runti
     roles = [msg["role"] for msg in output.get_messages()]
     assert roles == ["assistant", "tool", "assistant"]
     assert output.get_messages()[-1]["content"] == "final"
+
+
+@pytest.mark.asyncio
+async def test_chat_completions_auto_feed_preserves_request_kwargs(monkeypatch):
+    @utensil(name="issue63_echo", description="Echo test data for issue 63.")
+    def issue63_echo(x: int):
+        return {"x": x}
+
+    captured_calls = []
+
+    async def fake_create_completion_a(self, messages, **kwargs):
+        captured_calls.append({"messages": messages, "kwargs": kwargs.copy()})
+        if len(captured_calls) == 1:
+            tool_call = SimpleNamespace(
+                id="call_issue63",
+                type="function",
+                function=SimpleNamespace(name="issue63_echo", arguments='{"x":7}'),
+            )
+            return SimpleNamespace(
+                message=SimpleNamespace(content=None, tool_calls=[tool_call]),
+                metadata={"response_id": "resp_tool", "assistant_phase": "tool_calls"},
+            )
+        return SimpleNamespace(
+            message=SimpleNamespace(content="final", tool_calls=[]),
+            metadata={"response_id": "resp_final", "assistant_phase": "completed"},
+        )
+
+    monkeypatch.setattr(ChatCompletionsAdapter, "create_completion_a", fake_create_completion_a)
+
+    chat = Chat(
+        "Use tools when useful.",
+        runtime="chat_completions",
+        model="z-ai/glm-5.2",
+        utensils=[issue63_echo],
+        auto_execute=True,
+        auto_feed=True,
+        tool_choice="required",
+    )
+
+    output = await chat.chat_a("Call issue63_echo with x=7.")
+
+    assert len(captured_calls) == 2
+    for call in captured_calls:
+        assert call["kwargs"]["model"] == "z-ai/glm-5.2"
+        assert call["kwargs"]["tool_choice"] == "required"
+        assert call["kwargs"]["tools"][0]["function"]["name"] == "issue63_echo"
+
+    messages = output.get_messages()
+    assert [msg["role"] for msg in messages[-3:]] == ["assistant", "tool", "assistant"]
+    assert messages[-2]["tool_call_id"] == "call_issue63"
+    assert messages[-1]["content"] == "final"
 
 
 def test_listen_events_true_defaults_to_legacy_schema(chat, monkeypatch):
