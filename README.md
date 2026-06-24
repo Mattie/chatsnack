@@ -12,7 +12,7 @@ chatsnack is the easiest Python library for rapid development with OpenAI's Chat
 Install the `chatsnack` package from PyPI:
 
 ```bash
-# requires Python 3.10+
+# requires Python 3.11+
 pip install chatsnack
 ```
 

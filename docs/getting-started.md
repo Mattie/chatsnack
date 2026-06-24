@@ -8,7 +8,7 @@ This page takes the shortest path from install to a working `Chat(...)`.
 pip install chatsnack
 ```
 
-`chatsnack` requires Python 3.10 or newer.
+`chatsnack` requires Python 3.11 or newer.
 
 ## Got keys?
 
