@@ -1,13 +1,13 @@
 [tool.poetry]
 name = "chatsnack"
-version = "0.5.0"
+version = "0.5.1"
 description = "chatsnack is the easiest Python library for rapid development with OpenAI's ChatGPT API. It provides an intuitive interface for creating and managing chat-based prompts and responses, making it convenient to build complex, interactive conversations with AI."
 authors = ["Mattie Casper"]
 license = "MIT"
 readme = "README.md"
 
 [tool.poetry.dependencies]
-python = "^3.10"
+python = "^3.11"
 datafiles = "^2.0"
 python-dotenv = "^1.0.0"
 loguru = "^0.6.0"
