@@ -20,7 +20,14 @@ except:
 _DEFAULT_CHATSNACK_BASE_DIR = "./datafiles/chatsnack"
 CHATSNACK_ROOT = Stash(_DEFAULT_CHATSNACK_BASE_DIR, env="CHATSNACK_BASE_DIR")
 CHATSNACK_PROMPTS = CHATSNACK_ROOT
-CHATSNACK_BASE_DIR = os.getenv("CHATSNACK_BASE_DIR", _DEFAULT_CHATSNACK_BASE_DIR).rstrip("/\\")
+
+
+def _normalize_exported_path(path):
+    """Normalize compatibility path exports without corrupting filesystem roots."""
+    return os.path.normpath(os.fspath(path))
+
+
+CHATSNACK_BASE_DIR = _normalize_exported_path(os.getenv("CHATSNACK_BASE_DIR", _DEFAULT_CHATSNACK_BASE_DIR))
 
 if os.getenv("CHATSNACK_LOGS_DIR") is None:
     CHATSNACK_LOGS_DIR = None   # no logging by default

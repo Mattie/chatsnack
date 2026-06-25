@@ -206,3 +206,56 @@ def test_chatsnack_base_dir_env_is_resolved_by_stash(tmp_path):
     )
 
     assert result.stdout.strip() == "ok"
+
+
+def test_chatsnack_base_dir_export_preserves_root_paths():
+    env = os.environ.copy()
+    env["CHATSNACK_BASE_DIR"] = os.path.sep
+    script = textwrap.dedent(
+        f"""
+        import os
+        from chatsnack import CHATSNACK_BASE_DIR
+
+        assert CHATSNACK_BASE_DIR == os.path.normpath({os.path.sep!r})
+        assert CHATSNACK_BASE_DIR
+        print("ok")
+        """
+    )
+
+    result = subprocess.run(
+        [sys.executable, "-c", script],
+        env=env,
+        cwd=os.getcwd(),
+        check=True,
+        text=True,
+        capture_output=True,
+    )
+
+    assert result.stdout.strip() == "ok"
+
+
+@pytest.mark.skipif(os.name != "nt", reason="Windows drive roots are platform-specific")
+def test_chatsnack_base_dir_export_preserves_windows_drive_roots():
+    env = os.environ.copy()
+    env["CHATSNACK_BASE_DIR"] = "C:\\"
+    script = textwrap.dedent(
+        """
+        import os
+        from chatsnack import CHATSNACK_BASE_DIR
+
+        assert CHATSNACK_BASE_DIR == os.path.normpath("C:\\\\")
+        assert CHATSNACK_BASE_DIR.endswith("\\\\")
+        print("ok")
+        """
+    )
+
+    result = subprocess.run(
+        [sys.executable, "-c", script],
+        env=env,
+        cwd=os.getcwd(),
+        check=True,
+        text=True,
+        capture_output=True,
+    )
+
+    assert result.stdout.strip() == "ok"
