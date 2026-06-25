@@ -71,6 +71,7 @@ jobs:
         uses: pypa/gh-action-pypi-publish@release/v1
         with:
           repository-url: https://test.pypi.org/legacy/
+          skip-existing: true
 
   verify-testpypi:
     name: Verify TestPyPI install
@@ -83,16 +84,20 @@ jobs:
         with:
           python-version: "3.11"
 
-      - name: Install from TestPyPI
+      - name: Download from TestPyPI
         shell: bash
         run: |
           python -m pip install --upgrade pip
           version="${GITHUB_REF_NAME#v}"
+          mkdir -p testpypi-dist
           for attempt in 1 2 3 4 5; do
-            python -m pip install \
+            python -m pip download \
+              --no-deps \
+              --only-binary=:all: \
               --index-url https://test.pypi.org/simple/ \
-              --extra-index-url https://pypi.org/simple/ \
-              "chatsnack==${version}" && break
+              --dest testpypi-dist \
+              "chatsnack==${version}" \
+              && break
             if [ "${attempt}" = "5" ]; then
               exit 1
             fi
@@ -100,7 +105,9 @@ jobs:
           done
 
       - name: Run import smoke test
-        run: python -c "import chatsnack; from chatsnack import Chat, Text"
+        run: |
+          python -m pip install testpypi-dist/chatsnack-*.whl
+          python -c "import chatsnack; from chatsnack import Chat, Text"
 
   publish-pypi:
     name: Publish to PyPI
