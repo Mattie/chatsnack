@@ -3,8 +3,6 @@ from typing import Dict, List, Optional, Union, Any
 from loguru import logger
 import pprint
 
-from datafiles import datafile
-
 from .turns import (
     CANONICAL_SYSTEM_ROLE,
     DEVELOPER_ALIAS,
@@ -320,7 +318,8 @@ class ChatMessagesMixin:
                 api_role = CANONICAL_SYSTEM_ROLE if role == DEVELOPER_ALIAS else role
 
                 if role == "include" and includes_expanded:
-                    include_chatprompt = self.objects.get_or_none(content)
+                    stash = self.snapshot_lookup_stash if hasattr(self, "snapshot_lookup_stash") else None
+                    include_chatprompt = self.__class__.snapshots(stash).get_or_none(content) if stash else self.__class__.snapshots.get_or_none(content)
                     if include_chatprompt is None:
                         raise ValueError(f"Could not find 'include' prompt with name: {content}")
                     new_messages.extend(include_chatprompt.get_messages())

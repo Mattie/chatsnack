@@ -1,6 +1,8 @@
 import os
 import sys
 
+from snapclass import Stash
+
 # give the default system message a name
 try:
     script_name = sys.argv[0]
@@ -10,13 +12,15 @@ try:
 except:
     namestr = ""
 
-# if there's a "CHATSNACK_BASE_DIR" env variable, use that for our default path variable and set it to './datafiles/plunkylib'
-# this is the default directory for all chatsnack datafiles
-if os.getenv("CHATSNACK_BASE_DIR") is None:
-    CHATSNACK_BASE_DIR = "./datafiles/chatsnack"
-else:
-    CHATSNACK_BASE_DIR = os.getenv("CHATSNACK_BASE_DIR")
-    CHATSNACK_BASE_DIR = CHATSNACK_BASE_DIR.rstrip("/")
+# This is the default directory for chatsnack's persisted prompt assets.
+# The stash owns env override behavior; the string export is kept for existing
+# user code and tests that treat CHATSNACK_BASE_DIR as a filesystem path.
+# Keep the default relative. Existing notebook/test workflows import chatsnack,
+# then chdir into a scratch workspace before saving prompt assets.
+_DEFAULT_CHATSNACK_BASE_DIR = "./datafiles/chatsnack"
+CHATSNACK_ROOT = Stash(_DEFAULT_CHATSNACK_BASE_DIR, env="CHATSNACK_BASE_DIR")
+CHATSNACK_PROMPTS = CHATSNACK_ROOT
+CHATSNACK_BASE_DIR = os.getenv("CHATSNACK_BASE_DIR", _DEFAULT_CHATSNACK_BASE_DIR).rstrip("/\\")
 
 if os.getenv("CHATSNACK_LOGS_DIR") is None:
     CHATSNACK_LOGS_DIR = None   # no logging by default

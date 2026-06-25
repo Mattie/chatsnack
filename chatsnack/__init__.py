@@ -71,8 +71,6 @@ weather_chat = Chat("WeatherChat", "You can check the weather.", utensils=[get_w
 response = weather_chat.user("What's the weather like in Boston?").chat()
 print(response)
 """
-from .patches import *
-
 import os
 from pathlib import Path
 
@@ -91,25 +89,25 @@ if not env_path.exists():
         f.write("OPENAI_API_KEY = \"REPLACEME\"\n")
 load_dotenv(dotenv_path=env_path)
 
-from .defaults import CHATSNACK_BASE_DIR, CHATSNACK_LOGS_DIR
+from .defaults import CHATSNACK_BASE_DIR, CHATSNACK_LOGS_DIR, CHATSNACK_ROOT, CHATSNACK_PROMPTS
 from .asynchelpers import aformatter
 from .chat import Chat, Text, ChatParams
-from .txtformat import register_txt_datafiles
-from .yamlformat import register_yaml_datafiles
 from . import packs
 from .utensil import utensil, get_all_utensils, get_openai_tools, UtensilGroup, HostedUtensil
 
-from .fillings import snack_catalog, filling_machine
+from .fillings import active_filling_stash, snack_catalog, filling_machine
 
 
 async def _text_name_expansion(text_name: str, additional: Optional[dict] = None) -> str:
-    prompt = Text.objects.get(text_name)
+    stash = active_filling_stash.get()
+    prompt = Text.objects(stash).get(text_name) if stash is not None else Text.objects.get(text_name)
     result = await aformatter.async_format(prompt.content, **filling_machine(additional))
     return result
 
 # accepts a petition name as a string and calls petition_completion2, returning only the completion text
 async def _chat_name_query_expansion(prompt_name: str, additional: Optional[dict] = None) -> str:
-    chatprompt = Chat.objects.get_or_none(prompt_name)
+    stash = active_filling_stash.get()
+    chatprompt = Chat.objects(stash).get_or_none(prompt_name) if stash is not None else Chat.objects.get_or_none(prompt_name)
     if chatprompt is None:
         raise Exception(f"Prompt {prompt_name} not found")
     text = await chatprompt.ask_a(**additional)
@@ -119,10 +117,5 @@ async def _chat_name_query_expansion(prompt_name: str, additional: Optional[dict
 # default snack vendors
 snack_catalog.add_filling("text", _text_name_expansion)
 snack_catalog.add_filling("chat", _chat_name_query_expansion)
-
-# TODO: these will be defined by plugins eventually
-# need a function that will return the dictionary needed to support prompt formatting
-register_txt_datafiles()
-register_yaml_datafiles()
 
 logger.trace("chatsnack loaded")

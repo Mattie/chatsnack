@@ -4,12 +4,12 @@ import warnings
 import uuid
 from dataclasses import field
 from datetime import datetime
-from typing import Dict, List, Optional, Union
+from typing import Any, Dict, List, Optional, Union
 
-from datafiles import datafile
+from snapclass import snapclass
 
 from ..aiclient import AiClient
-from ..defaults import CHATSNACK_BASE_DIR
+from ..defaults import CHATSNACK_PROMPTS
 from ..runtime import (
     ChatCompletionsAdapter,
     ResponsesAdapter,
@@ -18,14 +18,10 @@ from ..runtime import (
 )
 from .mixin_query import ChatQueryMixin
 from .mixin_params import ChatParams, ChatParamsMixin
-from .mixin_serialization import DatafileMixin, ChatSerializationMixin
+from .mixin_serialization import DatafileMixin, ChatSerializationMixin, refresh_snapclass_config_stash
 from .mixin_utensil import ChatUtensilMixin 
-
-
-# WORKAROUND: Disable the datafiles warnings about Schema type enforcement which our users are less concerned about
-import log
-log.init(level=log.WARNING)
-log.silence('datafiles', allow_warning=False)
+from ..txtformat import TxtStrFormat
+from ..yamlformat import YAML as ChatsnackYAMLFormatter
 
 
 def _empty_runtime_metadata() -> Dict[str, object]:
@@ -71,7 +67,7 @@ def _runtime_policy_from_env() -> tuple[str, Optional[str]]:
 # (2) ChatParams, used only in Chat, includes parameters like engine name and other OpenAI params.
 # (3) Text, this is a text blob we save to disk, can be used as a reference inside chat messages ('snack fillings')
 
-@datafile(CHATSNACK_BASE_DIR + "/{self.name}.txt", manual=True)
+@snapclass("{self.name}.txt", stash=CHATSNACK_PROMPTS, manual=True, formatter=TxtStrFormat)
 class Text(DatafileMixin):
     """Reusable text asset that can be saved and expanded in other prompts."""
     name: str
@@ -79,13 +75,19 @@ class Text(DatafileMixin):
     # TODO: All Text and Chat objects should automatically be added as snack fillings (even if not saved to disk)
 
 
-@datafile(CHATSNACK_BASE_DIR + "/{self.name}.yml", manual=True, init=False)
+@snapclass(
+    "{self.name}.yml",
+    stash=CHATSNACK_PROMPTS,
+    manual=True,
+    init=False,
+    formatter=ChatsnackYAMLFormatter,
+)
 class Chat(ChatQueryMixin, ChatSerializationMixin, ChatUtensilMixin):
     """ A chat prompt that can be expanded into a chat ⭐"""
     # title should be just like above but with a GUID at the end
     name: str = field(default_factory=lambda: f"_ChatPrompt-{datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}-{uuid.uuid4()}")
     params: Optional[ChatParams] = None
-    messages: List[Dict[str,Union[str,List[Dict[str,str]]]]] = field(default_factory=lambda: [])
+    messages: List[Dict[str, Any]] = field(default_factory=lambda: [])
 
     def __init__(self, *args, **kwargs):
         """
@@ -106,6 +108,29 @@ class Chat(ChatQueryMixin, ChatSerializationMixin, ChatUtensilMixin):
         session = kwargs.pop("session", None)
         stream = kwargs.pop("stream", None)
         tool_search_handler = kwargs.pop("tool_search_handler", None)
+        if isinstance(runtime, str) and runtime_selector is None:
+            runtime_selector = runtime
+            runtime = None
+        # Constructor runtime/model/tool options are live overrides. When the
+        # legacy Chat(name=...) autoload path finds a YAML file, snapclass must
+        # apply persisted params first and then reapply these overrides so an
+        # explicit runtime does not get silently replaced by the saved file.
+        self._chatsnack_constructor_overrides = {
+            key: value
+            for key, value in {
+                "engine": kwargs.get("engine"),
+                "model": model,
+                "session": session,
+                "stream": stream,
+                "auto_execute": auto_execute,
+                "tool_choice": tool_choice,
+                "auto_feed": auto_feed,
+                "runtime": runtime,
+                "runtime_selector": runtime_selector,
+                "tool_search_handler": tool_search_handler,
+            }.items()
+            if value is not None
+        }
         
         # get name from kwargs, if it's there
         if "name" in kwargs:
@@ -204,9 +229,6 @@ class Chat(ChatQueryMixin, ChatSerializationMixin, ChatUtensilMixin):
 
         self.ai = AiClient()
         self.tool_search_handler = tool_search_handler
-        if isinstance(runtime, str) and runtime_selector is None:
-            runtime_selector = runtime
-            runtime = None
         profile = None
         session_mode = None
         explicit_runtime_selector = runtime_selector
@@ -388,3 +410,182 @@ class Chat(ChatQueryMixin, ChatSerializationMixin, ChatUtensilMixin):
                 self.set_tools(tool_definitions)
                 if hasattr(self.params, 'tool_choice'):
                     self.params.tool_choice = self.params.tool_choice or "auto"
+
+
+def _text_should_legacy_autoload(args, kwargs) -> bool:
+    return len(args) <= 1 and "content" not in kwargs
+
+
+def _chat_should_legacy_autoload(args, kwargs) -> bool:
+    if args or "name" not in kwargs:
+        return False
+    creation_keys = {
+        "messages",
+        "params",
+        "system",
+        "utensils",
+    }
+    return not any(key in kwargs for key in creation_keys)
+
+
+class _LegacyObjects:
+    def __init__(self, cls, stash=None):
+        self._cls = cls
+        self._stash = stash
+
+    @property
+    def _collection(self):
+        if self._stash is None:
+            return self._cls.snapshots
+        return self._cls.snapshots(self._stash)
+
+    def __call__(self, stash):
+        return self.__class__(self._cls, stash)
+
+    def _postprocess(self, item):
+        snapshot = getattr(item, "snapshot", None) if item is not None else None
+        if item is not None and not hasattr(snapshot, "_ready"):
+            after_load = getattr(item, "_refresh_after_snapshot_load", None)
+            if after_load is None:
+                after_load = getattr(item, "_after_legacy_autoload", None)
+            if after_load is not None:
+                after_load()
+        return item
+
+    def get(self, *args, **kwargs):
+        return self._postprocess(self._collection.get(*args, **kwargs))
+
+    def get_or_none(self, *args, **kwargs):
+        return self._postprocess(self._collection.get_or_none(*args, **kwargs))
+
+    def get_or_create(self, *args, **kwargs):
+        return self._postprocess(self._collection.get_or_create(*args, **kwargs))
+
+    def all(self, *args, **kwargs):
+        for item in self._collection.all(*args, **kwargs):
+            yield self._postprocess(item)
+
+    def filter(self, *args, **kwargs):
+        for item in self._collection.filter(*args, **kwargs):
+            yield self._postprocess(item)
+
+
+def _install_datafiles_compat(cls, should_autoload):
+    original_init = cls.__init__
+
+    def __init__(self, *args, **kwargs):
+        autoload = should_autoload(args, kwargs)
+        refresh_snapclass_config_stash(cls)
+        original_init(self, *args, **kwargs)
+        # snapclass attaches snapshot after the model's custom __init__ returns.
+        # Install chatsnack's load/save hooks here so direct chat.snapshot.load()
+        # gets the same runtime refresh as Chat.load() and Chat.objects.get().
+        install_hooks = getattr(self, "_install_snapshot_compat_hooks", None)
+        if install_hooks is not None:
+            install_hooks()
+        refresh_stash = getattr(self, "_refresh_snapshot_stash", None)
+        if refresh_stash is not None:
+            refresh_stash()
+        snapshot = getattr(self, "snapshot", None)
+        if autoload and snapshot is not None and snapshot.exists:
+            snapshot.load(_initial=True)
+            if not hasattr(snapshot, "_ready"):
+                after_load = getattr(self, "_refresh_after_snapshot_load", None)
+                if after_load is None:
+                    after_load = getattr(self, "_after_legacy_autoload", None)
+                if after_load is not None:
+                    after_load()
+
+    cls.__init__ = __init__
+    cls.objects = _LegacyObjects(cls)
+
+
+def _runtime_config_from_chat_params(chat):
+    profile = getattr(chat.params, "profile", None) if chat.params is not None else None
+    runtime_selector = getattr(chat.params, "runtime", None) if chat.params is not None else None
+    session_mode = getattr(chat.params, "session", None) if chat.params is not None else None
+    if runtime_selector is None and session_mode is None:
+        runtime_selector, session_mode = _runtime_policy_from_env()
+    elif runtime_selector is None and session_mode is not None:
+        runtime_selector = "responses"
+    return runtime_selector, profile, session_mode
+
+
+def _apply_chat_constructor_overrides(chat):
+    """Reapply live constructor knobs after a saved YAML load."""
+    overrides = getattr(chat, "_chatsnack_constructor_overrides", {})
+    if not overrides:
+        return overrides
+    if "engine" in overrides:
+        chat.engine = overrides["engine"]
+    if "model" in overrides:
+        chat.model = overrides["model"]
+    if "session" in overrides:
+        chat.session = overrides["session"]
+    if "stream" in overrides:
+        chat.stream = overrides["stream"]
+    if "auto_execute" in overrides:
+        chat.auto_execute = overrides["auto_execute"]
+    if "tool_choice" in overrides:
+        chat.tool_choice = overrides["tool_choice"]
+    if "auto_feed" in overrides:
+        chat.auto_feed = overrides["auto_feed"]
+    if "tool_search_handler" in overrides:
+        chat.tool_search_handler = overrides["tool_search_handler"]
+    return overrides
+
+
+def _capture_chat_reset_state(chat):
+    chat._initial_name = chat.name
+    chat._initial_params = copy.copy(chat.params)
+    chat._initial_messages = copy.copy(chat.messages)
+    chat._initial_system_message = chat.system_message
+    chat._initial_registry = getattr(chat, "_local_registry", None)
+
+
+def _ensure_chat_live_state(self):
+    # Native snapclass collection loaders materialize with __new__, bypassing
+    # Chat.__init__. Keep that object usable without treating readiness as an
+    # authoritative YAML load refresh.
+    self._install_snapshot_compat_hooks()
+    if not hasattr(self, "ai"):
+        self.ai = AiClient()
+    if not hasattr(self, "tool_search_handler"):
+        self.tool_search_handler = None
+    if not hasattr(self, "runtime"):
+        runtime_selector, profile, session_mode = _runtime_config_from_chat_params(self)
+        self.runtime = self._select_runtime(
+            runtime_selector=runtime_selector,
+            profile=profile,
+            session_mode=session_mode,
+        )
+    if not hasattr(self, "_last_runtime_metadata"):
+        self._last_runtime_metadata = _empty_runtime_metadata()
+    if not hasattr(self, "_initial_name"):
+        _capture_chat_reset_state(self)
+
+
+def _refresh_chat_after_snapshot_load(self):
+    # params/messages are persisted; runtime, reset baselines, and tool handler
+    # state are live derivations. Rebuild them after any YAML-backed load.
+    _ensure_chat_live_state(self)
+    self._load_tools_from_params()
+    overrides = _apply_chat_constructor_overrides(self)
+    runtime_selector, profile, session_mode = _runtime_config_from_chat_params(self)
+    if "runtime_selector" in overrides:
+        runtime_selector = overrides["runtime_selector"]
+    self.runtime = self._select_runtime(
+        runtime=overrides.get("runtime"),
+        runtime_selector=runtime_selector,
+        profile=profile,
+        session_mode=session_mode,
+    )
+    self._last_runtime_metadata = _empty_runtime_metadata()
+    _capture_chat_reset_state(self)
+
+
+Chat._refresh_after_snapshot_load = _refresh_chat_after_snapshot_load
+Chat._after_legacy_autoload = _refresh_chat_after_snapshot_load
+Chat._ready_after_snapshot_attached = _ensure_chat_live_state
+_install_datafiles_compat(Text, _text_should_legacy_autoload)
+_install_datafiles_compat(Chat, _chat_should_legacy_autoload)

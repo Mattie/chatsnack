@@ -1,26 +1,165 @@
 import json
 from pathlib import Path
 
-def _safe_del_path(datafile_mapper):
-    """Delete cached path attribute if present."""
-    if hasattr(datafile_mapper, "__dict__") and "path" in datafile_mapper.__dict__:
-        del datafile_mapper.__dict__["path"]
+from snapclass import Stash
+
+
+def _stash_for_path(path):
+    if path is None:
+        return None
+    return Stash(Path(path).parent)
+
+
+def _set_lookup_stash(owner, path):
+    stash = _stash_for_path(path)
+    if stash is not None:
+        owner._snapshot_lookup_stash = stash
+
+
+def _set_lookup_stash_from_snapshot(owner, snapshot=None, path=None):
+    if path is not None:
+        _set_lookup_stash(owner, path)
+        return
+    snapshot = snapshot or getattr(owner, "snapshot", None)
+    snapshot_path = getattr(snapshot, "path", None) if snapshot is not None else None
+    if snapshot_path is not None:
+        _set_lookup_stash(owner, snapshot_path)
+
+
+def _refresh_after_snapshot_load(owner):
+    # Loading YAML replaces persisted fields such as params/messages. Chat also
+    # has live state derived from those fields (runtime, reset baselines, tools),
+    # so every explicit load path needs a post-load refresh.
+    refresh = getattr(owner, "_refresh_after_snapshot_load", None)
+    if refresh is None:
+        refresh = getattr(owner, "_after_legacy_autoload", None)
+    if refresh is not None:
+        refresh()
+
+
+def _refresh_snapshot_stash(owner):
+    snapshot = getattr(owner, "snapshot", None)
+    if snapshot is None:
+        return
+    stash = snapshot.stash
+    if stash is not None:
+        # snapclass stashes cache their resolved path. chatsnack's default root
+        # is intentionally cwd-relative, so refresh before path-sensitive work
+        # to preserve import-then-chdir notebook/test workflows.
+        snapshot._stash = stash.refresh()
+
+
+def refresh_snapclass_config_stash(cls):
+    """Refresh a model stash before snapclass resolves a new snapshot path."""
+    config = getattr(cls, "__snapclass_config__", None)
+    stash = getattr(config, "stash", None)
+    if stash is not None:
+        # snapclass 0.1.2 rejects lifecycle hooks that change snapshot paths.
+        # Refresh env/cwd-sensitive stashes before object construction or
+        # explicit save/load instead of doing it inside ready/loaded hooks.
+        config.stash = stash.refresh()
+
+
+class DatafileProxy:
+    """Compatibility wrapper exposing the old datafiles-style object API."""
+
+    def __init__(self, owner):
+        self._owner = owner
+
+    @property
+    def _snapshot(self):
+        return self._owner.snapshot
+
+    @property
+    def path(self):
+        return self._snapshot.path
+
+    @path.setter
+    def path(self, value):
+        self._snapshot.path = Path(value)
+        _set_lookup_stash(self._owner, value)
+
+    @property
+    def relpath(self):
+        return self._snapshot.relpath
+
+    @property
+    def text(self):
+        return self._snapshot.text
+
+    @text.setter
+    def text(self, value):
+        self._snapshot.text = value
+
+    @property
+    def exists(self):
+        return self._snapshot.exists
+
+    @property
+    def modified(self):
+        return self._snapshot.modified
+
+    def save(self, path=None):
+        _refresh_snapshot_stash(self._owner)
+        _set_lookup_stash(self._owner, path)
+        self._snapshot.save(path)
+        _set_lookup_stash_from_snapshot(self._owner)
+
+    def load(self, path=None):
+        _refresh_snapshot_stash(self._owner)
+        _set_lookup_stash(self._owner, path)
+        self._snapshot.load(path)
 
 class DatafileMixin:
+    @property
+    def datafile(self):
+        return DatafileProxy(self)
+
+    @property
+    def snapshot_lookup_stash(self):
+        _refresh_snapshot_stash(self)
+        stash = getattr(self, "_snapshot_lookup_stash", None)
+        if stash is not None:
+            return stash
+        snapshot = getattr(self, "snapshot", None)
+        snapshot_path = getattr(snapshot, "path", None) if snapshot is not None else None
+        if snapshot_path is not None:
+            return _stash_for_path(snapshot_path)
+        return snapshot.stash if snapshot is not None else None
+
+    def __snapclass_ready__(self, *, snapshot):
+        """Refresh path-sensitive live state after snapclass attaches a snapshot."""
+        _set_lookup_stash_from_snapshot(self, snapshot)
+        ready = getattr(self, "_ready_after_snapshot_attached", None)
+        if ready is not None:
+            ready()
+
+    def __snapclass_loaded__(self, *, snapshot, path):
+        """Refresh compatibility and live state after snapclass applies file data."""
+        _set_lookup_stash_from_snapshot(self, snapshot, path)
+        _refresh_after_snapshot_load(self)
+
+    def _install_snapshot_compat_hooks(self):
+        # snapclass 0.1.2 owns snapshot lifecycle hooks. This method remains so
+        # older chatsnack internals can call it without reintroducing monkey
+        # patching around snapshot.load().
+        return None
+
+    def _refresh_snapshot_stash(self):
+        _refresh_snapshot_stash(self)
+
     def save(self, path: str = None):
-        """Persist the current datafile-backed object to disk."""
-        # path is a cached property so we're going to delete it so it'll get recalculated
-        _safe_del_path(self.datafile)
-        if path is not None:
-            self.datafile.path = Path(path)
-        self.datafile.save()
+        """Persist the current snapshot-backed object to disk."""
+        _refresh_snapshot_stash(self)
+        _set_lookup_stash(self, path)
+        self.snapshot.save(path)
+        _set_lookup_stash_from_snapshot(self)
+
     def load(self, path: str = None):
         """Load the object from disk, optionally from an explicit path."""
-        # path is a cached property so we're going to delete it so it'll get recalculated
-        _safe_del_path(self.datafile)
-        if path is not None:
-            self.datafile.path = Path(path)
-        self.datafile.load()
+        _refresh_snapshot_stash(self)
+        _set_lookup_stash(self, path)
+        self.snapshot.load(path)
 
 # Define the Data Serialization mixin
 class ChatSerializationMixin(DatafileMixin):
@@ -37,7 +176,7 @@ class ChatSerializationMixin(DatafileMixin):
     @property
     def yaml(self) -> str:
         """ Returns the chat prompt as a yaml string ⭐"""
-        return self.datafile.text
+        return self.snapshot.text
     
     # def _messages_to_yaml(self, messages, expand_includes=True):
     #     """Converts messages to a list for YAML serialization"""

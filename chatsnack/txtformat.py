@@ -1,15 +1,15 @@
-from datafiles import formats
-from typing import IO, Dict, List
+from typing import Dict
 
-class TxtStrFormat(formats.Formatter):
-    """Special formatter to use with strings and .txt datafiles for a convenient raw text format for easy document editing on disk."""
+from snapclass import formatters
+
+
+class TxtStrFormat(formatters.FileFormatter):
+    """Formatter for raw .txt prompt assets edited directly on disk."""
+
+    extensions = {".txt"}
 
     @classmethod
-    def extensions(cls) -> List[str]:
-        return ['.txt']
-
-    @classmethod
-    def serialize(cls, data: Dict) -> str:
+    def dumps(cls, data: Dict) -> str:
         # Support only strings
         _supported_types = [str]
         # Convert `data` to a string
@@ -22,15 +22,17 @@ class TxtStrFormat(formats.Formatter):
         return output
 
     @classmethod
-    def deserialize(cls, file_object: IO) -> Dict:
-        # Read the entire content of the file
-        file_object = open(file_object.name, 'r', encoding='utf-8')
-        content = file_object.read()
+    def loads(cls, text: str) -> Dict:
+        return {"content": text}
 
-        # Create an output dictionary with a single key-value pair
-        output = {'content': content}
-        return output
+    @classmethod
+    def serialize(cls, data: Dict) -> str:
+        return cls.dumps(data)
+
+    @classmethod
+    def deserialize(cls, file_object) -> Dict:
+        return cls.loads(file_object.read())
 
 def register_txt_datafiles():
-    # this format class only works with strings
-    formats.register('.txt', TxtStrFormat)
+    """Compatibility no-op; snapclass formatters are attached per model."""
+    return None

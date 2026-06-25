@@ -2,7 +2,6 @@ import asyncio
 import json
 from typing import Dict, List, Optional, Union, Any
 
-from datafiles import datafile
 from loguru import logger
 
 from ..utensil import get_openai_tools, handle_tool_call, UtensilFunction, UtensilGroup, HostedUtensil
