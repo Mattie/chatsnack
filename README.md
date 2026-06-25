@@ -174,6 +174,7 @@ Generative AI gets a bit messy these days with so much text in our code. `chatsn
 ```python
 # Every chat is totally yaml-backed, we can save/load/edit
 print(newchat.yaml)
+print(newchat.snapshot.path)
 ```
 ```yaml
 messages:
@@ -186,6 +187,7 @@ For rapid reuse, you can give your chats a name so you can save/load as needed (
   ```python
   newchat.name = "Popsicle"
   newchat.save()
+  print(newchat.snapshot.text)
   ```
   ```python
   # Load a chat from a file

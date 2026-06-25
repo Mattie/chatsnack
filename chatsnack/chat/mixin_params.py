@@ -3,7 +3,7 @@ import json
 import warnings
 from typing import Optional, List, Dict, Any, Union, Literal, Tuple
 from dataclasses import dataclass, field
-from datafiles import datafile
+from snapclass import snapclass
 
 
 DEFAULT_MODEL_FALLBACK = "gpt-5-chat-latest"
@@ -119,14 +119,14 @@ class _ReasoningConfigProxy:
             return
         reasoning["summary"] = value
 
-@datafile
+@snapclass
 class ParameterProperty:
     """Represents a property in the parameters schema"""
     type: str
     description: Optional[str] = None
     enum: Optional[List[str]] = None
 
-@datafile
+@snapclass
 class ParameterSchema:
     """Represents a parameter schema in JSON Schema format"""
     type: str
@@ -228,7 +228,7 @@ class ParameterSchema:
             
         return schema
 
-@datafile
+@snapclass
 class FunctionDefinition:
     """Represents a function definition within a tool"""
     name: str
@@ -328,7 +328,7 @@ class FunctionDefinition:
         
         return function_def
 
-@datafile
+@snapclass
 class ToolDefinition:
     """Represents a tool that can be called by the model"""
     type: str = "function"  # Currently only "function" is supported
@@ -354,7 +354,7 @@ class ToolDefinition:
 
         return cls(type=tool_type, function=function_def)
 
-@datafile
+@snapclass
 class ChatParams:
     """
     Engine/query parameters for the chat prompt. See OpenAI documentation for most of these. ⭐

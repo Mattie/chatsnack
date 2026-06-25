@@ -437,6 +437,44 @@ async def test_chat_a_tool_recursion_preserves_runtime_continuation_metadata(cha
     assert output._last_runtime_metadata["assistant_phase"] == "completed"
 
 
+@pytest.mark.asyncio
+async def test_responses_auto_feed_followup_drops_required_tool_choice(chat, monkeypatch):
+    chat.runtime = ResponsesAdapter(chat.ai)
+    chat.auto_execute = True
+    chat.auto_feed = True
+    chat.tool_choice = "required"
+
+    class _ToolCall:
+        id = "call_1"
+        type = "function"
+        function = SimpleNamespace(name="echo", arguments='{"x":1}')
+
+    async def fake_submit(**kwargs):
+        return json.dumps(chat.get_messages()), SimpleNamespace(
+            message=SimpleNamespace(content=None, tool_calls=[_ToolCall()]),
+            metadata={"response_id": "resp_tool", "assistant_phase": "tool_calls"},
+        )
+
+    captured = []
+
+    async def fake_create_completion_a(self, messages, **kwargs):
+        captured.append(kwargs.copy())
+        return SimpleNamespace(
+            message=SimpleNamespace(content="final", tool_calls=[]),
+            metadata={"response_id": "resp_final", "assistant_phase": "completed"},
+        )
+
+    monkeypatch.setattr(chat, "_submit_for_response_and_prompt", fake_submit)
+    monkeypatch.setattr(chat, "execute_tool_call", lambda tc: {"ok": True})
+    monkeypatch.setattr(ResponsesAdapter, "create_completion_a", fake_create_completion_a)
+
+    output = await chat.chat_a()
+
+    assert captured
+    assert "tool_choice" not in captured[0]
+    assert output.get_messages()[-1]["content"] == "final"
+
+
 def test_copy_chatprompt_same_name():
     """Copying a ChatPrompt with the same name should succeed."""
     chat = Chat(name="test")

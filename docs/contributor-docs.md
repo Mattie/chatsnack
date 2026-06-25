@@ -33,7 +33,7 @@ mkdocs build --strict
 
 ## Repo references
 
-- [Datafiles reference notes](https://github.com/Mattie/chatsnack/blob/master/docs/reference/datafiles.md)
+- [Snapclass migration checklist](https://github.com/Mattie/chatsnack/blob/master/docs/projects/snapclass-migration-checklist.md)
 - [Phase 1 runtime adapter RFC](https://github.com/Mattie/chatsnack/blob/master/docs/rfcs/phase-1-runtime-adapter-rfc.md)
 - [Phase 3 Responses YAML RFC](https://github.com/Mattie/chatsnack/blob/master/docs/rfcs/phase-3-responses-yaml-rfc.md)
 - [Hosted tools and utensils checklist](https://github.com/Mattie/chatsnack/blob/master/docs/projects/phase-4a-hosted-tools-utensils-checklist.md)

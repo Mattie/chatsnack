@@ -5,10 +5,9 @@ from datetime import datetime
 from typing import Dict, List, Optional
 
 from loguru import logger
-from datafiles import datafile
 
 from ..asynchelpers import aformatter
-from ..fillings import filling_machine
+from ..fillings import active_filling_stash, filling_machine
 from ..runtime import EVENT_SCHEMA_VERSION
 from ..runtime.attachment_inputs import normalize_attachment_inputs
 
@@ -383,9 +382,13 @@ class ChatQueryMixin(ChatMessagesMixin, ChatParamsMixin):
     async def _build_final_prompt(self, additional_vars = {}):
         promptvars = {}
         promptvars.update(additional_vars)
-        # format the prompt text with the passed-in variables as well as doing internal expansion
-        prompt = await self._gather_format(aformatter.async_format, **filling_machine(promptvars))
-        return prompt
+        token = active_filling_stash.set(self.snapshot_lookup_stash if hasattr(self, "snapshot_lookup_stash") else None)
+        try:
+            # format the prompt text with the passed-in variables as well as doing internal expansion
+            prompt = await self._gather_format(aformatter.async_format, **filling_machine(promptvars))
+            return prompt
+        finally:
+            active_filling_stash.reset(token)
 
     def _build_completion_request_kwargs(self) -> Dict[str, object]:
         """Build provider-facing kwargs for one completion request."""
@@ -410,6 +413,17 @@ class ChatQueryMixin(ChatMessagesMixin, ChatParamsMixin):
                 if params and params.tool_choice:
                     kwargs["tool_choice"] = params.tool_choice
 
+        return kwargs
+
+    def _build_tool_followup_request_kwargs(self) -> Dict[str, object]:
+        """Build kwargs for an auto-fed tool-output follow-up request."""
+        kwargs = self._build_completion_request_kwargs()
+        if self._runtime_supports_continuation() and "tool_choice" in kwargs:
+            # Responses-family runtimes treat tool_choice="required" literally
+            # even after the requested tool output has been supplied. Leaving it
+            # on the follow-up forces another tool call instead of allowing the
+            # final assistant answer the auto-feed path exists to collect.
+            kwargs.pop("tool_choice", None)
         return kwargs
 
     async def _submit_for_response_and_prompt(self, track_continuation: bool = False, **additional_vars):
@@ -827,7 +841,7 @@ class ChatQueryMixin(ChatMessagesMixin, ChatParamsMixin):
                         follow_up = await temp_chat._cleaned_chat_completion(
                             new_prompt,
                             track_continuation=True,
-                            **temp_chat._build_completion_request_kwargs(),
+                            **temp_chat._build_tool_followup_request_kwargs(),
                         )
                         
                         # Check if the follow-up response has tool calls

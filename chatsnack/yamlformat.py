@@ -17,11 +17,9 @@
 # WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION 
 # WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 from io import StringIO
-import log
-from typing import IO, Dict, List, Union
-import dataclasses
-from datafiles import formats, types
-from ruamel.yaml.scalarstring import DoubleQuotedScalarString
+from typing import Dict, List, Union
+from loguru import logger
+from snapclass import formatters
 from ruamel.yaml import YAML as _YAML
 
 from .chat.turns import (
@@ -103,7 +101,7 @@ def _canonical_expanded_block(content_dict, role):
     # happen after normalization, but log a warning if it does).
     for key in content_dict:
         if key not in ordered:
-            log.warning(f"Unexpected field '{key}' outside canonical order on {role} turn")
+            logger.warning(f"Unexpected field '{key}' outside canonical order on {role} turn")
             ordered[key] = content_dict[key]
     return ordered
 
@@ -164,7 +162,7 @@ def _normalize_message_on_save(msg, fidelity):
         if isinstance(content, dict):
             text_val = content.get("text")
             if text_val is None:
-                log.warning("Expanded system message missing 'text' field; emitting empty string")
+                logger.warning("Expanded system message missing 'text' field; emitting empty string")
             return {role: text_val or ""}
         return {role: content}
 
@@ -303,31 +301,29 @@ def _normalize_data_on_save(data):
     return data
 
 
-class YAML(formats.Formatter):
+class YAML(formatters.FileFormatter):
     """Formatter for (round-trip) YAML Ain't Markup Language."""
 
-    @classmethod
-    def extensions(cls):
-        return {"", ".yml", ".yaml"}
+    extensions = {"", ".yml", ".yaml"}
 
     @classmethod
-    def deserialize(cls, file_object):
-        from ruamel.yaml import YAML as _YAML
-
+    def loads(cls, text: str):
         yaml = _YAML()
         yaml.preserve_quotes = True  # type: ignore
         try:
-            data = yaml.load(file_object)
+            data = yaml.load(text)
         except NotImplementedError as e:
-            log.error(str(e))
+            logger.error(str(e))
             return {}
+        if data is None:
+            data = {}
 
         # Phase 3: normalize developer→system, unknown fields→provider_extras on load.
         data = _normalize_data_on_load(data)
         return data
 
     @classmethod
-    def serialize(cls, data):
+    def dumps(cls, data):
         # HACK: to remove None values from the data and make the yaml file cleaner
         def filter_none_values(data: Union[Dict, List]):
             if isinstance(data, dict):
@@ -355,8 +351,6 @@ class YAML(formats.Formatter):
 
 
         yaml.default_style = "|"  # support the cleaner multiline format for source code blocks
-        yaml.register_class(types.List)
-        yaml.register_class(types.Dict)
 
         yaml.indent(mapping=2, sequence=4, offset=2)
 
@@ -372,6 +366,14 @@ class YAML(formats.Formatter):
 
         return text.replace("- \n", "-\n")
 
+    @classmethod
+    def deserialize(cls, file_object):
+        return cls.loads(file_object.read())
+
+    @classmethod
+    def serialize(cls, data):
+        return cls.dumps(data)
+
 def register_yaml_datafiles():
-    # replace with our own version of 
-    formats.register(".yml", YAML)
+    """Compatibility no-op; snapclass formatters are attached per model."""
+    return None

@@ -1,6 +1,9 @@
-from typing import Optional, Callable, Dict
-from loguru import logger
+from contextvars import ContextVar
 from typing import Callable, Optional, Dict
+from loguru import logger
+
+
+active_filling_stash = ContextVar("chatsnack_active_filling_stash", default=None)
 
 class _AsyncFillingMachine:
     """Used for parallel variable expansion"""
