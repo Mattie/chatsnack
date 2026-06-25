@@ -1,48 +1,20 @@
 name: Publish package
 
 on:
-  workflow_dispatch:
-    inputs:
-      target:
-        description: Package index to publish to
-        required: true
-        type: choice
-        options:
-          - testpypi
-          - pypi
+  release:
+    types: [published]
 
 permissions:
   contents: read
-
-concurrency:
-  group: publish-${{ inputs.target }}-${{ github.ref }}
-  cancel-in-progress: false
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
 
 jobs:
-  validate-target:
-    name: Validate publish target
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-
-    steps:
-      - name: Reject production publish from non-release refs
-        if: inputs.target == 'pypi' && github.ref != 'refs/heads/master' && !startsWith(github.ref, 'refs/tags/v')
-        run: |
-          echo "::error::PyPI publishing is restricted to master or v* tags. Current ref is $GITHUB_REF."
-          exit 1
-
-      - name: Confirm publish target
-        run: echo "Publishing target '${{ inputs.target }}' from ref '${{ github.ref }}'."
-
   build:
     name: Build distributions
-    needs: validate-target
     runs-on: ubuntu-latest
-    # The build job uploads package distributions for a later publish job.
+    # The build job uploads package distributions for later publish jobs.
     # Keep artifact write access out of the OIDC-enabled publish jobs.
     permissions:
       contents: read
@@ -61,26 +33,22 @@ jobs:
             pyproject.toml
             poetry.lock
 
-      - name: Install build tooling
+      - name: Build and check distributions
         run: |
           python -m pip install --upgrade pip
           python -m pip install build twine
-
-      - name: Build package
-        run: python -m build
-
-      - name: Check package metadata
-        run: python -m twine check dist/*
+          python -m build
+          python -m twine check dist/*
 
       - name: Upload distributions
         uses: actions/upload-artifact@v6
         with:
           name: python-package-distributions
           path: dist/
+          if-no-files-found: error
 
   publish-testpypi:
     name: Publish to TestPyPI
-    if: inputs.target == 'testpypi'
     needs: build
     runs-on: ubuntu-latest
     environment:
@@ -105,12 +73,45 @@ jobs:
           repository-url: https://test.pypi.org/legacy/
           skip-existing: true
 
+  verify-testpypi:
+    name: Verify TestPyPI install
+    needs: publish-testpypi
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+
+      - name: Download from TestPyPI
+        shell: bash
+        run: |
+          python -m pip install --upgrade pip
+          version="${GITHUB_REF_NAME#v}"
+          mkdir -p testpypi-dist
+          for attempt in 1 2 3 4 5; do
+            python -m pip download \
+              --no-deps \
+              --only-binary=:all: \
+              --index-url https://test.pypi.org/simple/ \
+              --dest testpypi-dist \
+              "chatsnack==${version}" \
+              && break
+            if [ "${attempt}" = "5" ]; then
+              exit 1
+            fi
+            sleep 15
+          done
+
+      - name: Run import smoke test
+        run: |
+          python -m pip install testpypi-dist/chatsnack-*.whl
+          python -c "import chatsnack; from chatsnack import Chat, Text"
+
   publish-pypi:
     name: Publish to PyPI
-    # Defense in depth: validate-target fails invalid refs before build, and
-    # this condition prevents production upload if the dependency graph changes.
-    if: inputs.target == 'pypi' && (github.ref == 'refs/heads/master' || startsWith(github.ref, 'refs/tags/v'))
-    needs: build
+    needs: verify-testpypi
     runs-on: ubuntu-latest
     environment:
       name: pypi
@@ -130,5 +131,3 @@ jobs:
 
       - name: Publish package distributions to PyPI
         uses: pypa/gh-action-pypi-publish@release/v1
-        with:
-          skip-existing: true
