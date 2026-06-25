@@ -20,7 +20,9 @@ permissions:
   contents: read
 
 concurrency:
-  group: publish-${{ github.event_name == 'workflow_dispatch' && inputs.target || 'pypi' }}-${{ github.ref }}
+  # Use the commit SHA instead of the ref so branch and tag pushes for the
+  # same release commit cannot race each other through the PyPI approval gate.
+  group: publish-${{ github.event_name == 'workflow_dispatch' && inputs.target || 'pypi' }}-${{ github.sha }}
   cancel-in-progress: false
 
 env:
