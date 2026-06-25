@@ -1,6 +1,11 @@
 name: Publish package
 
 on:
+  push:
+    branches:
+      - master
+    tags:
+      - "v*"
   workflow_dispatch:
     inputs:
       target:
@@ -15,7 +20,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: publish-${{ inputs.target }}-${{ github.ref }}
+  group: publish-${{ github.event_name == 'workflow_dispatch' && inputs.target || 'pypi' }}-${{ github.ref }}
   cancel-in-progress: false
 
 env:
@@ -30,13 +35,19 @@ jobs:
 
     steps:
       - name: Reject production publish from non-release refs
-        if: inputs.target == 'pypi' && github.ref != 'refs/heads/master' && !startsWith(github.ref, 'refs/tags/v')
+        if: github.event_name == 'workflow_dispatch' && inputs.target == 'pypi' && github.ref != 'refs/heads/master' && !startsWith(github.ref, 'refs/tags/v')
         run: |
           echo "::error::PyPI publishing is restricted to master or v* tags. Current ref is $GITHUB_REF."
           exit 1
 
       - name: Confirm publish target
-        run: echo "Publishing target '${{ inputs.target }}' from ref '${{ github.ref }}'."
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            target="${{ inputs.target }}"
+          else
+            target="pypi"
+          fi
+          echo "Publishing target '$target' from ref '${{ github.ref }}'."
 
   build:
     name: Build distributions
@@ -80,7 +91,7 @@ jobs:
 
   publish-testpypi:
     name: Publish to TestPyPI
-    if: inputs.target == 'testpypi'
+    if: github.event_name == 'workflow_dispatch' && inputs.target == 'testpypi'
     needs: build
     runs-on: ubuntu-latest
     environment:
@@ -109,7 +120,7 @@ jobs:
     name: Publish to PyPI
     # Defense in depth: validate-target fails invalid refs before build, and
     # this condition prevents production upload if the dependency graph changes.
-    if: inputs.target == 'pypi' && (github.ref == 'refs/heads/master' || startsWith(github.ref, 'refs/tags/v'))
+    if: (github.event_name == 'push' || inputs.target == 'pypi') && (github.ref == 'refs/heads/master' || startsWith(github.ref, 'refs/tags/v'))
     needs: build
     runs-on: ubuntu-latest
     environment:
