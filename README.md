@@ -25,7 +25,7 @@ Read more below, watch the [intro video](https://www.youtube.com/watch?v=Yjwi54r
 
 ### Responses API Support
 `Chat()` now defaults to the Responses family over WebSocket with `session="inherit"`.
-If you stay on that default path—or explicitly choose another Responses transport—
+If you stay on that default path--or explicitly choose another Responses transport--
 chatsnack requires the OpenAI Python client to be `openai>=1.66.0` (or newer) to
 ensure compatibility.
 
@@ -199,13 +199,13 @@ For rapid reuse, you can give your chats a name so you can save/load as needed (
 
 #### Adjusting Cooking Temperatures
 
-By default, `gpt-3.5-turbo` is the default chat API with a default temperature of `0.7`. If you prefer, you can change OpenAI parameters for each chat, such as the engine and temperature:
+By default, chatsnack uses the Responses API over WebSocket and `gpt-4-turbo`. If you prefer, you can change OpenAI parameters for each chat, such as the model and temperature:
 
 ```python
 from chatsnack import Chat
 wisechat = Chat("Respond with professional writing based on the user query.")
 wisechat.user("Author an alliterative poem about good snacks to eat with coffee.")
-wisechat.engine = "gpt-4"
+wisechat.model = "gpt-4"
 wisechat.temperature = 0.8
 ```
 This also gets captured in the YAML:
@@ -215,7 +215,7 @@ print(wisechat.yaml)
 ```
 ```yaml
 params:
-  engine: gpt-4
+  model: gpt-4
   temperature: 0.8
 messages:
   - system: Respond with professional writing based on the user query.
