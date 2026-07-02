@@ -119,6 +119,14 @@ Drop a note into `## Progress Notes` whenever something meaningfully changes.
 
 Add short dated entries here as work lands.
 
+### 2026-07-02 - Non-streaming WebSocket retry hardening
+- Status: done
+- RFC sections: `Error and retry policy`; `How ask(), chat(), listen(), and listen_a() should work`
+- What works for users: `create_completion()` and `create_completion_a()` now retry pre-output WebSocket transport failures with the same sync/async policy before `ask()` or `chat()` surfaces an error. Streaming still emits a structured `error` event after retry exhaustion.
+- Caveats: Retries remain guarded by no emitted text/tool/completed event; auth and busy-session errors still fail immediately.
+- How we checked it: WebSocket adapter tests, previous-response retry test, Phase 2 session tests, adjacent runtime/query/listen tests.
+- Follow-up: Live provider retry behavior remains environment-dependent.
+
 
 ### 2026-03-22 - Phase 2a: SDK transport correction
 - Status: done

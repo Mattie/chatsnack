@@ -295,8 +295,8 @@ class Chat(ChatQueryMixin, ChatSerializationMixin, ChatUtensilMixin):
                     child_session.last_response_id = getattr(parent_session, "last_response_id", None)
                     child_session.last_model = getattr(parent_session, "last_model", None)
                     child_session.last_store_value = getattr(parent_session, "last_store_value", None)
-                    return ResponsesWebSocketAdapter(self.ai, session=child_session)
-                return ResponsesWebSocketAdapter(self.ai, session=runtime.session)
+                    return ResponsesWebSocketAdapter(self.ai, session=child_session, **runtime._retry_options())
+                return ResponsesWebSocketAdapter(self.ai, session=runtime.session, **runtime._retry_options())
             if isinstance(runtime, (ResponsesAdapter, ChatCompletionsAdapter)):
                 return type(runtime)(self.ai)
             # Unknown / custom runtime objects are passed through verbatim to

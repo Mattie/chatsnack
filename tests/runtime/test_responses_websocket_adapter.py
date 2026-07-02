@@ -94,7 +94,7 @@ def test_previous_response_not_found_retries_once_without_previous(monkeypatch):
 
 def test_retriable_transport_error_reopens_connection_once(monkeypatch):
     ai = SimpleNamespace(api_key="x", base_url=None, client=None, aclient=None)
-    adapter = ResponsesWebSocketAdapter(ai, session=ResponsesWebSocketSession(mode="inherit"))
+    adapter = ResponsesWebSocketAdapter(ai, session=ResponsesWebSocketSession(mode="inherit"), retry_initial_delay=0)
     calls = []
 
     def fake_stream_once(messages, kwargs, include_prev=True):
@@ -118,6 +118,292 @@ def test_retriable_transport_error_reopens_connection_once(monkeypatch):
     assert dropped["count"] == 1
 
 
+def test_create_completion_retries_transport_error_before_output_and_succeeds(monkeypatch):
+    ai = SimpleNamespace(api_key="x", base_url=None, client=None, aclient=None)
+    adapter = ResponsesWebSocketAdapter(
+        ai,
+        session=ResponsesWebSocketSession(mode="inherit"),
+        retry_initial_delay=0,
+    )
+    calls = []
+    dropped = {"count": 0}
+
+    def fake_stream(messages, kwargs, include_prev=True):
+        calls.append((kwargs.copy(), include_prev))
+        if len(calls) == 1:
+            raise ResponsesWebSocketTransportError(
+                "opening handshake timed out",
+                code="socket_open_timeout",
+                retriable=True,
+                details={"phase": "opening_handshake"},
+            )
+        yield RuntimeStreamEvent(
+            type="completed",
+            index=0,
+            data={
+                "terminal": {
+                    "finish_reason": "completed",
+                    "model": "gpt-4.1",
+                    "usage": {"total_tokens": 4},
+                    "response_text": "recovered",
+                    "metadata": {"response_id": "resp_retry"},
+                }
+            },
+        )
+
+    def drop_connection():
+        dropped["count"] += 1
+
+    monkeypatch.setattr(adapter, "_stream_sync_request", fake_stream)
+    monkeypatch.setattr(adapter, "_drop_sync_connection", drop_connection)
+
+    result = adapter.create_completion(messages=[{"role": "user", "content": "hi"}], model="gpt-4.1")
+
+    assert result.message.content == "recovered"
+    assert len(calls) == 2
+    assert dropped["count"] == 1
+
+
+@pytest.mark.asyncio
+async def test_create_completion_a_retries_transport_error_before_output_and_succeeds(monkeypatch):
+    ai = SimpleNamespace(api_key="x", base_url=None, client=None, aclient=None)
+    adapter = ResponsesWebSocketAdapter(
+        ai,
+        session=ResponsesWebSocketSession(mode="inherit"),
+        retry_initial_delay=0,
+    )
+    calls = []
+    dropped = {"count": 0}
+
+    async def fake_stream(messages, kwargs, include_prev=True):
+        calls.append((kwargs.copy(), include_prev))
+        if len(calls) == 1:
+            raise ResponsesWebSocketTransportError(
+                "opening handshake timed out",
+                code="socket_open_timeout",
+                retriable=True,
+                details={"phase": "opening_handshake"},
+            )
+        yield RuntimeStreamEvent(
+            type="completed",
+            index=0,
+            data={
+                "terminal": {
+                    "finish_reason": "completed",
+                    "model": "gpt-4.1",
+                    "usage": {"total_tokens": 4},
+                    "response_text": "recovered",
+                    "metadata": {"response_id": "resp_retry_async"},
+                }
+            },
+        )
+
+    async def drop_connection():
+        dropped["count"] += 1
+
+    monkeypatch.setattr(adapter, "_stream_async_request", fake_stream)
+    monkeypatch.setattr(adapter, "_drop_async_connection", drop_connection)
+
+    result = await adapter.create_completion_a(messages=[{"role": "user", "content": "hi"}], model="gpt-4.1")
+
+    assert result.message.content == "recovered"
+    assert len(calls) == 2
+    assert dropped["count"] == 1
+
+
+def test_create_completion_retries_structured_stream_error_before_output(monkeypatch):
+    ai = SimpleNamespace(api_key="x", base_url=None, client=None, aclient=None)
+    adapter = ResponsesWebSocketAdapter(
+        ai,
+        session=ResponsesWebSocketSession(mode="inherit"),
+        retry_initial_delay=0,
+    )
+    calls = []
+    dropped = {"count": 0}
+
+    def fake_stream(messages, kwargs, include_prev=True):
+        calls.append(len(calls) + 1)
+        if len(calls) == 1:
+            yield RuntimeStreamEvent(
+                type="error",
+                index=0,
+                data={
+                    "error": {
+                        "message": "opening handshake timed out",
+                        "code": "socket_open_timeout",
+                        "retriable": True,
+                        "details": {"phase": "opening_handshake"},
+                    }
+                },
+            )
+            return
+        yield RuntimeStreamEvent(
+            type="completed",
+            index=0,
+            data={
+                "terminal": {
+                    "finish_reason": "completed",
+                    "model": "gpt-4.1",
+                    "usage": {"total_tokens": 4},
+                    "response_text": "ok",
+                    "metadata": {"response_id": "resp_structured_retry"},
+                }
+            },
+        )
+
+    def drop_connection():
+        dropped["count"] += 1
+
+    monkeypatch.setattr(adapter, "_stream_sync_request", fake_stream)
+    monkeypatch.setattr(adapter, "_drop_sync_connection", drop_connection)
+
+    result = adapter.create_completion(messages=[{"role": "user", "content": "hi"}], model="gpt-4.1")
+
+    assert result.message.content == "ok"
+    assert calls == [1, 2]
+    assert dropped["count"] == 1
+
+
+def test_create_completion_does_not_retry_transport_error_after_text_delta(monkeypatch):
+    ai = SimpleNamespace(api_key="x", base_url=None, client=None, aclient=None)
+    adapter = ResponsesWebSocketAdapter(
+        ai,
+        session=ResponsesWebSocketSession(mode="inherit"),
+        retry_initial_delay=0,
+    )
+    calls = []
+
+    def fake_stream(messages, kwargs, include_prev=True):
+        calls.append(len(calls) + 1)
+        yield RuntimeStreamEvent(type="text_delta", index=0, data={"text": "partial"})
+        raise ResponsesWebSocketTransportError(
+            "socket_receive_failed",
+            code="socket_receive_failed",
+            retriable=True,
+        )
+
+    monkeypatch.setattr(adapter, "_stream_sync_request", fake_stream)
+
+    with pytest.raises(ResponsesWebSocketTransportError, match="socket_receive_failed"):
+        adapter.create_completion(messages=[{"role": "user", "content": "hi"}], model="gpt-4.1")
+
+    assert calls == [1]
+
+
+def test_create_completion_does_not_retry_auth_error_even_when_marked_retriable(monkeypatch):
+    ai = SimpleNamespace(api_key="x", base_url=None, client=None, aclient=None)
+    adapter = ResponsesWebSocketAdapter(
+        ai,
+        session=ResponsesWebSocketSession(mode="inherit"),
+        retry_initial_delay=0,
+    )
+    calls = []
+
+    def fake_stream(messages, kwargs, include_prev=True):
+        calls.append(len(calls) + 1)
+        raise ResponsesWebSocketTransportError("auth failed", code="auth_error", retriable=True)
+        yield  # pragma: no cover
+
+    monkeypatch.setattr(adapter, "_stream_sync_request", fake_stream)
+
+    with pytest.raises(ResponsesWebSocketTransportError, match="auth failed") as exc_info:
+        adapter.create_completion(messages=[{"role": "user", "content": "hi"}], model="gpt-4.1")
+
+    assert exc_info.value.code == "auth_error"
+    assert calls == [1]
+
+
+def test_create_completion_exhausts_transport_retries_and_preserves_error_details(monkeypatch):
+    ai = SimpleNamespace(api_key="x", base_url=None, client=None, aclient=None)
+    adapter = ResponsesWebSocketAdapter(
+        ai,
+        session=ResponsesWebSocketSession(mode="inherit"),
+        max_transport_retries=2,
+        retry_initial_delay=0,
+    )
+    calls = []
+    dropped = {"count": 0}
+
+    def fake_stream(messages, kwargs, include_prev=True):
+        calls.append(len(calls) + 1)
+        raise ResponsesWebSocketTransportError(
+            "opening handshake timed out",
+            code="socket_open_timeout",
+            retriable=True,
+            details={"phase": "opening_handshake"},
+        )
+        yield  # pragma: no cover
+
+    def drop_connection():
+        dropped["count"] += 1
+
+    monkeypatch.setattr(adapter, "_stream_sync_request", fake_stream)
+    monkeypatch.setattr(adapter, "_drop_sync_connection", drop_connection)
+
+    with pytest.raises(ResponsesWebSocketTransportError, match="opening handshake timed out") as exc_info:
+        adapter.create_completion(messages=[{"role": "user", "content": "hi"}], model="gpt-4.1")
+
+    assert calls == [1, 2, 3]
+    assert dropped["count"] == 2
+    assert exc_info.value.code == "socket_open_timeout"
+    assert exc_info.value.details == {"phase": "opening_handshake"}
+
+
+def test_create_completion_exhausted_previous_response_retry_preserves_error_taxonomy(monkeypatch):
+    ai = SimpleNamespace(api_key="x", base_url=None, client=None, aclient=None)
+    adapter = ResponsesWebSocketAdapter(
+        ai,
+        session=ResponsesWebSocketSession(mode="inherit"),
+        retry_initial_delay=0,
+    )
+    adapter.session.last_response_id = "resp_missing"
+    calls = []
+
+    def fake_stream(messages, kwargs, include_prev=True):
+        calls.append(include_prev)
+        raise RuntimeError("previous_response_not_found")
+        yield  # pragma: no cover
+
+    monkeypatch.setattr(adapter, "_stream_sync_request", fake_stream)
+
+    with pytest.raises(ResponsesWebSocketTransportError, match="previous_response_not_found") as exc_info:
+        adapter.create_completion(messages=[{"role": "user", "content": "hi"}], model="gpt-4.1")
+
+    assert calls == [True, False]
+    assert exc_info.value.code == "previous_response_not_found"
+    assert exc_info.value.retriable is True
+
+
+def test_stream_completion_emits_error_after_transport_retries_exhausted(monkeypatch):
+    ai = SimpleNamespace(api_key="x", base_url=None, client=None, aclient=None)
+    adapter = ResponsesWebSocketAdapter(
+        ai,
+        session=ResponsesWebSocketSession(mode="inherit"),
+        max_transport_retries=2,
+        retry_initial_delay=0,
+    )
+    calls = []
+
+    def fake_stream(messages, kwargs, include_prev=True):
+        calls.append(len(calls) + 1)
+        raise ResponsesWebSocketTransportError(
+            "opening handshake timed out",
+            code="socket_open_timeout",
+            retriable=True,
+            details={"phase": "opening_handshake"},
+        )
+        yield  # pragma: no cover
+
+    monkeypatch.setattr(adapter, "_stream_sync_request", fake_stream)
+
+    events = list(adapter.stream_completion(messages=[{"role": "user", "content": "hi"}], model="gpt-4.1"))
+
+    assert calls == [1, 2, 3]
+    assert events[-1].type == "error"
+    assert events[-1].data["error"]["code"] == "socket_open_timeout"
+    assert events[-1].data["error"]["details"] == {"phase": "opening_handshake"}
+
+
 def test_non_retriable_transport_error_surfaces_structured_error(monkeypatch):
     ai = SimpleNamespace(api_key="x", base_url=None, client=None, aclient=None)
     adapter = ResponsesWebSocketAdapter(ai, session=ResponsesWebSocketSession(mode="inherit"))
@@ -139,7 +425,7 @@ def test_create_completion_consumes_stream_to_normalized_result(monkeypatch):
     ai = SimpleNamespace(api_key="x", base_url=None, client=None, aclient=None)
     adapter = ResponsesWebSocketAdapter(ai, session=ResponsesWebSocketSession(mode="inherit"))
 
-    def fake_stream(messages, **kwargs):
+    def fake_stream(messages, kwargs, include_prev=True):
         yield SimpleNamespace(type="text_delta", index=0, data={"text": "hel"})
         yield SimpleNamespace(type="text_delta", index=1, data={"text": "lo"})
         yield SimpleNamespace(
@@ -156,7 +442,7 @@ def test_create_completion_consumes_stream_to_normalized_result(monkeypatch):
             },
         )
 
-    monkeypatch.setattr(adapter, "stream_completion", fake_stream)
+    monkeypatch.setattr(adapter, "_stream_sync_request", fake_stream)
 
     result = adapter.create_completion(messages=[{"role": "user", "content": "hi"}], model="gpt-4.1")
 
@@ -168,7 +454,7 @@ def test_create_completion_uses_terminal_response_payload_for_rich_output(monkey
     ai = SimpleNamespace(api_key="x", base_url=None, client=None, aclient=None)
     adapter = ResponsesWebSocketAdapter(ai, session=ResponsesWebSocketSession(mode="inherit"))
 
-    def fake_stream(messages, **kwargs):
+    def fake_stream(messages, kwargs, include_prev=True):
         yield SimpleNamespace(
             type="completed",
             index=0,
@@ -201,7 +487,7 @@ def test_create_completion_uses_terminal_response_payload_for_rich_output(monkey
             },
         )
 
-    monkeypatch.setattr(adapter, "stream_completion", fake_stream)
+    monkeypatch.setattr(adapter, "_stream_sync_request", fake_stream)
     result = adapter.create_completion(messages=[{"role": "user", "content": "hi"}], model="gpt-4.1")
 
     assert result.message.content == "hello"
@@ -212,7 +498,7 @@ def test_create_completion_preserves_streamed_tool_calls(monkeypatch):
     ai = SimpleNamespace(api_key="x", base_url=None, client=None, aclient=None)
     adapter = ResponsesWebSocketAdapter(ai, session=ResponsesWebSocketSession(mode="inherit"))
 
-    def fake_stream(messages, **kwargs):
+    def fake_stream(messages, kwargs, include_prev=True):
         yield SimpleNamespace(
             type="tool_call_delta",
             index=0,
@@ -237,7 +523,7 @@ def test_create_completion_preserves_streamed_tool_calls(monkeypatch):
             },
         )
 
-    monkeypatch.setattr(adapter, "stream_completion", fake_stream)
+    monkeypatch.setattr(adapter, "_stream_sync_request", fake_stream)
 
     result = adapter.create_completion(messages=[{"role": "user", "content": "hi"}], model="gpt-4.1")
 
@@ -251,7 +537,7 @@ def test_create_completion_dedupes_terminal_function_call_already_reconstructed_
     ai = SimpleNamespace(api_key="x", base_url=None, client=None, aclient=None)
     adapter = ResponsesWebSocketAdapter(ai, session=ResponsesWebSocketSession(mode="inherit"))
 
-    def fake_stream(messages, **kwargs):
+    def fake_stream(messages, kwargs, include_prev=True):
         yield SimpleNamespace(
             type="tool_call_delta",
             index=0,
@@ -300,7 +586,7 @@ def test_create_completion_dedupes_terminal_function_call_already_reconstructed_
             },
         )
 
-    monkeypatch.setattr(adapter, "stream_completion", fake_stream)
+    monkeypatch.setattr(adapter, "_stream_sync_request", fake_stream)
 
     result = adapter.create_completion(messages=[{"role": "user", "content": "hi"}], model="gpt-4.1")
 
@@ -315,10 +601,10 @@ def test_create_completion_raises_on_stream_error_event(monkeypatch):
     ai = SimpleNamespace(api_key="x", base_url=None, client=None, aclient=None)
     adapter = ResponsesWebSocketAdapter(ai, session=ResponsesWebSocketSession(mode="inherit"))
 
-    def fake_stream(messages, **kwargs):
+    def fake_stream(messages, kwargs, include_prev=True):
         yield SimpleNamespace(type="error", index=0, data={"error": {"message": "busy session", "code": "session_busy"}})
 
-    monkeypatch.setattr(adapter, "stream_completion", fake_stream)
+    monkeypatch.setattr(adapter, "_stream_sync_request", fake_stream)
 
     from chatsnack.runtime.responses_websocket_adapter import ResponsesSessionBusyError
     with pytest.raises(ResponsesSessionBusyError, match="busy session"):
@@ -344,10 +630,10 @@ async def test_create_completion_a_raises_on_stream_error_event(monkeypatch):
     ai = SimpleNamespace(api_key="x", base_url=None, client=None, aclient=None)
     adapter = ResponsesWebSocketAdapter(ai, session=ResponsesWebSocketSession(mode="inherit"))
 
-    async def fake_stream(messages, **kwargs):
+    async def fake_stream(messages, kwargs, include_prev=True):
         yield SimpleNamespace(type="error", index=0, data={"error": {"message": "busy session", "code": "session_busy"}})
 
-    monkeypatch.setattr(adapter, "stream_completion_a", fake_stream)
+    monkeypatch.setattr(adapter, "_stream_async_request", fake_stream)
 
     from chatsnack.runtime.responses_websocket_adapter import ResponsesSessionBusyError
     with pytest.raises(ResponsesSessionBusyError, match="busy session"):
@@ -359,7 +645,7 @@ async def test_create_completion_a_dedupes_terminal_function_call_already_recons
     ai = SimpleNamespace(api_key="x", base_url=None, client=None, aclient=None)
     adapter = ResponsesWebSocketAdapter(ai, session=ResponsesWebSocketSession(mode="inherit"))
 
-    async def fake_stream(messages, **kwargs):
+    async def fake_stream(messages, kwargs, include_prev=True):
         yield SimpleNamespace(
             type="tool_call_delta",
             index=0,
@@ -408,7 +694,7 @@ async def test_create_completion_a_dedupes_terminal_function_call_already_recons
             },
         )
 
-    monkeypatch.setattr(adapter, "stream_completion_a", fake_stream)
+    monkeypatch.setattr(adapter, "_stream_async_request", fake_stream)
 
     result = await adapter.create_completion_a(messages=[{"role": "user", "content": "hi"}], model="gpt-4.1")
 

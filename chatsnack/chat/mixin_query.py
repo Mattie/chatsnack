@@ -911,6 +911,7 @@ class ChatQueryMixin(ChatMessagesMixin, ChatParamsMixin):
                     session=ResponsesWebSocketSession(
                         mode=authored_session or getattr(source_session, "mode", None) or "inherit"
                     ),
+                    **copied_runtime._retry_options(),
                 )
         if name is not None:
             new_chat = self.__class__(

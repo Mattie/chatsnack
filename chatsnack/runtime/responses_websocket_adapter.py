@@ -1,4 +1,5 @@
 import asyncio
+import random
 import threading
 import time
 from dataclasses import dataclass, field
@@ -60,12 +61,31 @@ class ResponsesWebSocketAdapter(ResponsesNormalizationMixin):
 
     _GLOBAL_SESSIONS: List[ResponsesWebSocketSession] = []
 
-    def __init__(self, ai_client, session: Optional[ResponsesWebSocketSession] = None):
+    def __init__(
+        self,
+        ai_client,
+        session: Optional[ResponsesWebSocketSession] = None,
+        *,
+        max_transport_retries: int = 2,
+        retry_initial_delay: float = 0.25,
+        retry_max_delay: float = 2.0,
+    ):
         self.ai_client = ai_client
         self.attachment_resolver = AttachmentResolver(ai_client)
         self.session = session or ResponsesWebSocketSession(mode="inherit")
+        self.max_transport_retries = max(0, int(max_transport_retries))
+        self.retry_initial_delay = max(0.0, float(retry_initial_delay))
+        self.retry_max_delay = max(0.0, float(retry_max_delay))
         if self.session not in self._GLOBAL_SESSIONS:
             self._GLOBAL_SESSIONS.append(self.session)
+
+    def _retry_options(self) -> Dict[str, Any]:
+        """Return constructor retry options for adapter cloning."""
+        return {
+            "max_transport_retries": self.max_transport_retries,
+            "retry_initial_delay": self.retry_initial_delay,
+            "retry_max_delay": self.retry_max_delay,
+        }
 
     # ------------------------------------------------------------------
     # SDK availability check
@@ -262,7 +282,64 @@ class ResponsesWebSocketAdapter(ResponsesNormalizationMixin):
 
     @staticmethod
     def _is_auth_error_code(code: Optional[str]) -> bool:
-        return (code or "").lower() in {"authentication_error", "unauthorized", "invalid_api_key"}
+        return (code or "").lower() in {"auth_error", "authentication_error", "unauthorized", "invalid_api_key"}
+
+    @staticmethod
+    def _is_non_retriable_retry_code(code: Optional[str]) -> bool:
+        return (code or "").lower() in {"auth_error", "session_busy"}
+
+    def _retry_delay_seconds(self, retry_number: int) -> float:
+        """Return exponential retry delay with bounded jitter."""
+        if self.retry_initial_delay <= 0 or self.retry_max_delay <= 0:
+            return 0.0
+        base_delay = min(
+            self.retry_max_delay,
+            self.retry_initial_delay * (2 ** max(0, retry_number - 1)),
+        )
+        jitter = random.uniform(0, base_delay * 0.25)
+        return min(self.retry_max_delay, base_delay + jitter)
+
+    def _sleep_before_retry(self, retry_number: int) -> None:
+        delay = self._retry_delay_seconds(retry_number)
+        if delay > 0:
+            time.sleep(delay)
+
+    async def _sleep_before_retry_a(self, retry_number: int) -> None:
+        delay = self._retry_delay_seconds(retry_number)
+        if delay > 0:
+            await asyncio.sleep(delay)
+
+    def _can_retry_transport_error(
+        self,
+        exc: Exception,
+        *,
+        consumed_output: bool,
+        retries_used: int,
+        max_transport_retries: int,
+    ) -> bool:
+        return (
+            isinstance(exc, ResponsesWebSocketTransportError)
+            and exc.retriable
+            and not consumed_output
+            and retries_used < max_transport_retries
+            and not self._is_non_retriable_retry_code(exc.code)
+        )
+
+    def _can_retry_stream_error(
+        self,
+        error_dict: Dict[str, Any],
+        *,
+        consumed_output: bool,
+        retries_used: int,
+    ) -> bool:
+        code = error_dict.get("code") or ""
+        return (
+            error_dict.get("retriable") is True
+            and not consumed_output
+            and retries_used < self.max_transport_retries
+            and code != "previous_response_not_found"
+            and not self._is_non_retriable_retry_code(code)
+        )
 
     @classmethod
     def _error_payload_from_exception(cls, exc: Exception) -> RuntimeErrorPayload:
@@ -723,6 +800,80 @@ class ResponsesWebSocketAdapter(ResponsesNormalizationMixin):
     # Public streaming entry points with retry logic
     # ------------------------------------------------------------------
 
+    @staticmethod
+    def _event_consumes_retry_guard(event: RuntimeStreamEvent) -> bool:
+        return event.type in ("text_delta", "tool_call_delta", "completed")
+
+    def _stream_sync_with_retries(
+        self,
+        messages: List[Dict[str, Any]],
+        kwargs: Dict[str, Any],
+        *,
+        max_transport_retries: int,
+    ):
+        retry_kwargs = dict(kwargs)
+        include_prev = True
+        retries_used = 0
+        consumed_output = False
+        while True:
+            try:
+                for event in self._stream_sync_request(messages, retry_kwargs, include_prev=include_prev):
+                    if self._event_consumes_retry_guard(event):
+                        consumed_output = True
+                    yield event
+                break
+            except RuntimeError as exc:
+                if self._is_previous_response_not_found(exc) and include_prev and not consumed_output:
+                    retry_kwargs.pop("previous_response_id", None)
+                    include_prev = False
+                    continue
+                if self._can_retry_transport_error(
+                    exc,
+                    consumed_output=consumed_output,
+                    retries_used=retries_used,
+                    max_transport_retries=max_transport_retries,
+                ):
+                    retries_used += 1
+                    self._drop_sync_connection()
+                    self._sleep_before_retry(retries_used)
+                    continue
+                raise
+
+    async def _stream_async_with_retries(
+        self,
+        messages: List[Dict[str, Any]],
+        kwargs: Dict[str, Any],
+        *,
+        max_transport_retries: int,
+    ):
+        retry_kwargs = dict(kwargs)
+        include_prev = True
+        retries_used = 0
+        consumed_output = False
+        while True:
+            try:
+                async for event in self._stream_async_request(messages, retry_kwargs, include_prev=include_prev):
+                    if self._event_consumes_retry_guard(event):
+                        consumed_output = True
+                    yield event
+                break
+            except RuntimeError as exc:
+                if self._is_previous_response_not_found(exc) and include_prev and not consumed_output:
+                    retry_kwargs.pop("previous_response_id", None)
+                    include_prev = False
+                    continue
+                if self._can_retry_transport_error(
+                    exc,
+                    consumed_output=consumed_output,
+                    retries_used=retries_used,
+                    max_transport_retries=max_transport_retries,
+                ):
+                    retries_used += 1
+                    await self._drop_async_connection()
+                    await self._sleep_before_retry_a(retries_used)
+                    continue
+                raise
+
     def stream_completion(self, messages: List[Dict[str, Any]], **kwargs: Any):
         resolved = self.attachment_resolver.resolve_messages(messages)
         acquired_in_flight = False
@@ -730,27 +881,12 @@ class ResponsesWebSocketAdapter(ResponsesNormalizationMixin):
             with self.session.in_flight_lock:
                 self._begin_in_flight()
                 acquired_in_flight = True
-            retry_kwargs = dict(kwargs)
-            include_prev = True
-            reopened = False
-            emitted_output = False
-            while True:
-                try:
-                    for event in self._stream_sync_request(resolved, retry_kwargs, include_prev=include_prev):
-                        if event.type in ("text_delta", "tool_call_delta"):
-                            emitted_output = True
-                        yield event
-                    break
-                except RuntimeError as exc:
-                    if self._is_previous_response_not_found(exc) and include_prev and not emitted_output:
-                        retry_kwargs.pop("previous_response_id", None)
-                        include_prev = False
-                        continue
-                    if isinstance(exc, ResponsesWebSocketTransportError) and exc.retriable and not reopened and not emitted_output:
-                        reopened = True
-                        self._drop_sync_connection()
-                        continue
-                    raise
+            for event in self._stream_sync_with_retries(
+                resolved,
+                kwargs,
+                max_transport_retries=self.max_transport_retries,
+            ):
+                yield event
         except Exception as exc:
             payload = self._error_payload_from_exception(exc)
             yield RuntimeStreamEvent(type="error", index=0, data={"error": payload.__dict__})
@@ -765,27 +901,12 @@ class ResponsesWebSocketAdapter(ResponsesNormalizationMixin):
             with self.session.in_flight_lock:
                 self._begin_in_flight()
                 acquired_in_flight = True
-            retry_kwargs = dict(kwargs)
-            include_prev = True
-            reopened = False
-            emitted_output = False
-            while True:
-                try:
-                    async for event in self._stream_async_request(resolved, retry_kwargs, include_prev=include_prev):
-                        if event.type in ("text_delta", "tool_call_delta"):
-                            emitted_output = True
-                        yield event
-                    break
-                except RuntimeError as exc:
-                    if self._is_previous_response_not_found(exc) and include_prev and not emitted_output:
-                        retry_kwargs.pop("previous_response_id", None)
-                        include_prev = False
-                        continue
-                    if isinstance(exc, ResponsesWebSocketTransportError) and exc.retriable and not reopened and not emitted_output:
-                        reopened = True
-                        await self._drop_async_connection()
-                        continue
-                    raise
+            async for event in self._stream_async_with_retries(
+                resolved,
+                kwargs,
+                max_transport_retries=self.max_transport_retries,
+            ):
+                yield event
         except Exception as exc:
             payload = self._error_payload_from_exception(exc)
             yield RuntimeStreamEvent(type="error", index=0, data={"error": payload.__dict__})
@@ -831,36 +952,50 @@ class ResponsesWebSocketAdapter(ResponsesNormalizationMixin):
     # Non-streaming completion (consumes stream internally)
     # ------------------------------------------------------------------
 
-    def create_completion(self, messages: List[Dict[str, Any]], **kwargs: Any):
-        terminal = None
-        response_text_parts: List[str] = []
-        tool_calls_by_id: Dict[str, Dict[str, Any]] = {}
-        stream_error: Optional[Dict[str, Any]] = None
-        for event in self.stream_completion(messages, **kwargs):
-            if event.type == "text_delta":
-                response_text_parts.append(event.data.get("text", ""))
-            elif event.type == "tool_call_delta":
-                tool_call = event.data.get("tool_call", {})
-                call_id = tool_call.get("id", "")
-                function = tool_call.get("function", {})
-                existing = tool_calls_by_id.setdefault(
-                    call_id,
-                    {
-                        "type": "function_call",
-                        "call_id": call_id,
-                        "name": function.get("name", ""),
-                        "arguments": "",
-                    },
-                )
-                if function.get("name"):
-                    existing["name"] = function.get("name")
-                existing["arguments"] += function.get("arguments", "")
-            elif event.type == "error":
-                stream_error = event.data.get("error", {})
-            elif event.type == "completed":
-                terminal = event.data.get("terminal", {})
-        if stream_error:
-            self._raise_from_stream_error(stream_error)
+    @staticmethod
+    def _new_completion_state() -> Dict[str, Any]:
+        return {
+            "terminal": None,
+            "response_text_parts": [],
+            "tool_calls_by_id": {},
+            "stream_error": None,
+            "consumed_output": False,
+        }
+
+    @staticmethod
+    def _collect_completion_event(state: Dict[str, Any], event: RuntimeStreamEvent) -> None:
+        data = getattr(event, "data", {}) or {}
+        if event.type == "text_delta":
+            state["consumed_output"] = True
+            state["response_text_parts"].append(data.get("text", ""))
+        elif event.type == "tool_call_delta":
+            state["consumed_output"] = True
+            tool_call = data.get("tool_call", {})
+            call_id = tool_call.get("id", "")
+            function = tool_call.get("function", {})
+            tool_calls_by_id = state["tool_calls_by_id"]
+            existing = tool_calls_by_id.setdefault(
+                call_id,
+                {
+                    "type": "function_call",
+                    "call_id": call_id,
+                    "name": function.get("name", ""),
+                    "arguments": "",
+                },
+            )
+            if function.get("name"):
+                existing["name"] = function.get("name")
+            existing["arguments"] += function.get("arguments", "")
+        elif event.type == "error":
+            state["stream_error"] = data.get("error", {})
+        elif event.type == "completed":
+            state["consumed_output"] = True
+            state["terminal"] = data.get("terminal", {})
+
+    def _completion_from_state(self, state: Dict[str, Any], kwargs: Dict[str, Any]):
+        terminal = state["terminal"]
+        response_text_parts = state["response_text_parts"]
+        tool_calls_by_id = state["tool_calls_by_id"]
         terminal_metadata = (terminal or {}).get("metadata", {})
         completed_response = terminal_metadata.get("response") if isinstance(terminal_metadata, dict) else None
         if isinstance(completed_response, dict):
@@ -897,71 +1032,77 @@ class ResponsesWebSocketAdapter(ResponsesNormalizationMixin):
         response_dict["output"].extend(tool_calls_by_id.values())
         return self.normalize_completion(response_dict, kwargs)
 
+    def create_completion(self, messages: List[Dict[str, Any]], **kwargs: Any):
+        resolved = self.attachment_resolver.resolve_messages(messages)
+        acquired_in_flight = False
+        try:
+            with self.session.in_flight_lock:
+                self._begin_in_flight()
+                acquired_in_flight = True
+            retries_used = 0
+            while True:
+                state = self._new_completion_state()
+                for event in self._stream_sync_with_retries(
+                    resolved,
+                    kwargs,
+                    max_transport_retries=self.max_transport_retries,
+                ):
+                    self._collect_completion_event(state, event)
+                stream_error = state["stream_error"]
+                if stream_error:
+                    if self._can_retry_stream_error(
+                        stream_error,
+                        consumed_output=state["consumed_output"],
+                        retries_used=retries_used,
+                    ):
+                        retries_used += 1
+                        self._drop_sync_connection()
+                        self._sleep_before_retry(retries_used)
+                        continue
+                    self._raise_from_stream_error(stream_error)
+                return self._completion_from_state(state, kwargs)
+        except Exception as exc:
+            payload = self._error_payload_from_exception(exc)
+            self._raise_from_stream_error(payload.__dict__)
+        finally:
+            if acquired_in_flight:
+                self._end_in_flight()
+
     async def create_completion_a(self, messages: List[Dict[str, Any]], **kwargs: Any):
-        terminal = None
-        response_text_parts: List[str] = []
-        tool_calls_by_id: Dict[str, Dict[str, Any]] = {}
-        stream_error: Optional[Dict[str, Any]] = None
-        async for event in self.stream_completion_a(messages, **kwargs):
-            if event.type == "text_delta":
-                response_text_parts.append(event.data.get("text", ""))
-            elif event.type == "tool_call_delta":
-                tool_call = event.data.get("tool_call", {})
-                call_id = tool_call.get("id", "")
-                function = tool_call.get("function", {})
-                existing = tool_calls_by_id.setdefault(
-                    call_id,
-                    {
-                        "type": "function_call",
-                        "call_id": call_id,
-                        "name": function.get("name", ""),
-                        "arguments": "",
-                    },
-                )
-                if function.get("name"):
-                    existing["name"] = function.get("name")
-                existing["arguments"] += function.get("arguments", "")
-            elif event.type == "error":
-                stream_error = event.data.get("error", {})
-            elif event.type == "completed":
-                terminal = event.data.get("terminal", {})
-        if stream_error:
-            self._raise_from_stream_error(stream_error)
-        terminal_metadata = (terminal or {}).get("metadata", {})
-        completed_response = terminal_metadata.get("response") if isinstance(terminal_metadata, dict) else None
-        if isinstance(completed_response, dict):
-            response_dict = dict(completed_response)
-            response_dict.setdefault("output_text", (terminal or {}).get("response_text") or "".join(response_text_parts))
-            response_dict.setdefault("status", (terminal or {}).get("finish_reason"))
-            response_dict.setdefault("model", (terminal or {}).get("model"))
-            response_dict.setdefault("usage", (terminal or {}).get("usage"))
-            response_dict["output"] = self._merge_streamed_call_output(
-                response_dict.get("output"),
-                tool_calls_by_id,
-            )
-            return self.normalize_completion(response_dict, kwargs)
-        response_text = (terminal or {}).get("response_text")
-        if not response_text:
-            response_text = "".join(response_text_parts)
-        response_dict = {
-            "id": (terminal or {}).get("metadata", {}).get("response_id") or self.session.last_response_id,
-            "status": (terminal or {}).get("finish_reason"),
-            "model": (terminal or {}).get("model"),
-            "usage": (terminal or {}).get("usage"),
-            "output_text": response_text or "",
-            "output": [],
-        }
-        if response_text:
-            response_dict["output"].append(
-                {
-                    "type": "message",
-                    "role": "assistant",
-                    "status": (terminal or {}).get("finish_reason"),
-                    "content": [{"type": "output_text", "text": response_text}],
-                }
-            )
-        response_dict["output"].extend(tool_calls_by_id.values())
-        return self.normalize_completion(response_dict, kwargs)
+        resolved = await self.attachment_resolver.resolve_messages_async(messages)
+        acquired_in_flight = False
+        try:
+            with self.session.in_flight_lock:
+                self._begin_in_flight()
+                acquired_in_flight = True
+            retries_used = 0
+            while True:
+                state = self._new_completion_state()
+                async for event in self._stream_async_with_retries(
+                    resolved,
+                    kwargs,
+                    max_transport_retries=self.max_transport_retries,
+                ):
+                    self._collect_completion_event(state, event)
+                stream_error = state["stream_error"]
+                if stream_error:
+                    if self._can_retry_stream_error(
+                        stream_error,
+                        consumed_output=state["consumed_output"],
+                        retries_used=retries_used,
+                    ):
+                        retries_used += 1
+                        await self._drop_async_connection()
+                        await self._sleep_before_retry_a(retries_used)
+                        continue
+                    self._raise_from_stream_error(stream_error)
+                return self._completion_from_state(state, kwargs)
+        except Exception as exc:
+            payload = self._error_payload_from_exception(exc)
+            self._raise_from_stream_error(payload.__dict__)
+        finally:
+            if acquired_in_flight:
+                self._end_in_flight()
 
     @staticmethod
     def _merge_streamed_call_output(
