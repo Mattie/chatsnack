@@ -17,6 +17,44 @@ _SDK_VERSION_GUIDANCE = (
     "Upgrade OpenAI or install openai[realtime]."
 )
 
+_AUTH_ERROR_CODES = {
+    "auth_error",
+    "authentication_error",
+    "unauthorized",
+    "invalid_api_key",
+}
+
+_NON_RETRIABLE_PROVIDER_CODES = {
+    "bad_request",
+    "invalid_request",
+    "invalid_request_error",
+    "invalid_tools",
+    "invalid_value",
+    "missing_required_parameter",
+    "permission_denied",
+    "session_busy",
+    "sdk_unsupported",
+}
+
+_NON_RETRIABLE_PROVIDER_TYPES = {
+    "authentication_error",
+    "invalid_request_error",
+    "permission_error",
+}
+
+_RETRYABLE_PROVIDER_CODES = {
+    "engine_overloaded",
+    "internal_server_error",
+    "rate_limit",
+    "rate_limit_exceeded",
+    "server_error",
+    "service_unavailable",
+    "timeout",
+    "websocket_connection_limit_reached",
+}
+
+_RETRYABLE_HTTP_STATUSES = {408, 409, 425, 429}
+
 
 class ResponsesSessionBusyError(RuntimeError):
     """Raised when a shared session already has an in-flight response."""
@@ -97,7 +135,12 @@ class ResponsesWebSocketAdapter(ResponsesNormalizationMixin):
         responses = getattr(client, "responses", None)
         connect = getattr(responses, "connect", None) if responses else None
         if not callable(connect):
-            raise RuntimeError(_SDK_VERSION_GUIDANCE)
+            raise ResponsesWebSocketTransportError(
+                _SDK_VERSION_GUIDANCE,
+                code="sdk_unsupported",
+                retriable=False,
+                details={"category": "configuration"},
+            )
 
     # ------------------------------------------------------------------
     # Connection management – uses SDK context managers
@@ -119,7 +162,15 @@ class ResponsesWebSocketAdapter(ResponsesNormalizationMixin):
         self._drop_sync_connection()
         client = self._get_sync_client()
         self._check_sdk_support(client)
-        conn = client.responses.connect().enter()
+        try:
+            conn = client.responses.connect().enter()
+        except Exception as exc:
+            raise ResponsesWebSocketTransportError(
+                str(exc) or "socket_connect_failed",
+                code="socket_connect_failed",
+                retriable=True,
+                details={"phase": "opening_handshake"},
+            ) from exc
         self.session.sync_connection = conn
         self.session.connected_at = time.time()
         return conn
@@ -132,7 +183,15 @@ class ResponsesWebSocketAdapter(ResponsesNormalizationMixin):
         await self._drop_async_connection()
         aclient = self._get_async_client()
         self._check_sdk_support(aclient)
-        conn = await aclient.responses.connect().enter()
+        try:
+            conn = await aclient.responses.connect().enter()
+        except Exception as exc:
+            raise ResponsesWebSocketTransportError(
+                str(exc) or "socket_connect_failed",
+                code="socket_connect_failed",
+                retriable=True,
+                details={"phase": "opening_handshake"},
+            ) from exc
         self.session.async_connection = conn
         self.session.connected_at = time.time()
         return conn
@@ -282,11 +341,68 @@ class ResponsesWebSocketAdapter(ResponsesNormalizationMixin):
 
     @staticmethod
     def _is_auth_error_code(code: Optional[str]) -> bool:
-        return (code or "").lower() in {"auth_error", "authentication_error", "unauthorized", "invalid_api_key"}
+        return (code or "").lower() in _AUTH_ERROR_CODES
 
     @staticmethod
     def _is_non_retriable_retry_code(code: Optional[str]) -> bool:
-        return (code or "").lower() in {"auth_error", "session_busy"}
+        normalized = (code or "").lower()
+        return normalized in _AUTH_ERROR_CODES or normalized in _NON_RETRIABLE_PROVIDER_CODES
+
+    @staticmethod
+    def _details_http_status(details: Dict[str, Any]) -> Optional[int]:
+        status = details.get("http_status")
+        if status is None:
+            status = details.get("status")
+        if status is None:
+            raw_event = details.get("raw_event")
+            if isinstance(raw_event, dict):
+                status = raw_event.get("status")
+        try:
+            return int(status) if status is not None else None
+        except (TypeError, ValueError):
+            return None
+
+    @classmethod
+    def _provider_error_is_retriable(cls, code: Optional[str], details: Dict[str, Any]) -> bool:
+        """Classify provider/API errors without coupling retry policy to one caller.
+
+        Transport errors are classified where they are raised. This method only
+        handles provider-shaped errors from SDK API exceptions and streamed
+        ``error`` / ``response.failed`` events.
+        """
+        normalized = (code or "").lower()
+        provider_type = (details.get("provider_type") or "").lower()
+        http_status = cls._details_http_status(details)
+
+        if normalized == "previous_response_not_found":
+            return True
+        if normalized in _RETRYABLE_PROVIDER_CODES:
+            return True
+        if http_status is not None and (http_status in _RETRYABLE_HTTP_STATUSES or http_status >= 500):
+            return True
+        if (
+            normalized in _AUTH_ERROR_CODES
+            or normalized in _NON_RETRIABLE_PROVIDER_CODES
+            or provider_type in _NON_RETRIABLE_PROVIDER_TYPES
+            or (http_status is not None and 400 <= http_status < 500)
+        ):
+            return False
+        return False
+
+    def _transport_error_with_request_summary(
+        self,
+        exc: ResponsesWebSocketTransportError,
+        request_kwargs: Dict[str, Any],
+    ) -> ResponsesWebSocketTransportError:
+        """Attach safe request metadata to transport failures at request time."""
+        details = dict(exc.details or {})
+        details.setdefault("request_summary", self._request_summary(request_kwargs))
+        return ResponsesWebSocketTransportError(
+            str(exc),
+            code=exc.code,
+            retriable=exc.retriable,
+            details=details,
+        )
 
     def _retry_delay_seconds(self, retry_number: int) -> float:
         """Return exponential retry delay with bounded jitter."""
@@ -339,6 +455,10 @@ class ResponsesWebSocketAdapter(ResponsesNormalizationMixin):
             and retries_used < self.max_transport_retries
             and code != "previous_response_not_found"
             and not self._is_non_retriable_retry_code(code)
+            and not (
+                (error_dict.get("details") or {}).get("provider_code")
+                and not self._provider_error_is_retriable(code, error_dict.get("details") or {})
+            )
         )
 
     @classmethod
@@ -431,6 +551,9 @@ class ResponsesWebSocketAdapter(ResponsesNormalizationMixin):
                 or getattr(event, "message", None)
                 or code
             )
+            status = event_d.get("status") or getattr(event, "status", None)
+            if status is not None:
+                details["http_status"] = status
             details["provider_code"] = code
             details["provider_message"] = message
             for key in ("param", "type"):
@@ -545,7 +668,10 @@ class ResponsesWebSocketAdapter(ResponsesNormalizationMixin):
         """Send a request over the sync SDK connection and yield runtime events."""
         request_kwargs = self._request_with_session(messages, kwargs, include_prev=include_prev)
         create_kw = self._create_kwargs(request_kwargs)
-        connection = self._connect_sync()
+        try:
+            connection = self._connect_sync()
+        except ResponsesWebSocketTransportError as exc:
+            raise self._transport_error_with_request_summary(exc, request_kwargs) from exc
         self._debug_responses_payload("Responses WS response.create payload", create_kw)
 
         try:
@@ -567,7 +693,14 @@ class ResponsesWebSocketAdapter(ResponsesNormalizationMixin):
                 code = provider_code or "api_error"
                 raise ResponsesWebSocketTransportError(
                     human_msg, code=code,
-                    retriable=not self._is_auth_error_code(code),
+                    retriable=self._provider_error_is_retriable(code, details),
+                    details=details,
+                ) from exc
+            if details.get("http_status") is not None:
+                raise ResponsesWebSocketTransportError(
+                    str(exc) or "api_error",
+                    code="api_error",
+                    retriable=self._provider_error_is_retriable("api_error", details),
                     details=details,
                 ) from exc
             # Generic transport-level failure.
@@ -640,10 +773,11 @@ class ResponsesWebSocketAdapter(ResponsesNormalizationMixin):
                     message = error_details.get("provider_message", code)
                     if code == "previous_response_not_found":
                         raise RuntimeError(code)
+                    transport_code = "auth_error" if self._is_auth_error_code(code) else code
                     raise ResponsesWebSocketTransportError(
                         message,
-                        code=("auth_error" if self._is_auth_error_code(code) else code),
-                        retriable=not self._is_auth_error_code(code),
+                        code=transport_code,
+                        retriable=self._provider_error_is_retriable(transport_code, error_details),
                         details=error_details,
                     )
                 # Safely ignore all other lifecycle events (response.created,
@@ -677,7 +811,10 @@ class ResponsesWebSocketAdapter(ResponsesNormalizationMixin):
         """Send a request over the async SDK connection and yield runtime events."""
         request_kwargs = self._request_with_session(messages, kwargs, include_prev=include_prev)
         create_kw = self._create_kwargs(request_kwargs)
-        connection = await self._connect_async()
+        try:
+            connection = await self._connect_async()
+        except ResponsesWebSocketTransportError as exc:
+            raise self._transport_error_with_request_summary(exc, request_kwargs) from exc
         self._debug_responses_payload("Responses WS response.create payload", create_kw)
 
         try:
@@ -697,7 +834,14 @@ class ResponsesWebSocketAdapter(ResponsesNormalizationMixin):
                 code = provider_code or "api_error"
                 raise ResponsesWebSocketTransportError(
                     human_msg, code=code,
-                    retriable=not self._is_auth_error_code(code),
+                    retriable=self._provider_error_is_retriable(code, details),
+                    details=details,
+                ) from exc
+            if details.get("http_status") is not None:
+                raise ResponsesWebSocketTransportError(
+                    str(exc) or "api_error",
+                    code="api_error",
+                    retriable=self._provider_error_is_retriable("api_error", details),
                     details=details,
                 ) from exc
             raise ResponsesWebSocketTransportError(
@@ -769,10 +913,11 @@ class ResponsesWebSocketAdapter(ResponsesNormalizationMixin):
                     message = error_details.get("provider_message", code)
                     if code == "previous_response_not_found":
                         raise RuntimeError(code)
+                    transport_code = "auth_error" if self._is_auth_error_code(code) else code
                     raise ResponsesWebSocketTransportError(
                         message,
-                        code=("auth_error" if self._is_auth_error_code(code) else code),
-                        retriable=not self._is_auth_error_code(code),
+                        code=transport_code,
+                        retriable=self._provider_error_is_retriable(transport_code, error_details),
                         details=error_details,
                     )
         except RuntimeError:
