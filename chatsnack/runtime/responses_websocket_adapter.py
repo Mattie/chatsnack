@@ -165,12 +165,7 @@ class ResponsesWebSocketAdapter(ResponsesNormalizationMixin):
         try:
             conn = client.responses.connect().enter()
         except Exception as exc:
-            raise ResponsesWebSocketTransportError(
-                str(exc) or "socket_connect_failed",
-                code="socket_connect_failed",
-                retriable=True,
-                details={"phase": "opening_handshake"},
-            ) from exc
+            raise self._connect_error_from_exception(exc) from exc
         self.session.sync_connection = conn
         self.session.connected_at = time.time()
         return conn
@@ -186,12 +181,7 @@ class ResponsesWebSocketAdapter(ResponsesNormalizationMixin):
         try:
             conn = await aclient.responses.connect().enter()
         except Exception as exc:
-            raise ResponsesWebSocketTransportError(
-                str(exc) or "socket_connect_failed",
-                code="socket_connect_failed",
-                retriable=True,
-                details={"phase": "opening_handshake"},
-            ) from exc
+            raise self._connect_error_from_exception(exc) from exc
         self.session.async_connection = conn
         self.session.connected_at = time.time()
         return conn
@@ -487,7 +477,11 @@ class ResponsesWebSocketAdapter(ResponsesNormalizationMixin):
         }
 
     @classmethod
-    def _extract_sdk_api_error_details(cls, exc: Exception, request_kwargs: Dict[str, Any]) -> Dict[str, Any]:
+    def _extract_sdk_api_error_details(
+        cls,
+        exc: Exception,
+        request_kwargs: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
         """Extract structured error fields from an OpenAI SDK API exception.
 
         Works with ``openai.APIStatusError`` and its subclasses (BadRequestError,
@@ -498,6 +492,9 @@ class ResponsesWebSocketAdapter(ResponsesNormalizationMixin):
         details: Dict[str, Any] = {}
         # HTTP status
         status_code = getattr(exc, "status_code", None)
+        if status_code is None:
+            response = getattr(exc, "response", None)
+            status_code = getattr(response, "status_code", None) or getattr(response, "status", None)
         if status_code is not None:
             details["http_status"] = status_code
         # Request ID
@@ -507,16 +504,57 @@ class ResponsesWebSocketAdapter(ResponsesNormalizationMixin):
         # Parsed body (OpenAI SDK parses JSON body into .body dict)
         body = getattr(exc, "body", None)
         if isinstance(body, dict):
+            provider_body = body.get("error") if isinstance(body.get("error"), dict) else body
             for key in ("code", "message", "param", "type"):
-                val = body.get(key)
+                val = provider_body.get(key)
                 if val is not None:
                     details[f"provider_{key}"] = val
             details["raw_error"] = body
         elif body is not None:
             details["raw_error"] = str(body)
         # Request context
-        details["request_summary"] = cls._request_summary(request_kwargs)
+        if request_kwargs is not None:
+            details["request_summary"] = cls._request_summary(request_kwargs)
         return details
+
+    @classmethod
+    def _connect_error_from_exception(cls, exc: Exception) -> ResponsesWebSocketTransportError:
+        """Classify WebSocket opening-handshake failures.
+
+        Plain socket/timeout failures stay retryable transport failures. If the
+        SDK exposes provider-shaped metadata during the upgrade, preserve that
+        classification so auth, permission, and validation failures fail fast.
+        """
+        details = cls._extract_sdk_api_error_details(exc)
+        details["phase"] = "opening_handshake"
+        provider_msg = details.get("provider_message")
+        provider_code = details.get("provider_code")
+
+        if provider_msg or provider_code:
+            code = provider_code or "api_error"
+            details["transport_code"] = "socket_connect_failed"
+            return ResponsesWebSocketTransportError(
+                provider_msg or str(exc) or code,
+                code=code,
+                retriable=cls._provider_error_is_retriable(code, details),
+                details=details,
+            )
+
+        if details.get("http_status") is not None:
+            details["transport_code"] = "socket_connect_failed"
+            return ResponsesWebSocketTransportError(
+                str(exc) or "api_error",
+                code="api_error",
+                retriable=cls._provider_error_is_retriable("api_error", details),
+                details=details,
+            )
+
+        return ResponsesWebSocketTransportError(
+            str(exc) or "socket_connect_failed",
+            code="socket_connect_failed",
+            retriable=True,
+            details=details,
+        )
 
     @classmethod
     def _extract_stream_error_details(

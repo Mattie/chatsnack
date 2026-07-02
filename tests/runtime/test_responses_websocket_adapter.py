@@ -184,6 +184,12 @@ def _fake_sdk_error(status, code, message=None, provider_type=None):
     return exc
 
 
+def _fake_sdk_status_error(status, message):
+    exc = Exception(message)
+    exc.status_code = status
+    return exc
+
+
 def test_session_busy_raises_fail_fast(monkeypatch):
     ai = SimpleNamespace(api_key="x", base_url=None, client=None, aclient=None)
     adapter = ResponsesWebSocketAdapter(ai, session=ResponsesWebSocketSession(mode="inherit"))
@@ -405,6 +411,89 @@ async def test_create_completion_a_retries_async_connect_open_failure_and_succee
 
     assert result.message.content == "recovered"
     assert responses.connect_calls == 2
+
+
+def test_create_completion_connect_open_validation_error_fails_fast_without_retry():
+    responses = _SequencedSyncResponses(
+        [
+            _fake_sdk_error(
+                400,
+                "invalid_value",
+                "Invalid value: 'namespace'.",
+                "invalid_request_error",
+            )
+        ]
+    )
+    ai = SimpleNamespace(client=SimpleNamespace(responses=responses), aclient=None)
+    adapter = ResponsesWebSocketAdapter(
+        ai,
+        session=ResponsesWebSocketSession(mode="inherit"),
+        max_transport_retries=2,
+        retry_initial_delay=0,
+    )
+
+    with pytest.raises(ResponsesWebSocketTransportError, match="Invalid value") as exc_info:
+        adapter.create_completion(messages=[{"role": "user", "content": "hi"}], model="gpt-4.1")
+
+    assert responses.connect_calls == 1
+    assert exc_info.value.code == "invalid_value"
+    assert exc_info.value.retriable is False
+    assert exc_info.value.details["phase"] == "opening_handshake"
+    assert exc_info.value.details["transport_code"] == "socket_connect_failed"
+    assert exc_info.value.details["request_summary"]["model"] == "gpt-4.1"
+
+
+def test_create_completion_connect_open_http_4xx_without_body_fails_fast_without_retry():
+    responses = _SequencedSyncResponses([_fake_sdk_status_error(403, "Forbidden")])
+    ai = SimpleNamespace(client=SimpleNamespace(responses=responses), aclient=None)
+    adapter = ResponsesWebSocketAdapter(
+        ai,
+        session=ResponsesWebSocketSession(mode="inherit"),
+        max_transport_retries=2,
+        retry_initial_delay=0,
+    )
+
+    with pytest.raises(ResponsesWebSocketTransportError, match="Forbidden") as exc_info:
+        adapter.create_completion(messages=[{"role": "user", "content": "hi"}], model="gpt-4.1")
+
+    assert responses.connect_calls == 1
+    assert exc_info.value.code == "api_error"
+    assert exc_info.value.retriable is False
+    assert exc_info.value.details["http_status"] == 403
+    assert exc_info.value.details["phase"] == "opening_handshake"
+    assert exc_info.value.details["transport_code"] == "socket_connect_failed"
+    assert exc_info.value.details["request_summary"]["model"] == "gpt-4.1"
+
+
+@pytest.mark.asyncio
+async def test_create_completion_a_connect_open_auth_error_fails_fast_without_retry():
+    responses = _SequencedAsyncResponses(
+        [
+            _fake_sdk_error(
+                401,
+                "invalid_api_key",
+                "Invalid API key.",
+                "authentication_error",
+            )
+        ]
+    )
+    ai = SimpleNamespace(client=None, aclient=SimpleNamespace(responses=responses))
+    adapter = ResponsesWebSocketAdapter(
+        ai,
+        session=ResponsesWebSocketSession(mode="inherit"),
+        max_transport_retries=2,
+        retry_initial_delay=0,
+    )
+
+    with pytest.raises(ResponsesWebSocketTransportError, match="Invalid API key") as exc_info:
+        await adapter.create_completion_a(messages=[{"role": "user", "content": "hi"}], model="gpt-4.1")
+
+    assert responses.connect_calls == 1
+    assert exc_info.value.code == "invalid_api_key"
+    assert exc_info.value.retriable is False
+    assert exc_info.value.details["phase"] == "opening_handshake"
+    assert exc_info.value.details["transport_code"] == "socket_connect_failed"
+    assert exc_info.value.details["request_summary"]["model"] == "gpt-4.1"
 
 
 def test_create_completion_exhausts_connect_open_failures_with_socket_connect_metadata():
