@@ -324,6 +324,21 @@ def test_copy_of_template_style_websocket_chat_gets_fresh_session_when_no_respon
     assert copied.runtime.session.last_model is None
 
 
+def test_copy_preserves_websocket_retry_options():
+    """copy() should keep custom retry policy when rebuilding WebSocket runtimes."""
+    chat = Chat("You are helpful.", runtime="responses", session="inherit")
+    chat.runtime.max_transport_retries = 5
+    chat.runtime.retry_initial_delay = 0.1
+    chat.runtime.retry_max_delay = 1.5
+
+    copied = chat.copy()
+
+    assert isinstance(copied.runtime, ResponsesWebSocketAdapter)
+    assert copied.runtime.max_transport_retries == 5
+    assert copied.runtime.retry_initial_delay == 0.1
+    assert copied.runtime.retry_max_delay == 1.5
+
+
 # ---------------------------------------------------------------------------
 # Error taxonomy: structured errors propagate through create_completion
 # ---------------------------------------------------------------------------
@@ -332,9 +347,13 @@ def test_create_completion_preserves_transport_error_metadata(monkeypatch):
     """create_completion() should raise ResponsesWebSocketTransportError with
     full metadata instead of a plain RuntimeError."""
     ai = SimpleNamespace(api_key="x", base_url=None)
-    adapter = ResponsesWebSocketAdapter(ai, session=ResponsesWebSocketSession(mode="inherit"))
+    adapter = ResponsesWebSocketAdapter(
+        ai,
+        session=ResponsesWebSocketSession(mode="inherit"),
+        max_transport_retries=0,
+    )
 
-    def fake_stream(messages, **kwargs):
+    def fake_stream(messages, kwargs, include_prev=True):
         yield SimpleNamespace(
             type="error",
             index=0,
@@ -348,7 +367,7 @@ def test_create_completion_preserves_transport_error_metadata(monkeypatch):
             },
         )
 
-    monkeypatch.setattr(adapter, "stream_completion", fake_stream)
+    monkeypatch.setattr(adapter, "_stream_sync_request", fake_stream)
 
     with pytest.raises(ResponsesWebSocketTransportError) as exc_info:
         adapter.create_completion(messages=[{"role": "user", "content": "hi"}], model="gpt-4.1")
@@ -363,14 +382,14 @@ def test_create_completion_raises_session_busy_error(monkeypatch):
     ai = SimpleNamespace(api_key="x", base_url=None)
     adapter = ResponsesWebSocketAdapter(ai, session=ResponsesWebSocketSession(mode="inherit"))
 
-    def fake_stream(messages, **kwargs):
+    def fake_stream(messages, kwargs, include_prev=True):
         yield SimpleNamespace(
             type="error",
             index=0,
             data={"error": {"message": "session is busy", "code": "session_busy"}},
         )
 
-    monkeypatch.setattr(adapter, "stream_completion", fake_stream)
+    monkeypatch.setattr(adapter, "_stream_sync_request", fake_stream)
 
     with pytest.raises(ResponsesSessionBusyError, match="session is busy"):
         adapter.create_completion(messages=[{"role": "user", "content": "hi"}], model="gpt-4.1")
@@ -502,7 +521,7 @@ def test_chat_with_websocket_duplicate_provider_tool_call_executes_once(monkeypa
 
     call_count = {"n": 0}
 
-    async def fake_stream_completion_a(self, messages, **kwargs):
+    async def fake_stream_completion_a(self, messages, kwargs, include_prev=True):
         call_count["n"] += 1
         if call_count["n"] == 1:
             yield RuntimeStreamEvent(
@@ -587,7 +606,7 @@ def test_chat_with_websocket_duplicate_provider_tool_call_executes_once(monkeypa
             },
         )
 
-    monkeypatch.setattr(ResponsesWebSocketAdapter, "stream_completion_a", fake_stream_completion_a)
+    monkeypatch.setattr(ResponsesWebSocketAdapter, "_stream_async_request", fake_stream_completion_a)
     result = chat.chat("How many calories in popcorn?")
 
     assistant_tool_turns = [
@@ -624,7 +643,7 @@ def test_chat_with_websocket_duplicate_invalid_provider_tool_call_errors_once(mo
 
     call_count = {"n": 0}
 
-    async def fake_stream_completion_a(self, messages, **kwargs):
+    async def fake_stream_completion_a(self, messages, kwargs, include_prev=True):
         call_count["n"] += 1
         if call_count["n"] == 1:
             yield RuntimeStreamEvent(
@@ -709,7 +728,7 @@ def test_chat_with_websocket_duplicate_invalid_provider_tool_call_errors_once(mo
             },
         )
 
-    monkeypatch.setattr(ResponsesWebSocketAdapter, "stream_completion_a", fake_stream_completion_a)
+    monkeypatch.setattr(ResponsesWebSocketAdapter, "_stream_async_request", fake_stream_completion_a)
     result = chat.chat("How many calories in popcorn?")
 
     assistant_tool_turns = [

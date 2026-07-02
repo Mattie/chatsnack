@@ -1,6 +1,7 @@
 """Built-in snack packs and vending helpers exposed from `chatsnack.packs`."""
 
 import os
+from importlib.resources import files
 from ..chat import Chat
 from .module_help_vendor import get_module_inspection_report
 
@@ -11,6 +12,16 @@ def get_data_path(filename):
 
 # Now, use the `get_data_path()` function to access a specific data file
 default_pack_path = get_data_path("default_packs")
+
+def _escape_prompt_fillings(text):
+    return text.replace("{", "{{").replace("}", "}}")
+
+def _load_packaged_skill_text(skill_name):
+    """Read a packaged agent skill, returning empty text when unavailable."""
+    try:
+        return files("chatsnack.skills").joinpath(skill_name, "SKILL.md").read_text(encoding="utf-8")
+    except (AttributeError, FileNotFoundError, ModuleNotFoundError, OSError):
+        return ""
 
 
 # TODO create a way to download snackpacks from github.com/Mattie/chatsnack-snackpacks
@@ -41,8 +52,17 @@ class ChatPromptProxy:
         return getattr(self._ensure_instance, name)
 
 modinfo = get_module_inspection_report("chatsnack")
-# replace all { with {{ and all } with }} to escape them for .format()
-modinfo = modinfo.replace("{", "{{").replace("}", "}}")
+modinfo = _escape_prompt_fillings(modinfo)
+fluency_skill = _load_packaged_skill_text("chatsnack-fluency").strip()
+fluency_section = ""
+if fluency_skill:
+    fluency_section = f"""\
+
+Chatsnack fluency guidance:
+---------
+{_escape_prompt_fillings(fluency_skill)}
+---------
+"""
 
 ChatsnackHelper_default_system_message = f"""\
 Identity: ChatsnackHelper, the helpful assistant for the chatsnack Python module. ChatsnackHelper is an expert Pythonista and tries to help users of
@@ -52,6 +72,7 @@ chatsnack inspection info for reference:
 ---------
 {modinfo}
 ---------
+{fluency_section}
 
 While answering questions, ChatsnackHelper, first summarizes the user's likely intent as a proposal, followed by a helpful and informative final summary answer using the chatsnack module's own documentation where necessary.
 

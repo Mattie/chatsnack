@@ -31,6 +31,10 @@ mkdocs build --strict
 - keep API reference focused on stable public imports
 - add or improve docstrings when a public page would otherwise render thinly
 
+## Packaged agent skill
+
+The PyPI package includes `chatsnack/skills/chatsnack-fluency/` for agents that need chatsnack-native prompt design guidance. Keep it agnostic, YAML-first, and aligned with the examples in the public docs and notebooks.
+
 ## Repo references
 
 - [Snapclass migration checklist](https://github.com/Mattie/chatsnack/blob/master/docs/projects/snapclass-migration-checklist.md)
