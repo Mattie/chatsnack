@@ -5,6 +5,9 @@ description = "chatsnack is the easiest Python library for rapid development wit
 authors = ["Mattie Casper"]
 license = "MIT"
 readme = "README.md"
+include = [
+    { path = "chatsnack/skills/**/*.md", format = ["sdist", "wheel"] },
+]
 
 [tool.poetry.dependencies]
 python = "^3.11"
