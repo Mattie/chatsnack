@@ -29,6 +29,167 @@ def _capture_loguru():
         logger.remove(sink_id)
 
 
+class _FakeCompletedResponse:
+    def __init__(self, text="ok", response_id="resp_ok", model="gpt-4.1"):
+        self.output_text = text
+        self._response_id = response_id
+        self._model = model
+
+    def model_dump(self):
+        return {
+            "id": self._response_id,
+            "status": "completed",
+            "model": self._model,
+            "usage": {"total_tokens": 4},
+            "output_text": self.output_text,
+        }
+
+
+class _FakeCompletedEvent:
+    type = "response.completed"
+
+    def __init__(self, text="ok", response_id="resp_ok", model="gpt-4.1"):
+        self.response = _FakeCompletedResponse(text=text, response_id=response_id, model=model)
+
+
+class _FakeTopLevelErrorEvent:
+    type = "error"
+
+    def __init__(self, code, message=None, *, status=None, provider_type=None):
+        self.code = code
+        self.message = message or code
+        self.status = status
+        self.provider_type = provider_type
+
+    def model_dump(self):
+        error = {"code": self.code, "message": self.message}
+        if self.provider_type is not None:
+            error["type"] = self.provider_type
+        payload = {"type": "error", "error": error}
+        if self.status is not None:
+            payload["status"] = self.status
+        return payload
+
+
+class _FakeResponseFailedEvent:
+    type = "response.failed"
+
+    def __init__(self, code, message=None, *, provider_type=None):
+        self.response = SimpleNamespace(
+            id="resp_failed",
+            status="failed",
+            error=SimpleNamespace(
+                code=code,
+                message=message or code,
+                type=provider_type,
+            ),
+        )
+
+
+class _FakeSyncConnection:
+    def __init__(self, events=None, *, create_error=None):
+        self.response = SimpleNamespace(create=self.create)
+        self._events = list(events or [])
+        self.create_error = create_error
+        self.create_calls = []
+        self.closed = False
+
+    def create(self, **kwargs):
+        self.create_calls.append(kwargs)
+        if self.create_error is not None:
+            raise self.create_error
+
+    def __iter__(self):
+        return self
+
+    def __next__(self):
+        if self._events:
+            return self._events.pop(0)
+        raise StopIteration
+
+    def close(self):
+        self.closed = True
+
+
+class _FakeAsyncConnection:
+    def __init__(self, events=None, *, create_error=None):
+        async def create(**kwargs):
+            self.create_calls.append(kwargs)
+            if self.create_error is not None:
+                raise self.create_error
+
+        self.response = SimpleNamespace(create=create)
+        self._events = list(events or [])
+        self.create_error = create_error
+        self.create_calls = []
+        self.closed = False
+
+    def __aiter__(self):
+        return self
+
+    async def __anext__(self):
+        if self._events:
+            return self._events.pop(0)
+        raise StopAsyncIteration
+
+    async def close(self):
+        self.closed = True
+
+
+class _SequencedSyncResponses:
+    def __init__(self, outcomes):
+        self.outcomes = list(outcomes)
+        self.connect_calls = 0
+
+    def connect(self):
+        return self
+
+    def enter(self):
+        self.connect_calls += 1
+        if not self.outcomes:
+            raise AssertionError("unexpected sync connect attempt")
+        outcome = self.outcomes.pop(0)
+        if isinstance(outcome, Exception):
+            raise outcome
+        return outcome
+
+
+class _SequencedAsyncResponses:
+    def __init__(self, outcomes):
+        self.outcomes = list(outcomes)
+        self.connect_calls = 0
+
+    def connect(self):
+        return self
+
+    async def enter(self):
+        self.connect_calls += 1
+        if not self.outcomes:
+            raise AssertionError("unexpected async connect attempt")
+        outcome = self.outcomes.pop(0)
+        if isinstance(outcome, Exception):
+            raise outcome
+        return outcome
+
+
+def _fake_sdk_error(status, code, message=None, provider_type=None):
+    exc = Exception(message or code)
+    exc.status_code = status
+    exc.request_id = "req_test"
+    exc.body = {
+        "code": code,
+        "message": message or code,
+        "type": provider_type,
+    }
+    return exc
+
+
+def _fake_sdk_status_error(status, message):
+    exc = Exception(message)
+    exc.status_code = status
+    return exc
+
+
 def test_session_busy_raises_fail_fast(monkeypatch):
     ai = SimpleNamespace(api_key="x", base_url=None, client=None, aclient=None)
     adapter = ResponsesWebSocketAdapter(ai, session=ResponsesWebSocketSession(mode="inherit"))
@@ -209,6 +370,260 @@ async def test_create_completion_a_retries_transport_error_before_output_and_suc
     assert result.message.content == "recovered"
     assert len(calls) == 2
     assert dropped["count"] == 1
+
+
+def test_create_completion_retries_sync_connect_open_failure_and_succeeds():
+    responses = _SequencedSyncResponses(
+        [
+            TimeoutError("timed out during opening handshake"),
+            _FakeSyncConnection([_FakeCompletedEvent(text="recovered", response_id="resp_sync_connect")]),
+        ]
+    )
+    ai = SimpleNamespace(client=SimpleNamespace(responses=responses), aclient=None)
+    adapter = ResponsesWebSocketAdapter(
+        ai,
+        session=ResponsesWebSocketSession(mode="inherit"),
+        retry_initial_delay=0,
+    )
+
+    result = adapter.create_completion(messages=[{"role": "user", "content": "hi"}], model="gpt-4.1")
+
+    assert result.message.content == "recovered"
+    assert responses.connect_calls == 2
+
+
+@pytest.mark.asyncio
+async def test_create_completion_a_retries_async_connect_open_failure_and_succeeds():
+    responses = _SequencedAsyncResponses(
+        [
+            TimeoutError("timed out during opening handshake"),
+            _FakeAsyncConnection([_FakeCompletedEvent(text="recovered", response_id="resp_async_connect")]),
+        ]
+    )
+    ai = SimpleNamespace(client=None, aclient=SimpleNamespace(responses=responses))
+    adapter = ResponsesWebSocketAdapter(
+        ai,
+        session=ResponsesWebSocketSession(mode="inherit"),
+        retry_initial_delay=0,
+    )
+
+    result = await adapter.create_completion_a(messages=[{"role": "user", "content": "hi"}], model="gpt-4.1")
+
+    assert result.message.content == "recovered"
+    assert responses.connect_calls == 2
+
+
+def test_create_completion_connect_open_validation_error_fails_fast_without_retry():
+    responses = _SequencedSyncResponses(
+        [
+            _fake_sdk_error(
+                400,
+                "invalid_value",
+                "Invalid value: 'namespace'.",
+                "invalid_request_error",
+            )
+        ]
+    )
+    ai = SimpleNamespace(client=SimpleNamespace(responses=responses), aclient=None)
+    adapter = ResponsesWebSocketAdapter(
+        ai,
+        session=ResponsesWebSocketSession(mode="inherit"),
+        max_transport_retries=2,
+        retry_initial_delay=0,
+    )
+
+    with pytest.raises(ResponsesWebSocketTransportError, match="Invalid value") as exc_info:
+        adapter.create_completion(messages=[{"role": "user", "content": "hi"}], model="gpt-4.1")
+
+    assert responses.connect_calls == 1
+    assert exc_info.value.code == "invalid_value"
+    assert exc_info.value.retriable is False
+    assert exc_info.value.details["phase"] == "opening_handshake"
+    assert exc_info.value.details["transport_code"] == "socket_connect_failed"
+    assert exc_info.value.details["request_summary"]["model"] == "gpt-4.1"
+
+
+def test_create_completion_connect_open_http_4xx_without_body_fails_fast_without_retry():
+    responses = _SequencedSyncResponses([_fake_sdk_status_error(403, "Forbidden")])
+    ai = SimpleNamespace(client=SimpleNamespace(responses=responses), aclient=None)
+    adapter = ResponsesWebSocketAdapter(
+        ai,
+        session=ResponsesWebSocketSession(mode="inherit"),
+        max_transport_retries=2,
+        retry_initial_delay=0,
+    )
+
+    with pytest.raises(ResponsesWebSocketTransportError, match="Forbidden") as exc_info:
+        adapter.create_completion(messages=[{"role": "user", "content": "hi"}], model="gpt-4.1")
+
+    assert responses.connect_calls == 1
+    assert exc_info.value.code == "api_error"
+    assert exc_info.value.retriable is False
+    assert exc_info.value.details["http_status"] == 403
+    assert exc_info.value.details["phase"] == "opening_handshake"
+    assert exc_info.value.details["transport_code"] == "socket_connect_failed"
+    assert exc_info.value.details["request_summary"]["model"] == "gpt-4.1"
+
+
+@pytest.mark.asyncio
+async def test_create_completion_a_connect_open_auth_error_fails_fast_without_retry():
+    responses = _SequencedAsyncResponses(
+        [
+            _fake_sdk_error(
+                401,
+                "invalid_api_key",
+                "Invalid API key.",
+                "authentication_error",
+            )
+        ]
+    )
+    ai = SimpleNamespace(client=None, aclient=SimpleNamespace(responses=responses))
+    adapter = ResponsesWebSocketAdapter(
+        ai,
+        session=ResponsesWebSocketSession(mode="inherit"),
+        max_transport_retries=2,
+        retry_initial_delay=0,
+    )
+
+    with pytest.raises(ResponsesWebSocketTransportError, match="Invalid API key") as exc_info:
+        await adapter.create_completion_a(messages=[{"role": "user", "content": "hi"}], model="gpt-4.1")
+
+    assert responses.connect_calls == 1
+    assert exc_info.value.code == "invalid_api_key"
+    assert exc_info.value.retriable is False
+    assert exc_info.value.details["phase"] == "opening_handshake"
+    assert exc_info.value.details["transport_code"] == "socket_connect_failed"
+    assert exc_info.value.details["request_summary"]["model"] == "gpt-4.1"
+
+
+def test_create_completion_exhausts_connect_open_failures_with_socket_connect_metadata():
+    responses = _SequencedSyncResponses(
+        [
+            TimeoutError("timed out during opening handshake"),
+            TimeoutError("timed out during opening handshake"),
+            TimeoutError("timed out during opening handshake"),
+        ]
+    )
+    ai = SimpleNamespace(client=SimpleNamespace(responses=responses), aclient=None)
+    adapter = ResponsesWebSocketAdapter(
+        ai,
+        session=ResponsesWebSocketSession(mode="inherit"),
+        max_transport_retries=2,
+        retry_initial_delay=0,
+    )
+
+    with pytest.raises(ResponsesWebSocketTransportError, match="timed out during opening handshake") as exc_info:
+        adapter.create_completion(messages=[{"role": "user", "content": "hi"}], model="gpt-4.1")
+
+    assert responses.connect_calls == 3
+    assert exc_info.value.code == "socket_connect_failed"
+    assert exc_info.value.retriable is True
+    assert exc_info.value.details["phase"] == "opening_handshake"
+    assert exc_info.value.details["request_summary"]["model"] == "gpt-4.1"
+
+
+def test_websocket_connection_limit_reached_reconnects_before_output():
+    first_connection = _FakeSyncConnection(
+        [
+            _FakeTopLevelErrorEvent(
+                "websocket_connection_limit_reached",
+                "Responses websocket connection limit reached (60 minutes).",
+                status=400,
+                provider_type="invalid_request_error",
+            )
+        ]
+    )
+    second_connection = _FakeSyncConnection([_FakeCompletedEvent(text="continued", response_id="resp_limit_retry")])
+    responses = _SequencedSyncResponses([first_connection, second_connection])
+    ai = SimpleNamespace(client=SimpleNamespace(responses=responses), aclient=None)
+    adapter = ResponsesWebSocketAdapter(
+        ai,
+        session=ResponsesWebSocketSession(mode="inherit"),
+        retry_initial_delay=0,
+    )
+
+    result = adapter.create_completion(messages=[{"role": "user", "content": "hi"}], model="gpt-4.1")
+
+    assert result.message.content == "continued"
+    assert responses.connect_calls == 2
+    assert first_connection.closed is True
+
+
+def test_response_create_validation_error_fails_fast_without_retry():
+    validation_error = _fake_sdk_error(
+        400,
+        "invalid_value",
+        "Invalid value: 'namespace'.",
+        "invalid_request_error",
+    )
+    connection = _FakeSyncConnection(create_error=validation_error)
+    responses = _SequencedSyncResponses([connection])
+    ai = SimpleNamespace(client=SimpleNamespace(responses=responses), aclient=None)
+    adapter = ResponsesWebSocketAdapter(
+        ai,
+        session=ResponsesWebSocketSession(mode="inherit"),
+        max_transport_retries=2,
+        retry_initial_delay=0,
+    )
+
+    with pytest.raises(ResponsesWebSocketTransportError, match="Invalid value") as exc_info:
+        adapter.create_completion(messages=[{"role": "user", "content": "hi"}], model="gpt-4.1")
+
+    assert responses.connect_calls == 1
+    assert len(connection.create_calls) == 1
+    assert exc_info.value.code == "invalid_value"
+    assert exc_info.value.retriable is False
+
+
+def test_streamed_validation_failure_fails_fast_without_retry():
+    connection = _FakeSyncConnection(
+        [_FakeResponseFailedEvent("invalid_tools", "Tool schema is invalid", provider_type="invalid_request_error")]
+    )
+    responses = _SequencedSyncResponses([connection])
+    ai = SimpleNamespace(client=SimpleNamespace(responses=responses), aclient=None)
+    adapter = ResponsesWebSocketAdapter(
+        ai,
+        session=ResponsesWebSocketSession(mode="inherit"),
+        max_transport_retries=2,
+        retry_initial_delay=0,
+    )
+
+    with pytest.raises(ResponsesWebSocketTransportError, match="Tool schema is invalid") as exc_info:
+        adapter.create_completion(messages=[{"role": "user", "content": "hi"}], model="gpt-4.1")
+
+    assert responses.connect_calls == 1
+    assert exc_info.value.code == "invalid_tools"
+    assert exc_info.value.retriable is False
+
+
+@pytest.mark.parametrize(
+    ("status", "code"),
+    [
+        (429, "rate_limit_exceeded"),
+        (500, "server_error"),
+    ],
+)
+def test_response_create_transient_provider_errors_retry_before_output(status, code):
+    first_connection = _FakeSyncConnection(create_error=_fake_sdk_error(status, code, code))
+    second_connection = _FakeSyncConnection([_FakeCompletedEvent(text="recovered", response_id=f"resp_{code}")])
+    responses = _SequencedSyncResponses([first_connection, second_connection])
+    ai = SimpleNamespace(client=SimpleNamespace(responses=responses), aclient=None)
+    adapter = ResponsesWebSocketAdapter(
+        ai,
+        session=ResponsesWebSocketSession(mode="inherit"),
+        retry_initial_delay=0,
+    )
+
+    result = adapter.create_completion(messages=[{"role": "user", "content": "hi"}], model="gpt-4.1")
+
+    assert result.message.content == "recovered"
+    assert responses.connect_calls == 2
+    assert first_connection.closed is True
+
+
+@pytest.mark.parametrize("event_type", ["text_delta", "tool_call_delta", "completed"])
+def test_retry_guard_consumes_observable_output_events(event_type):
+    assert ResponsesWebSocketAdapter._event_consumes_retry_guard(SimpleNamespace(type=event_type)) is True
 
 
 def test_create_completion_retries_structured_stream_error_before_output(monkeypatch):
@@ -751,8 +1166,11 @@ def test_sdk_version_check_raises_clear_message():
     adapter = ResponsesWebSocketAdapter(ai, session=ResponsesWebSocketSession(mode="inherit"))
 
     # Try to connect - should raise the version guidance message
-    with pytest.raises(RuntimeError, match="openai>=2.29.0"):
+    with pytest.raises(ResponsesWebSocketTransportError, match="openai>=2.29.0") as exc_info:
         adapter._connect_sync()
+
+    assert exc_info.value.code == "sdk_unsupported"
+    assert exc_info.value.retriable is False
 
 
 def test_create_kwargs_strips_transport_fields():

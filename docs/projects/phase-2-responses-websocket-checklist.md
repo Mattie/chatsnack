@@ -119,6 +119,13 @@ Drop a note into `## Progress Notes` whenever something meaningfully changes.
 
 Add short dated entries here as work lands.
 
+### 2026-07-02 - WebSocket retry policy hardening
+- Status: done
+- RFC sections: `Error and retry policy`; `How continuation should work -> On reconnect`
+- What works for users: WebSocket retries now cover sync and async connection-open failures, including opening-handshake timeouts, under the same pre-output retry guard used for send and receive failures. Documented `websocket_connection_limit_reached` errors trigger a reconnect before output, provider validation errors fail fast, and package metadata advances to `0.6.2`.
+- Caveats: Retries remain conservative: unknown provider failures are not retried unless classified as transient by code or HTTP status, and any observable output still suppresses automatic replay.
+- How we checked it: Focused WebSocket adapter regressions exercise fake SDK connection managers, provider error classification, reconnect behavior, and replay-guard coverage.
+
 ### 2026-07-02 - Non-streaming WebSocket retry hardening
 - Status: done
 - RFC sections: `Error and retry policy`; `How ask(), chat(), listen(), and listen_a() should work`
