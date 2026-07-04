@@ -909,14 +909,14 @@ oldlibyaml = ["ruamel.yaml.clib ; platform_python_implementation == \"CPython\""
 
 [[package]]
 name = "snapclass"
-version = "0.1.2"
+version = "0.1.3"
 description = "Human-readable file persistence for Python dataclasses."
 optional = false
 python-versions = ">=3.11"
 groups = ["main"]
 files = [
-    {file = "snapclass-0.1.2-py3-none-any.whl", hash = "sha256:352914d394da6399c8455ce2cea553b0968acd5d200c54e8da26a67e3068f081"},
-    {file = "snapclass-0.1.2.tar.gz", hash = "sha256:3a1051c920b25f47524f8701448ab7abc2596746bcb5eb6a9f835474bc8b31a3"},
+    {file = "snapclass-0.1.3-py3-none-any.whl", hash = "sha256:320f46c1d2a3daf53211402cc3ddf77dacde46c9366a02d48b4089db56d5d351"},
+    {file = "snapclass-0.1.3.tar.gz", hash = "sha256:f97c5999db1137b4851f93a4bdabc68d84f53148667cf604467a8e073ccd055b"},
 ]
 
 [package.dependencies]
@@ -1129,4 +1129,4 @@ rich = ["rich"]
 [metadata]
 lock-version = "2.1"
 python-versions = "^3.11"
-content-hash = "601ad28518af0783609984219fc020d297494f2e40fb74d71b9b25910f9915f1"
+content-hash = "908fc25d02d3c1674479764ec6b1c19ec11e916a9ca29f4bfd9fae268b9493f9"

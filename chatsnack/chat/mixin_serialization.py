@@ -54,7 +54,7 @@ def refresh_snapclass_config_stash(cls):
     config = getattr(cls, "__snapclass_config__", None)
     stash = getattr(config, "stash", None)
     if stash is not None:
-        # snapclass 0.1.2 rejects lifecycle hooks that change snapshot paths.
+        # snapclass rejects lifecycle hooks that change snapshot paths.
         # Refresh env/cwd-sensitive stashes before object construction or
         # explicit save/load instead of doing it inside ready/loaded hooks.
         config.stash = stash.refresh()
@@ -140,7 +140,7 @@ class DatafileMixin:
         _refresh_after_snapshot_load(self)
 
     def _install_snapshot_compat_hooks(self):
-        # snapclass 0.1.2 owns snapshot lifecycle hooks. This method remains so
+        # snapclass owns snapshot lifecycle hooks. This method remains so
         # older chatsnack internals can call it without reintroducing monkey
         # patching around snapshot.load().
         return None
