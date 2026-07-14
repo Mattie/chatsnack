@@ -909,14 +909,14 @@ oldlibyaml = ["ruamel.yaml.clib ; platform_python_implementation == \"CPython\""
 
 [[package]]
 name = "snapclass"
-version = "0.1.3"
+version = "0.2.0"
 description = "Human-readable file persistence for Python dataclasses."
 optional = false
 python-versions = ">=3.11"
 groups = ["main"]
 files = [
-    {file = "snapclass-0.1.3-py3-none-any.whl", hash = "sha256:320f46c1d2a3daf53211402cc3ddf77dacde46c9366a02d48b4089db56d5d351"},
-    {file = "snapclass-0.1.3.tar.gz", hash = "sha256:f97c5999db1137b4851f93a4bdabc68d84f53148667cf604467a8e073ccd055b"},
+    {file = "snapclass-0.2.0-py3-none-any.whl", hash = "sha256:681fd876e438df923c5813e77b33ed5d3be2dfbd8486256bca1d44d081dd1d8d"},
+    {file = "snapclass-0.2.0.tar.gz", hash = "sha256:d9de4271e385e0b6a5b44aa80255bf5da0ff36d5a593bf8b18c2049f8bd1ab93"},
 ]
 
 [package.dependencies]
@@ -925,8 +925,10 @@ json5 = ">=0.9,<1"
 tomlkit = ">=0.10,<0.16"
 
 [package.extras]
+benchmark = ["tiktoken (>=0.7,<1)"]
 test = ["pytest (>=8)"]
 typing = ["mypy (>=1.11,<3)"]
+yaml-fast = ["ruamel.yaml.clib (>=0.2.15,<0.3)", "tree-sitter (>=0.25,<0.27)", "tree-sitter-yaml (>=0.7.2,<0.8)"]
 
 [[package]]
 name = "sniffio"
@@ -1129,4 +1131,4 @@ rich = ["rich"]
 [metadata]
 lock-version = "2.1"
 python-versions = "^3.11"
-content-hash = "908fc25d02d3c1674479764ec6b1c19ec11e916a9ca29f4bfd9fae268b9493f9"
+content-hash = "c34b7d9bcfd9444e73b8a3089c95e029febf1a49bc1996db39cc53cfea87476f"
