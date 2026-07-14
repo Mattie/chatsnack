@@ -126,6 +126,12 @@ chat.reasoning.summary = "auto"
 The `sources=True` on `web_search` automatically populates `params.responses["include"]`
 without manual dict mutation.
 
+For unusually long local-utensil workflows, `auto_feed` controls the automatic
+execute-and-follow-up loop. Leave it unset (or use `True` / `None`) for the legacy
+five-cycle limit. A positive integer allows that many cycles; `False` or `0` still
+executes the first pending batch, but does not feed its results back to the model.
+Parallel calls requested in one assistant response count as one cycle.
+
 ### Tasty Features
 
 There's many other tidbits covered in the notebooks, examples, and videos. Here are some of the highlights:

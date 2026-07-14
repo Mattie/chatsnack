@@ -60,9 +60,11 @@ The compatibility behaviors in this RFC are frozen as the authoritative baseline
 
 ### Tool recursion
 - `auto_execute=None` behaves as enabled.
-- Max recursion depth is `5`.
-- `auto_feed=None` behaves as enabled, feeding tool output back for follow-up completion.
-- `auto_feed=False` records assistant/tool interactions and stops recursion.
+- The legacy recursion depth is `5` when `auto_feed` is omitted, `None`, or `True`.
+- A positive integer `auto_feed=N` allows up to `N` tool-result feed cycles.
+- `auto_feed=False` or `0` executes the first pending tool-call batch, records the assistant/tool interaction, and makes no follow-up completion.
+- Parallel tool calls from one assistant response count as one cycle.
+- When the limit is exhausted, the next assistant-requested tool call remains in history but is not executed, and the warning names the pending tool.
 - Tool-call metadata and tool messages are preserved in returned chat history.
 
 ### Return shape

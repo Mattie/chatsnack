@@ -22,6 +22,7 @@ from loguru import logger
 from snapclass import formatters
 from ruamel.yaml import YAML as _YAML
 
+from .chat.mixin_params import _resolve_auto_feed_limit
 from .chat.turns import (
     CANONICAL_FIELD_ORDER,
     CANONICAL_SYSTEM_ROLE,
@@ -230,6 +231,15 @@ def _normalize_data_on_load(data):
         data["messages"] = [_normalize_message_on_load(m) for m in messages]
 
     params = data.get("params")
+    if isinstance(params, dict) and "auto_feed" in params:
+        # Validate the authored scalar before snapclass can coerce a float or
+        # string into one of the bool/int union members.
+        authored_auto_feed = params["auto_feed"]
+        _resolve_auto_feed_limit(authored_auto_feed)
+        if isinstance(authored_auto_feed, int) and not isinstance(authored_auto_feed, bool):
+            # Ruamel uses integer subclasses; normalize them so snapclass's
+            # bool-first union matching does not turn YAML ``0`` into False.
+            params["auto_feed"] = int(authored_auto_feed)
     if isinstance(params, dict) and isinstance(params.get("tools"), list):
         # Phase 4: compile compact authoring syntax under params.tools into
         # provider-shaped dicts, then split back to the current internal
