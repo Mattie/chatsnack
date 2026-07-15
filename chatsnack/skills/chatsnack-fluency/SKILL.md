@@ -97,6 +97,13 @@ def save_note(title: str, body: str):
 chat = Chat("Use save_note when a note should persist.", utensils=[save_note])
 ```
 
+For an unusually long local-utensil chain, a positive integer `auto_feed=N`
+allows up to `N` automatic execution/result-feed cycles. Omitted, `None`, or
+`True` keeps the legacy five-cycle behavior. `False` or `0` executes the first
+pending batch without feeding its results back for another model response.
+Parallel calls in one assistant response count as one cycle. Keep this numeric
+knob in advanced examples; the common path should continue to omit it.
+
 ## Good Patterns
 
 Agentic coding prompt builder:

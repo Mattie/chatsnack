@@ -12,7 +12,24 @@ from ..runtime import EVENT_SCHEMA_VERSION
 from ..runtime.attachment_inputs import normalize_attachment_inputs
 
 from .mixin_messages import ChatMessagesMixin
-from .mixin_params import ChatParamsMixin, DEFAULT_MODEL_FALLBACK
+from .mixin_params import (
+    ChatParamsMixin,
+    DEFAULT_MODEL_FALLBACK,
+    _resolve_auto_feed_limit,
+)
+
+
+def _tool_call_name(tool_call) -> str:
+    """Return a useful name for an unexecuted tool-call diagnostic."""
+    if isinstance(tool_call, dict):
+        function = tool_call.get("function", {}) or {}
+        return function.get("name") or tool_call.get("type") or "unknown"
+    function = getattr(tool_call, "function", None)
+    return (
+        getattr(function, "name", None)
+        or getattr(tool_call, "type", None)
+        or "unknown"
+    )
 
 
 class ChatStreamListener:
@@ -811,17 +828,31 @@ class ChatQueryMixin(ChatMessagesMixin, ChatParamsMixin):
 
             # Check if we should auto-execute tools, default is we will
             if has_tool_calls and (self.params.auto_execute is None or self.params.auto_execute):
-                # Recursive tool call handling with max depth
-                max_tool_recursion = 5
-                current_recursion = 0
+                max_auto_feed_cycles = _resolve_auto_feed_limit(self.params.auto_feed)
+                auto_feed_cycles = 0
                 current_chat = new_chatprompt
 
                 # trace call that we got here and begin recursion
-                logger.trace("Tool call recursion, max depth: {max_depth}", max_depth=max_tool_recursion)
+                logger.trace(
+                    "Tool call recursion, auto-feed limit: {max_depth}",
+                    max_depth=max_auto_feed_cycles,
+                )
 
-                while has_tool_calls and current_recursion < max_tool_recursion:
-                    current_recursion += 1
-                    logger.debug(f"Tool recursion {current_recursion}/{max_tool_recursion}")
+                # A zero limit still executes the already-requested batch. It
+                # only suppresses the automatic follow-up submission.
+                while has_tool_calls and (
+                    auto_feed_cycles < max_auto_feed_cycles
+                    or max_auto_feed_cycles == 0
+                ):
+                    if max_auto_feed_cycles > 0:
+                        auto_feed_cycles += 1
+                        logger.debug(
+                            "Tool recursion {current}/{maximum}",
+                            current=auto_feed_cycles,
+                            maximum=max_auto_feed_cycles,
+                        )
+                    else:
+                        logger.debug("Executing pending tool calls without auto-feed")
                    
                     for tool_call in message.tool_calls:
                         tool_output = await self._execute_model_tool_call(tool_call)
@@ -831,7 +862,7 @@ class ChatQueryMixin(ChatMessagesMixin, ChatParamsMixin):
                         logger.debug(f"Current chat messages: {current_chat.get_messages()}")
                     
                     # Check if we should feed tool results back to the model
-                    if self.params.auto_feed is None or self.params.auto_feed:
+                    if max_auto_feed_cycles > 0:
                         # Use _submit_for_response_and_prompt for the follow-up call
                         # Since we want to use the current conversation as context, we create a temporary chat object
                         temp_chat = current_chat.copy()
@@ -869,14 +900,26 @@ class ChatQueryMixin(ChatMessagesMixin, ChatParamsMixin):
                                     current_chat = current_chat.assistant(assistant_turn)
                                 current_chat._set_runtime_metadata_from_response(follow_up)
                     else:
-                        # If auto_feed is False, break the tool call recursion loop
-                        # The assistant's tool calls are recorded but not fed back to the model
+                        # The pending tool batch executed, but its results are
+                        # not submitted for another model response.
                         has_tool_calls = False
-                        logger.debug("Not feeding tool results back to model due to auto_feed=False")
+                        logger.debug("Not feeding tool results back because auto_feed is disabled")
                 
-                # Log warning if we hit max recursion
-                if current_recursion >= max_tool_recursion and has_tool_calls:
-                    logger.warning(f"Reached maximum tool recursion depth ({max_tool_recursion})")
+                if (
+                    max_auto_feed_cycles > 0
+                    and auto_feed_cycles >= max_auto_feed_cycles
+                    and has_tool_calls
+                ):
+                    pending_names = ", ".join(
+                        _tool_call_name(tool_call)
+                        for tool_call in message.tool_calls
+                    )
+                    logger.warning(
+                        "Reached auto_feed limit ({maximum}); pending tool calls "
+                        "were recorded but not executed: {tool_names}",
+                        maximum=max_auto_feed_cycles,
+                        tool_names=pending_names,
+                    )
                     
                 # Return the chat with all tool interactions
                 return current_chat

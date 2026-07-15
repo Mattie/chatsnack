@@ -7,6 +7,28 @@ from snapclass import snapclass
 
 
 DEFAULT_MODEL_FALLBACK = "gpt-5-chat-latest"
+_LEGACY_AUTO_FEED_LIMIT = 5
+
+
+def _resolve_auto_feed_limit(value: bool | int | None) -> int:
+    """Resolve authored auto-feed settings to a safe continuation limit.
+
+    ``True`` and ``None`` preserve the original five-cycle behavior, while
+    ``False`` and ``0`` disable follow-up submissions after the pending tool
+    batch executes. Booleans must be handled before integers because ``bool``
+    is an ``int`` subclass in Python.
+    """
+    if value is None or value is True:
+        return _LEGACY_AUTO_FEED_LIMIT
+    if value is False:
+        return 0
+    if isinstance(value, int):
+        if value < 0:
+            raise ValueError("auto_feed must be a non-negative integer")
+        return value
+    raise TypeError(
+        "auto_feed must be True, False, None, or a non-negative integer"
+    )
 
 
 _REASONING_SUMMARY_OPTIONS = frozenset({"auto", "concise", "detailed"})
@@ -376,7 +398,7 @@ class ChatParams:
     native_tools: Optional[List[dict]] = None  # Phase 3: provider-native tool dicts (web_search, code_interpreter, etc.)
     tool_choice: Optional[str] = None
     auto_execute: Optional[bool] = None  
-    auto_feed: Optional[bool] = True  # Whether to automatically feed tool results back to the model
+    auto_feed: bool | int | None = True  # True keeps the legacy five-cycle tool-result feed limit
 
     # Azure-specific parameters
     deployment: Optional[str] = None
@@ -390,6 +412,10 @@ class ChatParams:
     session: Optional[str] = None  # responses transport selector: None | inherit | new
     profile: Optional[dict] = None  # runtime profile/options; forwarded to adapters, stripped before provider API
     responses: Optional[dict] = None  # Phase 3: Responses API nested config (text, reasoning, include, store, export_state, etc.)
+
+    def __post_init__(self):
+        """Reject invalid automatic tool-result feed settings at construction."""
+        _resolve_auto_feed_limit(self.auto_feed)
 
 
     """
@@ -762,13 +788,14 @@ class ChatParamsMixin:
             self.params.tool_choice = value
 
     @property
-    def auto_feed(self) -> Optional[bool]:
+    def auto_feed(self) -> bool | int | None:
         if self.params is None:
             return None
         return self.params.auto_feed
 
     @auto_feed.setter
-    def auto_feed(self, value: bool):
+    def auto_feed(self, value: bool | int | None):
+        _resolve_auto_feed_limit(value)
         if self.params is None and value is not None:
             self.params = ChatParams()
         if self.params is not None:

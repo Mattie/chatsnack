@@ -246,7 +246,34 @@ chat = Chat(
 
 The YAML can say when issue creation is appropriate; Python provides the callable.
 
-## Tip 10: Add Custom Filling Namespaces Only For Real Catalogs
+## Tip 10: Budget Only The Long Utensil Chains
+
+Most chats should omit `auto_feed` and keep the legacy five-cycle automatic
+tool-result loop. When a known workflow needs more steps, put the larger budget
+on the `Chat` instead of adding orchestration around it:
+
+```python
+curator = Chat(
+    "Research the topic fully, then submit one curator plan.",
+    utensils=[resolve_names, search_articles, search_claims, read_articles, submit_curator_plan],
+    auto_feed=8,
+)
+```
+
+The same setting stays readable in saved YAML:
+
+```yaml
+params:
+  auto_feed: 8
+```
+
+A batch of parallel calls requested by one assistant response counts as one
+cycle. Omitted, `None`, or `True` means five cycles; `False` or `0` executes the
+first pending batch without sending its results back for another response. If a
+positive limit is exhausted, the next requested call stays in chat history but
+is not executed.
+
+## Tip 11: Add Custom Filling Namespaces Only For Real Catalogs
 
 Custom filling namespaces are useful when a project has a real external fragment catalog. They should feel like a narrow extension of fillings, not a replacement for saved `Text` and saved `Chat` assets.
 
