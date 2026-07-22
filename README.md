@@ -1,6 +1,6 @@
 # chatsnack
 
-chatsnack is the easiest Python library for rapid development with OpenAI's ChatGPT API. It provides an intuitive interface for creating and managing chat-based prompts and responses, making it convenient to build complex, interactive conversations with AI.
+chatsnack makes it easy to author, save, remix, and run chats with OpenAI.
 
 [Documentation site](https://mattie.github.io/chatsnack/)
 
@@ -72,10 +72,9 @@ while (user_input := input("Chat with the bot: ")):
     print(f"THEM: {yourchat.last}")
 ```
 
-### Natural Attachments (Phase 3 style ergonomics)
+### Natural Attachments
 
-For the default Responses workflows, you can pass attachments directly at query time with
-`files=` and `images=`:
+Need a file at the table? Pass `files=` or `images=` right when you `.ask()` or `.chat()`:
 
 ```python
 from chatsnack import Chat
@@ -88,23 +87,24 @@ thread = thread.chat("Now compare that with this report.", files=["./data/q2-rep
 print(thread.last)
 ```
 
-When attachments are present, chatsnack stores the user turn as an expanded YAML block
-(`text` + `files` / `images`) while keeping plain text turns scalar-first.
+Simple messages stay simple in YAML; turns with attachments open up enough room for
+their files and images.
 
 ### Utensils (Tools)
 
-Local Python functions and hosted OpenAI tools share one `utensils=[...]` surface:
+In chatsnack, tools are utensils. Local Python functions and hosted OpenAI tools
+all fit in the same `utensils=[...]` drawer:
 
 ```python
 from chatsnack import Chat, utensil
 
-# Local function tools use the @utensil decorator
+# Turn a Python function into a utensil
 @utensil
 def get_weather(location: str, unit: str = "celsius"):
     """Get the current weather for a location."""
     return {"temperature": 72, "condition": "sunny", "unit": unit}
 
-# Grouped tools form searchable namespaces
+# Bundle related utensils
 crm = utensil.group("crm", "CRM tools for customer lookup.")
 
 @crm
@@ -112,10 +112,10 @@ def get_customer(customer_id: str):
     """Look up one customer by ID."""
     return {"id": customer_id}
 
-# Hosted tools are small named specs
+# Add a hosted utensil
 docs_search = utensil.web_search(domains=["docs.python.org"], sources=True)
 
-# Everything passes through utensils=[]
+# Set the table
 chat = Chat(
     "Use tools only when useful.",
     utensils=[get_weather, crm, utensil.tool_search, docs_search],
@@ -123,18 +123,14 @@ chat = Chat(
 chat.reasoning.summary = "auto"
 ```
 
-The `sources=True` on `web_search` automatically populates `params.responses["include"]`
-without manual dict mutation.
+`sources=True` asks web search to bring its sources along.
 
-For unusually long local-utensil workflows, `auto_feed` controls the automatic
-execute-and-follow-up loop. Leave it unset (or use `True` / `None`) for the legacy
-five-cycle limit. A positive integer allows that many cycles; `False` or `0` still
-executes the first pending batch, but does not feed its results back to the model.
-Parallel calls requested in one assistant response count as one cycle.
+Most chats can leave `auto_feed` alone. For a longer utensil run, give it a cycle
+budget with `auto_feed=8`.
 
 ### Tasty Features
 
-There's many other tidbits covered in the notebooks, examples, and videos. Here are some of the highlights:
+There are plenty more snacks in the notebooks, examples, and videos. Here are some of the highlights:
 
 * Everyday Snacking
   * Chat objects
@@ -232,7 +228,7 @@ messages:
 ### Serious Snacking
 
 #### Ingredient Shortcuts
-If you're wanting to minimize typing, you can use omit a couple of ingredients.
+Want to save a little typing? You can leave out a couple of ingredients.
 ##### Quick System Message
 For example, this:
 ```python
@@ -261,7 +257,7 @@ Basically, we assume if you're making a `Chat()` you'll need a system message, a
 
 ##### Quick Assistants
 
-Also, `.asst()` is an alias shortcut for `.assistant()` if you want you code to align cleanly with other 4-letter `.user()` and `.chat()` calls.
+`.asst()` is a shorter `.assistant()`, sized to line up neatly with `.user()` and `.chat()`.
 
 ##### Binge-chaining
 
@@ -300,7 +296,7 @@ Popcorn, oh popcorn, you're simply divine.
 
 #### Nested Chats
 
-You can include other chats in your current chat or use `{chat.___}` filling expander for more dynamic AI generations:
+Include another chat directly, or use a `{chat.___}` filling when one chat should whip up an ingredient for another:
 
 ```python
 basechat = Chat(name="ExampleIncludedChat").system("Respond only with the word CARROTSTICKS from now on.")
