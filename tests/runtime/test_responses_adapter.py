@@ -157,6 +157,28 @@ def test_continuation_previous_response_id_passthrough_and_metadata_mirror():
     assert result.metadata["previous_response_id"] == "resp_prev"
 
 
+def test_response_payload_previous_response_id_wins_over_request_fallback():
+    response = _FakeObj(
+        {
+            "id": "resp_current",
+            "previous_response_id": "resp_provider_previous",
+            "status": "completed",
+            "model": "gpt-4.1",
+            "output": [],
+        }
+    )
+    ai = SimpleNamespace(
+        client=SimpleNamespace(responses=SimpleNamespace(create=lambda **kwargs: response))
+    )
+
+    result = ResponsesAdapter(ai).create_completion(
+        messages=[],
+        previous_response_id="resp_request_fallback",
+    )
+
+    assert result.metadata["previous_response_id"] == "resp_provider_previous"
+
+
 def test_normalizes_assistant_text_tool_calls_usage_model_status_and_metadata():
     response = _FakeObj(
         {
@@ -194,6 +216,34 @@ def test_normalizes_assistant_text_tool_calls_usage_model_status_and_metadata():
     assert result.metadata["response_id"] == "resp_abc"
     assert result.metadata["assistant_phase"] == "completed"
     assert result.metadata["provider_extras"]["status"] == "completed"
+
+
+@pytest.mark.parametrize("model", ["openrouter/model", "azure-deployment"])
+def test_compatible_responses_usage_payload_is_preserved(model):
+    usage = {
+        "input_tokens": 6,
+        "input_tokens_details": {"cached_tokens": 2},
+        "output_tokens": 4,
+        "output_tokens_details": {"reasoning_tokens": 1},
+        "total_tokens": 10,
+    }
+    response = _FakeObj(
+        {
+            "id": "resp_provider",
+            "status": "completed",
+            "model": model,
+            "usage": usage,
+            "output": [],
+        }
+    )
+    ai = SimpleNamespace(
+        client=SimpleNamespace(responses=SimpleNamespace(create=lambda **kwargs: response))
+    )
+
+    result = ResponsesAdapter(ai).create_completion(messages=[])
+
+    assert result.usage == usage
+    assert result.metadata["response_id"] == "resp_provider"
 
 
 def test_normalizes_rich_assistant_parts_into_message_fields():

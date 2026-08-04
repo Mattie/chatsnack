@@ -5,7 +5,7 @@ from typing import Dict, List, Optional, Union, Any
 from loguru import logger
 
 from ..utensil import get_openai_tools, handle_tool_call, UtensilFunction, UtensilGroup, HostedUtensil
-from .mixin_params import ChatParams  # Changed to import from mixin_params instead
+from .mixin_params import ChatParams, DEFAULT_MODEL_FALLBACK
 
 
 class ChatUtensilMixin:
@@ -305,7 +305,7 @@ class ChatUtensilMixin:
                     # remove engine for newest models as of Nov 13 2023
                     del out["engine"]
                 else:
-                    out["model"] = "gpt-5-chat-latest"
+                    out["model"] = DEFAULT_MODEL_FALLBACK
             self.kwargs = out
 
         async def start_a(self):

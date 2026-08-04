@@ -5,6 +5,7 @@ from chatsnack import Chat, Text, CHATSNACK_BASE_DIR
 import pytest
 import asyncio
 from chatsnack.chat.mixin_query import ChatStreamListener
+from chatsnack.chat.mixin_utensil import ChatUtensilMixin
 from chatsnack.aiclient import AiClient
 
 
@@ -177,6 +178,14 @@ def test_listener_default_legacy_text_mode():
     chunks = list(listener)
     assert chunks == ["A", "B", ""]
     assert "".join(chunks) == "AB"
+
+
+def test_stream_listeners_share_the_cross_runtime_model_fallback():
+    assert ChatStreamListener(ai=None, prompt="[]").kwargs["model"] == "gpt-5.4"
+    assert (
+        ChatUtensilMixin.ChatStreamListener(ai=None, prompt="[]").kwargs["model"]
+        == "gpt-5.4"
+    )
 
 
 @pytest.mark.parametrize("use_runtime_adapter", [True, False])

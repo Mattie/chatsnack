@@ -669,7 +669,8 @@ async def test_cleaned_chat_completion_model_fallback(chat):
     )
     chat.system("system")
     await chat._cleaned_chat_completion(chat.json)
-    assert fake_completions.last_kwargs["model"] == DEFAULT_MODEL_FALLBACK
+    assert DEFAULT_MODEL_FALLBACK == "gpt-5.4"
+    assert fake_completions.last_kwargs["model"] == "gpt-5.4"
 
 
 @pytest.mark.asyncio

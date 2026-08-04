@@ -863,6 +863,7 @@ def test_create_completion_consumes_stream_to_normalized_result(monkeypatch):
 
     assert result.message.content == "hello"
     assert result.metadata["response_id"] == "resp_1"
+    assert result.usage == {"total_tokens": 5}
 
 
 def test_create_completion_uses_terminal_response_payload_for_rich_output(monkeypatch):

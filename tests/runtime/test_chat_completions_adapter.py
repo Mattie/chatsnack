@@ -31,6 +31,7 @@ def test_reserved_event_types_are_defined():
 def test_normalizes_non_stream_completion_with_tool_calls():
     response = _FakeObj(
         {
+            "id": "chatcmpl_abc",
             "model": "gpt-test",
             "usage": {"total_tokens": 4},
             "choices": [
@@ -62,8 +63,72 @@ def test_normalizes_non_stream_completion_with_tool_calls():
     assert result.model == "gpt-test"
     assert result.finish_reason == "tool_calls"
     assert result.usage == {"total_tokens": 4}
+    assert result.metadata["response_id"] == "chatcmpl_abc"
     assert result.message.tool_calls[0].id == "call_1"
     assert result.message.tool_calls[0].function.name == "get_weather"
+
+
+def test_chat_completions_response_id_is_preserved_when_usage_is_missing():
+    response = _FakeObj(
+        {
+            "id": "chatcmpl_openrouter",
+            "model": "openrouter/model",
+            "choices": [
+                {
+                    "finish_reason": "stop",
+                    "message": {"role": "assistant", "content": "hi"},
+                }
+            ],
+        }
+    )
+    ai = SimpleNamespace(
+        client=SimpleNamespace(
+            chat=SimpleNamespace(
+                completions=SimpleNamespace(create=lambda **kwargs: response)
+            )
+        )
+    )
+
+    result = ChatCompletionsAdapter(ai).create_completion(messages=[])
+
+    assert result.metadata["response_id"] == "chatcmpl_openrouter"
+    assert result.usage is None
+
+
+@pytest.mark.parametrize("model", ["openrouter/model", "azure-deployment"])
+def test_compatible_chat_completions_usage_payload_is_preserved(model):
+    usage = {
+        "prompt_tokens": 6,
+        "prompt_tokens_details": {"cached_tokens": 2},
+        "completion_tokens": 4,
+        "completion_tokens_details": {"reasoning_tokens": 1},
+        "total_tokens": 10,
+    }
+    response = _FakeObj(
+        {
+            "id": "chatcmpl_provider",
+            "model": model,
+            "usage": usage,
+            "choices": [
+                {
+                    "finish_reason": "stop",
+                    "message": {"role": "assistant", "content": "hi"},
+                }
+            ],
+        }
+    )
+    ai = SimpleNamespace(
+        client=SimpleNamespace(
+            chat=SimpleNamespace(
+                completions=SimpleNamespace(create=lambda **kwargs: response)
+            )
+        )
+    )
+
+    result = ChatCompletionsAdapter(ai).create_completion(messages=[])
+
+    assert result.usage == usage
+    assert result.metadata["response_id"] == "chatcmpl_provider"
 
 
 def test_normalizes_sync_stream_events_with_completed_terminal():

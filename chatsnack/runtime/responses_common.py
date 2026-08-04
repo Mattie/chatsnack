@@ -427,7 +427,8 @@ class ResponsesNormalizationMixin:
 
         metadata = {
             "response_id": response_dict.get("id"),
-            "previous_response_id": request_kwargs.get("previous_response_id"),
+            "previous_response_id": response_dict.get("previous_response_id")
+            or request_kwargs.get("previous_response_id"),
             "assistant_phase": assistant_phase,
             "provider_extras": {
                 "status": response_dict.get("status"),

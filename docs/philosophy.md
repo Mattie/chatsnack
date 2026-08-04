@@ -38,7 +38,7 @@ Chats serialize cleanly to YAML, which means our prompts can be readable, editab
 
 ```yaml
 params:
-  model: gpt-5-chat-latest
+  model: gpt-5.4
 messages:
   - system: Respond with professional writing based on the user query.
   - user: Author an alliterative poem about good snacks to eat with coffee.

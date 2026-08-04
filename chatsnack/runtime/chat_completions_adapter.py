@@ -100,6 +100,7 @@ class ChatCompletionsAdapter:
             finish_reason=choice.get("finish_reason"),
             model=response_dict.get("model"),
             usage=response_dict.get("usage"),
+            metadata={"response_id": response_dict.get("id")},
         )
 
     def create_completion(self, messages: List[Dict[str, Any]], **kwargs: Any) -> NormalizedCompletionResult:

@@ -6,7 +6,8 @@ from dataclasses import dataclass, field
 from snapclass import snapclass
 
 
-DEFAULT_MODEL_FALLBACK = "gpt-5-chat-latest"
+# Favor a stable cross-runtime/tool baseline over a rolling chat-only alias.
+DEFAULT_MODEL_FALLBACK = "gpt-5.4"
 _LEGACY_AUTO_FEED_LIMIT = 5
 
 
