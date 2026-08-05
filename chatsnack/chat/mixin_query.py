@@ -789,7 +789,6 @@ class ChatQueryMixin(ChatMessagesMixin, ChatParamsMixin):
         additional_vars = self._prepare_query_vars(usermsg, files=files, images=images, **additional_vars)
 
         ledger = _CallUsageLedger()
-        self._last_call_usage = None
         try:
             completed = await self._chat_a_with_usage(
                 _call_usage_ledger=ledger,

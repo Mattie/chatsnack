@@ -160,6 +160,30 @@ def test_missing_zero_and_empty_usage_payloads_remain_distinct():
     )
 
 
+def test_malformed_preferred_alias_falls_back_to_valid_compatible_alias():
+    ledger = _CallUsageLedger()
+    ledger.record(
+        _completion(
+            {
+                "input_tokens": "unknown",
+                "prompt_tokens": 11,
+                "input_tokens_details": {"cached_tokens": False},
+                "prompt_tokens_details": {"cached_tokens": 4},
+                "output_tokens": None,
+                "completion_tokens": 7,
+                "output_tokens_details": {"reasoning_tokens": "unknown"},
+                "completion_tokens_details": {"reasoning_tokens": 3},
+            }
+        )
+    )
+
+    response = ledger.snapshot().responses[0]
+    assert response.input_tokens == 11
+    assert response.cached_input_tokens == 4
+    assert response.output_tokens == 7
+    assert response.reasoning_tokens == 3
+
+
 def test_ledger_sequences_responses_and_detaches_raw_provider_usage():
     usage = {
         "input_tokens": 2,

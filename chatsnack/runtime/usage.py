@@ -104,12 +104,13 @@ def _known_count(
     usage: Mapping[str, Any],
     *paths: Tuple[str, ...],
 ) -> Optional[int]:
+    """Return the first integer found across compatible provider aliases."""
     for path in paths:
         value = _value_at(usage, path)
         if value is _MISSING:
             continue
         if isinstance(value, bool) or not isinstance(value, int):
-            return None
+            continue
         return value
     return None
 

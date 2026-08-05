@@ -243,6 +243,42 @@ async def test_next_call_replaces_source_usage_and_leaves_prior_result_intact():
     assert source.last_call_usage.total.total_tokens == 8
 
 
+@pytest.mark.asyncio
+async def test_in_flight_call_preserves_most_recently_finished_source_usage():
+    first_runtime = _SequenceRuntime(
+        [_completion("First.", {"total_tokens": 5}, response_id="resp_first")]
+    )
+    source = Chat("Answer briefly.", runtime=first_runtime)
+    first = await source.chat_a("First?")
+    first_call = first.last_call_usage
+
+    class _BlockingRuntime:
+        def __init__(self):
+            self.started = asyncio.Event()
+            self.release = asyncio.Event()
+
+        async def create_completion_a(self, messages, **kwargs):
+            self.started.set()
+            await self.release.wait()
+            return _completion(
+                "Second.",
+                {"total_tokens": 8},
+                response_id="resp_second",
+            )
+
+    runtime = _BlockingRuntime()
+    source.runtime = runtime
+    pending = asyncio.create_task(source.chat_a("Second?"))
+    await runtime.started.wait()
+
+    assert source.last_call_usage is first_call
+
+    runtime.release.set()
+    second = await pending
+    assert source.last_call_usage is second.last_call_usage
+    assert source.last_call_usage.total.total_tokens == 8
+
+
 def test_call_usage_is_transient_across_yaml_copy_reset_and_load(tmp_path):
     runtime = _SequenceRuntime(
         [
