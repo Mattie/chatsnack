@@ -332,7 +332,7 @@ class Chat(ChatQueryMixin, ChatSerializationMixin, ChatUtensilMixin):
 
     @property
     def last_call_usage(self) -> Optional[CallUsage]:
-        """Usage snapshot from the most recently finished ``chat()`` call."""
+        """Usage from the latest completed or failed ``chat()``/``chat_a()`` call."""
         return self._last_call_usage
 
     def reset(self) -> object:
