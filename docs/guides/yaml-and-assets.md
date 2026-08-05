@@ -59,7 +59,7 @@ from chatsnack import Chat
 
 wisechat = Chat("Respond with professional writing based on the user query.")
 wisechat.user("Author an alliterative poem about good snacks to eat with coffee.")
-wisechat.model = "gpt-5-chat-latest"
+wisechat.model = "gpt-5.4"
 ```
 
 That keeps a prompt asset close to the exact runtime configuration we meant to use.

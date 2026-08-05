@@ -11,6 +11,7 @@ from .types import (
     RuntimeTerminalMetadata,
 )
 from .attachment_resolver import AttachmentResolver
+from .usage import CallUsage, ResponseUsage, UsageCounts
 from .chat_completions_adapter import ChatCompletionsAdapter
 from .responses_adapter import ResponsesAdapter
 from .responses_websocket_adapter import (
@@ -32,6 +33,9 @@ __all__ = [
     "RuntimeTerminalMetadata",
     "RuntimeErrorPayload",
     "AttachmentResolver",
+    "UsageCounts",
+    "ResponseUsage",
+    "CallUsage",
     "ChatCompletionsAdapter",
     "ResponsesAdapter",
     "ResponsesWebSocketAdapter",

@@ -443,7 +443,12 @@ class ChatQueryMixin(ChatMessagesMixin, ChatParamsMixin):
             kwargs.pop("tool_choice", None)
         return kwargs
 
-    async def _submit_for_response_and_prompt(self, track_continuation: bool = False, **additional_vars):
+    async def _submit_for_response_and_prompt(
+        self,
+        track_continuation: bool = False,
+        _call_usage_ledger=None,
+        **additional_vars,
+    ):
         """ Executes the query as-is and returns a tuple of the final prompt and the response"""
         prompter = self
         # if the user in additional_vars, we're going to instead deepcopy this prompt into a new prompt and add the .user() to it
@@ -467,6 +472,7 @@ class ChatQueryMixin(ChatMessagesMixin, ChatParamsMixin):
             return prompt, await prompter._cleaned_chat_completion(
                 prompt,
                 track_continuation=track_continuation,
+                _call_usage_ledger=_call_usage_ledger,
                 **kwargs,
             )
 
@@ -575,7 +581,13 @@ class ChatQueryMixin(ChatMessagesMixin, ChatParamsMixin):
         meta = self._normalize_runtime_metadata(response)
         self._set_last_runtime_metadata(meta)
 
-    async def _cleaned_chat_completion(self, prompt, track_continuation: bool = False, **kwargs):
+    async def _cleaned_chat_completion(
+        self,
+        prompt,
+        track_continuation: bool = False,
+        _call_usage_ledger=None,
+        **kwargs,
+    ):
         # if there's no model specified, use the default
         if "model" not in kwargs:
             # if there's an engine in the kwargs, use that as the model
@@ -606,6 +618,8 @@ class ChatQueryMixin(ChatMessagesMixin, ChatParamsMixin):
                 if last_response_id:
                     request_kwargs["previous_response_id"] = last_response_id
             normalized = await adapter.create_completion_a(messages=messages, **request_kwargs)
+            if _call_usage_ledger is not None:
+                _call_usage_ledger.record(normalized)
             response = normalized
             if track_continuation:
                 self._set_last_runtime_metadata(self._normalize_runtime_metadata(normalized))
@@ -769,13 +783,41 @@ class ChatQueryMixin(ChatMessagesMixin, ChatParamsMixin):
         return self._run_sync(self.chat_a(**additional_vars), "chat")
         
     async def chat_a(self, usermsg=None, files=None, images=None, **additional_vars) -> object:
-        """Async form of `chat()`."""
+        """Return a continued chat with call-scoped provider usage attached."""
+        from ..runtime.usage import _CallUsageLedger
+
         additional_vars = self._prepare_query_vars(usermsg, files=files, images=images, **additional_vars)
-            
+
+        ledger = _CallUsageLedger()
+        try:
+            completed = await self._chat_a_with_usage(
+                _call_usage_ledger=ledger,
+                **additional_vars,
+            )
+        except BaseException as exc:
+            snapshot = ledger.snapshot()
+            self._last_call_usage = snapshot
+            try:
+                setattr(exc, "last_call_usage", snapshot)
+            except Exception:
+                pass
+            raise
+
+        snapshot = ledger.snapshot()
+        self._last_call_usage = snapshot
+        completed._last_call_usage = snapshot
+        return completed
+
+    async def _chat_a_with_usage(self, _call_usage_ledger, **additional_vars) -> object:
+        """Run one chat orchestration while sharing its private response ledger."""
         if self.stream:
             raise Exception("Cannot use chat() with a stream")
         
-        prompt, response = await self._submit_for_response_and_prompt(track_continuation=True, **additional_vars)
+        prompt, response = await self._submit_for_response_and_prompt(
+            track_continuation=True,
+            _call_usage_ledger=_call_usage_ledger,
+            **additional_vars,
+        )
         
         # create a new chatprompt with the new name, copy it from this one
         new_chatprompt = self.__class__(
@@ -872,6 +914,7 @@ class ChatQueryMixin(ChatMessagesMixin, ChatParamsMixin):
                         follow_up = await temp_chat._cleaned_chat_completion(
                             new_prompt,
                             track_continuation=True,
+                            _call_usage_ledger=_call_usage_ledger,
                             **temp_chat._build_tool_followup_request_kwargs(),
                         )
                         

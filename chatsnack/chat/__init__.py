@@ -11,6 +11,7 @@ from snapclass import snapclass
 from ..aiclient import AiClient
 from ..defaults import CHATSNACK_PROMPTS
 from ..runtime import (
+    CallUsage,
     ChatCompletionsAdapter,
     ResponsesAdapter,
     ResponsesWebSocketAdapter,
@@ -267,6 +268,7 @@ class Chat(ChatQueryMixin, ChatSerializationMixin, ChatUtensilMixin):
             session_mode = self.session
         self.runtime = self._select_runtime(runtime=runtime, runtime_selector=runtime_selector, profile=profile, session_mode=session_mode)
         self._last_runtime_metadata = _empty_runtime_metadata()
+        self._last_call_usage = None
 
 
    
@@ -328,6 +330,11 @@ class Chat(ChatQueryMixin, ChatSerializationMixin, ChatUtensilMixin):
         """Close every tracked shared Responses WebSocket session."""
         ResponsesWebSocketAdapter.close_all_sessions()
 
+    @property
+    def last_call_usage(self) -> Optional[CallUsage]:
+        """Usage from the latest completed or failed ``chat()``/``chat_a()`` call."""
+        return self._last_call_usage
+
     def reset(self) -> object:
         """Restore the chat to the state captured immediately after initialization."""
         self.name = self._initial_name
@@ -342,6 +349,7 @@ class Chat(ChatQueryMixin, ChatSerializationMixin, ChatUtensilMixin):
             # Re-load tools from the initial registry
             self._load_tools_from_params()
         self._last_runtime_metadata = _empty_runtime_metadata()
+        self._last_call_usage = None
         return self
     
     def _load_tools_from_params(self):
@@ -561,6 +569,8 @@ def _ensure_chat_live_state(self):
         )
     if not hasattr(self, "_last_runtime_metadata"):
         self._last_runtime_metadata = _empty_runtime_metadata()
+    if not hasattr(self, "_last_call_usage"):
+        self._last_call_usage = None
     if not hasattr(self, "_initial_name"):
         _capture_chat_reset_state(self)
 
@@ -581,6 +591,7 @@ def _refresh_chat_after_snapshot_load(self):
         session_mode=session_mode,
     )
     self._last_runtime_metadata = _empty_runtime_metadata()
+    self._last_call_usage = None
     _capture_chat_reset_state(self)
 
 
