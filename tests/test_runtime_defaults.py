@@ -81,6 +81,95 @@ def test_reasoning_known_model_warns_for_known_unsupported_effort():
     assert any("known supported set" in str(w.message) and "gpt-5.4" in str(w.message) for w in caught)
 
 
+def test_gpt_5_6_sol_xhigh_passes_without_capability_warning():
+    params = ChatParams(
+        model="gpt-5.6-sol",
+        runtime="responses",
+        responses={"reasoning": {"effort": "xhigh"}},
+    )
+
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        opts = params._get_responses_api_options()
+
+    assert opts["reasoning"]["effort"] == "xhigh"
+    assert not any("known supported set" in str(w.message) for w in caught)
+
+
+def test_gpt_5_6_terra_max_passes_without_capability_warning():
+    params = ChatParams(
+        model="gpt-5.6-terra",
+        runtime="responses",
+        responses={"reasoning": {"effort": "max"}},
+    )
+
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        opts = params._get_responses_api_options()
+
+    assert opts["reasoning"]["effort"] == "max"
+    assert not any("reasoning effort" in str(w.message).lower() for w in caught)
+
+
+def test_gpt_5_5_xhigh_passes_without_capability_warning():
+    params = ChatParams(
+        model="gpt-5.5",
+        runtime="responses",
+        responses={"reasoning": {"effort": "xhigh"}},
+    )
+
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        opts = params._get_responses_api_options()
+
+    assert opts["reasoning"]["effort"] == "xhigh"
+    assert not any("reasoning effort" in str(w.message).lower() for w in caught)
+
+
+def test_gpt_5_5_snapshot_uses_family_capabilities():
+    params = ChatParams(
+        model="gpt-5.5-2026-04-23",
+        runtime="responses",
+        responses={"reasoning": {"effort": "none"}},
+    )
+
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        opts = params._get_responses_api_options()
+
+    assert opts["reasoning"]["effort"] == "none"
+    assert not any("reasoning effort" in str(w.message).lower() for w in caught)
+
+
+def test_gpt_5_5_and_5_4_pro_profiles_reject_low_effort():
+    for model in ("gpt-5.5-pro", "gpt-5.4-pro"):
+        params = ChatParams(
+            model=model,
+            runtime="responses",
+            responses={"reasoning": {"effort": "low"}},
+        )
+
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            params._get_responses_api_options()
+
+        assert any("known supported set" in str(w.message) and model in str(w.message) for w in caught)
+
+
+def test_generic_gpt_5_still_warns_for_xhigh():
+    params = ChatParams(
+        model="gpt-5",
+        runtime="responses",
+        responses={"reasoning": {"effort": "xhigh"}},
+    )
+
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        params._get_responses_api_options()
+
+    assert any("known supported set" in str(w.message) and "gpt-5" in str(w.message) for w in caught)
+
+
 def test_reasoning_known_model_warns_for_known_unsupported_summary():
     params = ChatParams(model="o3-mini", runtime="responses", responses={"reasoning": {"summary": "verbose"}})
     with warnings.catch_warnings(record=True) as caught:

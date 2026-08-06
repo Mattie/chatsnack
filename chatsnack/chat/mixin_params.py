@@ -33,7 +33,48 @@ def _resolve_auto_feed_limit(value: bool | int | None) -> int:
 
 
 _REASONING_SUMMARY_OPTIONS = frozenset({"auto", "concise", "detailed"})
+# Keep a verification date and official reference URL(s) beside each table update.
 _KNOWN_REASONING_MODELS: Tuple[Tuple[str, Dict[str, frozenset]], ...] = (
+    # Verified 2026-08-06. GPT-5.6 family effort values:
+    # https://developers.openai.com/api/docs/guides/deployment-checklist#set-up-reasoningeffort
+    # gpt-5.6-sol xhigh support:
+    # https://learn.chatgpt.com/docs/security/cli#choose-a-model-and-reasoning-effort
+    (
+        "gpt-5.6",
+        {
+            "effort": frozenset({"none", "low", "medium", "high", "xhigh", "max"}),
+            "summary": _REASONING_SUMMARY_OPTIONS,
+        },
+    ),
+    # Verified 2026-08-06:
+    # https://developers.openai.com/api/docs/models/gpt-5.5-pro
+    (
+        "gpt-5.5-pro",
+        {
+            "effort": frozenset({"medium", "high", "xhigh"}),
+            "summary": _REASONING_SUMMARY_OPTIONS,
+        },
+    ),
+    # Verified 2026-08-06:
+    # https://developers.openai.com/api/docs/models/gpt-5.5
+    (
+        "gpt-5.5",
+        {
+            "effort": frozenset({"none", "low", "medium", "high", "xhigh"}),
+            "summary": _REASONING_SUMMARY_OPTIONS,
+        },
+    ),
+    # Verified 2026-08-06:
+    # https://developers.openai.com/api/docs/models/gpt-5.4-pro
+    (
+        "gpt-5.4-pro",
+        {
+            "effort": frozenset({"medium", "high", "xhigh"}),
+            "summary": _REASONING_SUMMARY_OPTIONS,
+        },
+    ),
+    # Verified 2026-08-06:
+    # https://developers.openai.com/api/docs/models/gpt-5.4
     (
         "gpt-5.4",
         {
