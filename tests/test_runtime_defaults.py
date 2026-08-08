@@ -1,5 +1,7 @@
 import warnings
 
+import pytest
+
 from chatsnack import Chat
 from chatsnack.chat.mixin_params import ChatParams
 from chatsnack.runtime import ChatCompletionsAdapter, ResponsesAdapter, ResponsesWebSocketAdapter
@@ -79,6 +81,85 @@ def test_reasoning_known_model_warns_for_known_unsupported_effort():
         warnings.simplefilter("always")
         params._get_responses_api_options()
     assert any("known supported set" in str(w.message) and "gpt-5.4" in str(w.message) for w in caught)
+
+
+@pytest.mark.parametrize(
+    ("model", "effort"),
+    (
+        ("gpt-5.6-sol", "xhigh"),
+        ("gpt-5.6-terra", "max"),
+        ("gpt-5.5", "xhigh"),
+        ("gpt-5.5-2026-04-23", "none"),
+        ("gpt-5.5-pro", "xhigh"),
+        ("gpt-5.4", "xhigh"),
+        ("gpt-5.4-2026-03-05", "none"),
+        ("gpt-5.4-pro", "xhigh"),
+    ),
+)
+def test_current_gpt_models_pass_supported_effort_without_warning(model, effort):
+    params = ChatParams(
+        model=model,
+        runtime="responses",
+        responses={"reasoning": {"effort": effort}},
+    )
+
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        opts = params._get_responses_api_options()
+
+    assert opts["reasoning"]["effort"] == effort
+    assert not caught
+
+
+@pytest.mark.parametrize("model", ("gpt-5.5-pro", "gpt-5.4-pro"))
+def test_current_gpt_pro_profiles_warn_for_low_effort(model):
+    params = ChatParams(
+        model=model,
+        runtime="responses",
+        responses={"reasoning": {"effort": "low"}},
+    )
+
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        opts = params._get_responses_api_options()
+
+    assert opts["reasoning"]["effort"] == "low"
+    assert len(caught) == 1
+    assert "known supported set" in str(caught[0].message)
+    assert model in str(caught[0].message)
+
+
+def test_codex_ultra_mode_warns_as_unknown_api_effort_and_passes_through():
+    params = ChatParams(
+        model="gpt-5.6-sol",
+        runtime="responses",
+        responses={"reasoning": {"effort": "ultra"}},
+    )
+
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        opts = params._get_responses_api_options()
+
+    assert opts["reasoning"]["effort"] == "ultra"
+    assert len(caught) == 1
+    assert "Unknown reasoning effort 'ultra'" in str(caught[0].message)
+
+
+def test_generic_gpt_5_still_warns_for_xhigh():
+    params = ChatParams(
+        model="gpt-5",
+        runtime="responses",
+        responses={"reasoning": {"effort": "xhigh"}},
+    )
+
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        opts = params._get_responses_api_options()
+
+    assert opts["reasoning"]["effort"] == "xhigh"
+    assert len(caught) == 1
+    assert "known supported set" in str(caught[0].message)
+    assert "gpt-5" in str(caught[0].message)
 
 
 def test_reasoning_known_model_warns_for_known_unsupported_summary():

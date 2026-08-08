@@ -20,6 +20,20 @@ When working on a bug fix or feature, review `3HTDD.md` and prefer its Three-Hor
 
 Use TDD, but worry less about forcing every step into a low-level red-green loop. Aim a little higher with top-level Goal tests that prove acceptance criteria and serve as user-facing examples, use Steer tests to bridge toward implementation, and drop to Unit tests only when a tighter loop is helpful.
 
+## Model capability tables
+
+When changing `chatsnack/chat/mixin_params.py` or validating support for a new model, review every model default and capability table in that file, including `DEFAULT_MODEL_FALLBACK` and `_KNOWN_REASONING_MODELS`.
+
+For each new or changed capability entry:
+
+- Verify support against current official provider documentation.
+- Record the verification date and direct official reference URL or URLs beside the entry.
+- Put specific variants before broader family prefixes because the first matching pattern wins.
+- Cover the common model ID, dated snapshots, and variants whose capabilities differ.
+- Test accepted values for warning-free pass-through and known unsupported values for advisory pass-through warnings.
+
+Keep capability validation advisory. An incomplete local table must not strip or rewrite provider options authored by the caller.
+
 ## Project checklists
 
 When working on a major feature or change, use the relevant checklist in `docs/projects/` to track progress and ensure alignment with the RFC. Check things off, leave short notes, and say what somebody can actually do now. The goal is to keep the implementation work easy to follow (for the team and the follow-on developers) without making anyone dig through the full RFC every time.
