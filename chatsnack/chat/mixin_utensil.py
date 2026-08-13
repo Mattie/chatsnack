@@ -175,7 +175,7 @@ class ChatUtensilMixin:
             # remove __user from additional_vars
             del additional_vars["__user"]
             
-        prompt = await prompter._build_final_prompt(additional_vars)
+        prompt = json.dumps(await prompter.compose_a(**additional_vars))
         
         # Handle parameters including tools
         kwargs = {}

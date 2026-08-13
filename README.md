@@ -322,6 +322,24 @@ explosions = Chat(name="SnackSnackExplosions").system("{text.SnackExplosion}")
 explosions.ask("What is your name?")
 ```
 
+#### Inspect a Composed Prompt
+
+Use `compose()` when another system needs the final message list without submitting the
+outer chat:
+
+```python
+from chatsnack import Chat
+
+draft = Chat("Return compact JSON.").user("Payload: {payload}")
+messages = draft.compose(payload='{"topic":"popcorn","tags":["salty"]}')
+print(messages)
+```
+
+`compose_a()` is the async form. Both methods expand includes, ordinary fillings, and
+`{text.Name}` through the same path used by `ask()` and `chat()`, while leaving the source
+`Chat` unchanged. A `{chat.Name}` filling keeps its dynamic meaning and queries that saved
+chat while the messages are composed.
+
 #### Fillings Resolving in Parallel
 
 If you have a prompt that requires expanding multiple fillings, `chatsnack` will resolve them in parallel as it expands the prompt. This comes in handy with `{chat.__}` and `{vectorsearch.__}` (TODO) snack fillings.

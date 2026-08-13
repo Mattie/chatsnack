@@ -396,16 +396,47 @@ class ChatQueryMixin(ChatMessagesMixin, ChatParamsMixin):
         # return the json version of the expanded messages
         return json.dumps(new_messages)
      
-    async def _build_final_prompt(self, additional_vars = {}):
-        promptvars = {}
-        promptvars.update(additional_vars)
-        token = active_filling_stash.set(self.snapshot_lookup_stash if hasattr(self, "snapshot_lookup_stash") else None)
+    async def compose_a(self, **fillings) -> List[Dict[str, object]]:
+        """Return the fully composed provider-ready messages without submitting them.
+
+        Includes and fillings use the same expansion path as ``ask()`` and
+        ``chat()``. Composition does not mutate or submit this outer chat.
+        Model-backed fillings such as ``{chat.Name}`` retain their usual
+        behavior and may query the referenced chat while they are resolved.
+        """
+
+        promptvars = dict(fillings)
+        lookup_stash = (
+            self.snapshot_lookup_stash
+            if hasattr(self, "snapshot_lookup_stash")
+            else None
+        )
+        token = active_filling_stash.set(lookup_stash)
         try:
-            # format the prompt text with the passed-in variables as well as doing internal expansion
-            prompt = await self._gather_format(aformatter.async_format, **filling_machine(promptvars))
-            return prompt
+            # Resolve through the same formatter used for provider requests so
+            # inspection and execution cannot disagree about the final text.
+            prompt = await self._gather_format(
+                aformatter.async_format,
+                **filling_machine(promptvars),
+            )
+            return json.loads(prompt)
         finally:
             active_filling_stash.reset(token)
+
+    def compose(self, **fillings) -> List[Dict[str, object]]:
+        """Synchronous form of :meth:`compose_a`.
+
+        Call ``compose_a()`` from an active event loop, matching the sync/async
+        contract of ``ask()`` and ``chat()``.
+        """
+
+        return self._run_sync(self.compose_a(**fillings), "compose")
+
+    async def _build_final_prompt(self, additional_vars=None):
+        """Build legacy JSON prompt text from the public composition result."""
+
+        messages = await self.compose_a(**dict(additional_vars or {}))
+        return json.dumps(messages)
 
     def _build_completion_request_kwargs(self) -> Dict[str, object]:
         """Build provider-facing kwargs for one completion request."""
@@ -458,7 +489,7 @@ class ChatQueryMixin(ChatMessagesMixin, ChatParamsMixin):
             prompter = new_chatprompt
             # remove __user from additional_vars
             del additional_vars["__user"]
-        prompt = await prompter._build_final_prompt(additional_vars)
+        prompt = json.dumps(await prompter.compose_a(**additional_vars))
         
         kwargs = self._build_completion_request_kwargs()
         

@@ -80,6 +80,62 @@ def test_default_runtime_is_responses_websocket_adapter():
     assert isinstance(chat.runtime, ResponsesWebSocketAdapter)
 
 
+@pytest.mark.asyncio
+async def test_compose_a_returns_messages_and_keeps_the_chat_unchanged(chat):
+    chat.system("Use {style}.")
+    chat.user("Keep {literal} in {value}.")
+    original_messages = json.loads(json.dumps(chat.messages))
+
+    composed = await chat.compose_a(
+        style="plain language",
+        literal="{literal}",
+        value="{output}",
+    )
+
+    assert composed == [
+        {"role": "system", "content": "Use plain language."},
+        {"role": "user", "content": "Keep {literal} in {output}."},
+    ]
+    assert chat.messages == original_messages
+
+
+def test_compose_returns_messages_synchronously(chat):
+    chat.user("Hello, {name}.")
+
+    assert chat.compose(name="Ada") == [
+        {"role": "user", "content": "Hello, Ada."}
+    ]
+
+
+@pytest.mark.asyncio
+async def test_sync_compose_fails_fast_in_an_active_loop(chat, monkeypatch):
+    chat.user("Hello, {name}.")
+
+    def raise_active_loop(coro):
+        coro.close()
+        raise RuntimeError("asyncio.run() cannot be called from a running event loop")
+
+    monkeypatch.setattr("chatsnack.chat.mixin_query.asyncio.run", raise_active_loop)
+
+    with pytest.raises(
+        RuntimeError,
+        match=r"Cannot call sync compose\(\).*Use compose_a\(\) instead",
+    ):
+        chat.compose(name="Ada")
+
+
+@pytest.mark.asyncio
+async def test_legacy_final_prompt_json_wraps_public_composition(chat):
+    chat.user("Payload: {payload}")
+
+    messages = await chat.compose_a(payload='{"key":"{literal}"}')
+    prompt = await chat._build_final_prompt(
+        {"payload": '{"key":"{literal}"}'}
+    )
+
+    assert json.loads(prompt) == messages
+
+
 def test_default_runtime_env_chat_completions(monkeypatch):
     monkeypatch.setenv("CHATSNACK_DEFAULT_RUNTIME", "chat_completions")
     chat = Chat()
