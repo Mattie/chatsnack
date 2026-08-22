@@ -89,7 +89,8 @@ if not env_path.exists():
         f.write("OPENAI_API_KEY = \"REPLACEME\"\n")
 load_dotenv(dotenv_path=env_path)
 
-from .defaults import CHATSNACK_BASE_DIR, CHATSNACK_LOGS_DIR, CHATSNACK_ROOT, CHATSNACK_PROMPTS
+from .defaults import CHATSNACK_ASSETS, CHATSNACK_BASE_DIR, CHATSNACK_LOGS_DIR, CHATSNACK_ROOT, CHATSNACK_PROMPTS
+from .assets import ChatFile
 from .asynchelpers import aformatter
 from .chat import Chat, Text, ChatParams
 from . import packs

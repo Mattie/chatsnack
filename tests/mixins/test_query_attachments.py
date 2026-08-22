@@ -4,7 +4,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from chatsnack import Chat
+from chatsnack import Chat, ChatFile
 from chatsnack.chat.mixin_query import ChatStreamListener
 from chatsnack.runtime.attachment_inputs import (
     cleanup_unresolved_materialized_paths,
@@ -82,6 +82,98 @@ class TestPhase3ANaturalAttachmentsGoal:
                 "encrypted_content": "enc",
             }
         }
+        assert all(isinstance(item, ChatFile) for item in out.files)
+        assert out.images[0].file_id == "file_img"
+        assert [item.file_id for item in out.files] == ["file_img", "file_doc"]
+
+    def test_output_accessors_follow_the_latest_assistant_turn(self):
+        chat = Chat(
+            messages=[
+                {"assistant": {"images": [{"path": "old.png"}]}},
+                {"user": "Make a report too."},
+                {
+                    "assistant": {
+                        "text": "Done.",
+                        "images": [{"path": "chart.png"}],
+                        "files": [{"path": "report.csv"}],
+                    }
+                },
+                {"user": "Thanks!"},
+            ]
+        )
+
+        assert [item.filename for item in chat.images] == ["chart.png"]
+        assert [item.filename for item in chat.files] == ["chart.png", "report.csv"]
+        assert Chat("No response yet.").images == []
+        assert Chat("No response yet.").files == []
+
+    def test_output_accessors_treat_null_as_latest_and_deduplicate_files(self):
+        stale = Chat(
+            messages=[
+                {"assistant": {"images": [{"file_id": "old"}]}},
+                {"assistant": None},
+            ]
+        )
+        assert stale.images == []
+        assert stale.files == []
+
+        duplicate = Chat(
+            messages=[
+                {
+                    "assistant": {
+                        "images": [{"file_id": "shared", "url": "https://example.com/chart.png"}],
+                        "files": [
+                            {"file_id": "shared", "filename": "chart.png"},
+                            {"file_id": "report", "filename": "report.csv"},
+                        ],
+                    }
+                }
+            ]
+        )
+        assert [item.filename for item in duplicate.files] == ["chart.png", "report.csv"]
+        assert duplicate.files[0].file_id == "shared"
+        assert duplicate.files[0].url == "https://example.com/chart.png"
+        assert duplicate.files[0].kind == "image"
+
+    def test_output_accessors_deduplicate_transitive_provider_references(self):
+        chat = Chat(
+            messages=[
+                {
+                    "assistant": {
+                        "images": [{"file_id": "image_a", "url": "https://example.com/a.png"}],
+                        "files": [
+                            {"file_id": "image_b", "url": "https://example.com/a.png"},
+                            {"file_id": "image_b", "filename": "a.png"},
+                        ],
+                    }
+                }
+            ]
+        )
+
+        assert len(chat.files) == 1
+        assert chat.files[0].filename == "a.png"
+
+    def test_output_accessors_survive_yaml_save_and_load(self, tmp_path):
+        path = tmp_path / "mixed-outputs.yml"
+        chat = Chat(
+            messages=[
+                {
+                    "assistant": {
+                        "text": "Created both.",
+                        "images": [{"path": "chart.png"}],
+                        "files": [{"file_id": "report", "filename": "report.csv"}],
+                    }
+                }
+            ]
+        )
+
+        chat.save(str(path))
+        loaded = Chat()
+        loaded.load(str(path))
+
+        assert [item.filename for item in loaded.images] == ["chart.png"]
+        assert [item.filename for item in loaded.files] == ["chart.png", "report.csv"]
+        assert loaded.files[1].file_id == "report"
 
     def test_chat_persists_rich_assistant_fields_when_tool_calls_present(self, monkeypatch):
         chat = Chat(runtime_selector="responses")

@@ -140,8 +140,10 @@ class _SequencedSyncResponses:
     def __init__(self, outcomes):
         self.outcomes = list(outcomes)
         self.connect_calls = 0
+        self.connect_options = []
 
-    def connect(self):
+    def connect(self, **kwargs):
+        self.connect_options.append(kwargs)
         return self
 
     def enter(self):
@@ -158,8 +160,10 @@ class _SequencedAsyncResponses:
     def __init__(self, outcomes):
         self.outcomes = list(outcomes)
         self.connect_calls = 0
+        self.connect_options = []
 
-    def connect(self):
+    def connect(self, **kwargs):
+        self.connect_options.append(kwargs)
         return self
 
     async def enter(self):
@@ -188,6 +192,25 @@ def _fake_sdk_status_error(status, message):
     exc = Exception(message)
     exc.status_code = status
     return exc
+
+
+@pytest.mark.asyncio
+async def test_connections_allow_large_hosted_tool_results():
+    """Image results get a generous finite ceiling above the SDK's 1 MiB default."""
+    sync_responses = _SequencedSyncResponses([_FakeSyncConnection()])
+    async_responses = _SequencedAsyncResponses([_FakeAsyncConnection()])
+    ai = SimpleNamespace(
+        client=SimpleNamespace(responses=sync_responses),
+        aclient=SimpleNamespace(responses=async_responses),
+    )
+    adapter = ResponsesWebSocketAdapter(ai)
+
+    adapter._connect_sync()
+    await adapter._connect_async()
+
+    expected = {"websocket_connection_options": {"max_size": 64 * 1024 * 1024}}
+    assert sync_responses.connect_options == [expected]
+    assert async_responses.connect_options == [expected]
 
 
 def test_session_busy_raises_fail_fast(monkeypatch):
@@ -889,13 +912,40 @@ def test_create_completion_uses_terminal_response_payload_for_rich_output(monkey
                             "usage": {"total_tokens": 5},
                             "output": [
                                 {
+                                    "type": "code_interpreter_call",
+                                    "id": "ci_1",
+                                    "status": "completed",
+                                    "container_id": "cntr_1",
+                                    "outputs": [
+                                        {"type": "image", "url": "https://example.com/chart.png"}
+                                    ],
+                                },
+                                {
                                     "type": "message",
                                     "role": "assistant",
                                     "content": [
-                                        {"type": "output_text", "text": "hello"},
-                                        {"type": "reasoning", "summary": [{"text": "step"}]},
+                                        {
+                                            "type": "output_text",
+                                            "text": "hello",
+                                            "annotations": [
+                                                {
+                                                    "type": "container_file_citation",
+                                                    "container_id": "cntr_1",
+                                                    "file_id": "file_csv_1",
+                                                    "filename": "snacks.csv",
+                                                    "start_index": 0,
+                                                    "end_index": 5,
+                                                }
+                                            ],
+                                        },
                                     ],
-                                }
+                                },
+                                {
+                                    "type": "reasoning",
+                                    "id": "rs_1",
+                                    "status": "completed",
+                                    "summary": [{"type": "summary_text", "text": "step"}],
+                                },
                             ],
                         },
                     },
@@ -908,6 +958,14 @@ def test_create_completion_uses_terminal_response_payload_for_rich_output(monkey
 
     assert result.message.content == "hello"
     assert result.message.reasoning == "step"
+    assert result.message.images == [{"url": "https://example.com/chart.png"}]
+    assert result.message.files == [
+        {
+            "file_id": "file_csv_1",
+            "filename": "snacks.csv",
+            "container_id": "cntr_1",
+        }
+    ]
 
 
 def test_create_completion_preserves_streamed_tool_calls(monkeypatch):

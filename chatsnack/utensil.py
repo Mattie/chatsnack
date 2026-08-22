@@ -13,7 +13,10 @@ class HostedUtensil:
 
     Instances carry the provider tool definition and any implied
     ``params.responses.include`` entries so that ``Chat`` can wire both
-    from a single ``utensils`` list without manual dict mutation.
+    from a single ``utensils`` list without manual dict mutation. Hosted
+    properties such as ``utensil.image_generation`` can also be called with
+    options to create a configured copy while preserving the bare zero-config
+    form.
     """
 
     def __init__(self, tool_type: str, config: Optional[Dict[str, Any]] = None,
@@ -21,6 +24,12 @@ class HostedUtensil:
         self.tool_type = tool_type
         self.config = config or {}
         self.include_entries = include_entries or []
+
+    def __call__(self, **config: Any) -> "HostedUtensil":
+        """Return a configured copy while keeping hosted tools under ``utensil``."""
+        merged = dict(self.config)
+        merged.update(config)
+        return HostedUtensil(self.tool_type, merged, self.include_entries)
 
     def to_tool_dict(self) -> Dict[str, Any]:
         """Return the provider-shaped tool dict for the runtime."""
@@ -442,7 +451,11 @@ class _UtensilNamespace:
 
     @property
     def code_interpreter(self) -> HostedUtensil:
-        return HostedUtensil("code_interpreter", {"container": {"type": "auto"}})
+        return HostedUtensil(
+            "code_interpreter",
+            {"container": {"type": "auto"}},
+            ["code_interpreter_call.outputs"],
+        )
 
     @property
     def image_generation(self) -> HostedUtensil:

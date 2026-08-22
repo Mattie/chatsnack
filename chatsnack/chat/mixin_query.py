@@ -1,11 +1,13 @@
 import asyncio
 import json
 import uuid
+import warnings
 from datetime import datetime
 from typing import Dict, List, Optional
 
 from loguru import logger
 
+from ..assets import capture_asset
 from ..asynchelpers import aformatter
 from ..fillings import active_filling_stash, filling_machine
 from ..runtime import EVENT_SCHEMA_VERSION
@@ -342,6 +344,62 @@ class ChatQueryMixin(ChatMessagesMixin, ChatParamsMixin):
         if expanded and (len(expanded) > 1 or "text" not in expanded):
             return expanded
         return text
+
+    @staticmethod
+    def _pending_output_matches(reference, pending) -> bool:
+        """Match one provider file reference to its pending download."""
+        if not isinstance(reference, dict):
+            return False
+        return bool(
+            pending.file_id
+            and reference.get("file_id") == pending.file_id
+            and (
+                not pending.container_id
+                or not reference.get("container_id")
+                or reference.get("container_id") == pending.container_id
+            )
+        )
+
+    async def _capture_assistant_outputs(self, response_message) -> None:
+        """Capture pending generated outputs before a continued Chat adopts them."""
+        pending_outputs = list(getattr(response_message, "pending_outputs", None) or [])
+        if not pending_outputs:
+            return
+
+        for pending in pending_outputs:
+            try:
+                data = pending.data
+                if data is None and pending.file_id and pending.container_id:
+                    data = await self.ai.download_container_file_async(
+                        pending.container_id,
+                        pending.file_id,
+                    )
+                if data is None:
+                    raise RuntimeError("The provider output did not include retrievable bytes.")
+                reference = capture_asset(
+                    data,
+                    filename=pending.filename,
+                    kind=pending.kind,
+                )
+            except Exception as exc:
+                warnings.warn(
+                    f"Could not capture generated {pending.kind}: {exc}",
+                    RuntimeWarning,
+                )
+                continue
+
+            bucket_name = "images" if pending.kind == "image" else "files"
+            bucket = list(getattr(response_message, bucket_name, None) or [])
+            if pending.kind == "file":
+                bucket = [
+                    item
+                    for item in bucket
+                    if not self._pending_output_matches(item, pending)
+                ]
+            bucket.append(reference)
+            setattr(response_message, bucket_name, bucket)
+
+        response_message.pending_outputs = []
 
     def _run_sync(self, coro, method_name: str):
         try:
@@ -840,6 +898,7 @@ class ChatQueryMixin(ChatMessagesMixin, ChatParamsMixin):
             # Adapter path: response is a NormalizedCompletionResult with
             # .message (content/tool_calls) and .metadata for continuation.
             message = response.message if hasattr(response, "message") else response
+            await self._capture_assistant_outputs(message)
             content = message.content if hasattr(message, "content") else None
             has_tool_calls = hasattr(message, "tool_calls") and message.tool_calls
             
@@ -927,6 +986,7 @@ class ChatQueryMixin(ChatMessagesMixin, ChatParamsMixin):
                         else:
                             # follow_up is a NormalizedCompletionResult; extract message.
                             follow_msg = follow_up.message if hasattr(follow_up, "message") else follow_up
+                            await temp_chat._capture_assistant_outputs(follow_msg)
                             has_tool_calls = hasattr(follow_msg, "tool_calls") and follow_msg.tool_calls
                             
                             if has_tool_calls:

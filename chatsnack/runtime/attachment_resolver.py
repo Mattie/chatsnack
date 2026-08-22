@@ -13,6 +13,7 @@ import os
 from typing import Any, Dict, Optional, Tuple
 
 from loguru import logger
+from ..assets import resolve_asset_path
 from .attachment_inputs import _MATERIALIZED_TEMP_PATHS, is_materialized_tempfile
 
 # Cache key: (absolute_path, file_size, mtime_ns, kind)
@@ -78,6 +79,14 @@ class AttachmentResolver:
         """Return the OpenAI Files API purpose for an attachment kind."""
         return "vision" if kind == "image" else "assistants"
 
+    @staticmethod
+    def _asset_to_path(entry: Dict[str, Any]) -> Dict[str, Any]:
+        """Resolve a generated asset reference to a verified local path entry."""
+        if not entry.get("asset"):
+            return entry
+        path = resolve_asset_path(entry["asset"], entry.get("filename"))
+        return {"path": str(path), "filename": entry.get("filename")}
+
     def _upload_sync(self, path: str, kind: str) -> str:
         """Upload *path* via the Files API (sync) and return the file_id."""
         return self.ai_client.upload_file(
@@ -122,6 +131,8 @@ class AttachmentResolver:
         """
         if not isinstance(entry, dict):
             return entry
+
+        entry = self._asset_to_path(entry)
 
         # Already resolved – pass through.
         if entry.get("file_id") or entry.get("url"):
@@ -168,6 +179,8 @@ class AttachmentResolver:
         """Async variant of :meth:`resolve_attachment`."""
         if not isinstance(entry, dict):
             return entry
+
+        entry = self._asset_to_path(entry)
 
         if entry.get("file_id") or entry.get("url"):
             return entry

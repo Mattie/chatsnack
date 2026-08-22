@@ -1,3 +1,4 @@
+import base64
 from contextlib import contextmanager
 from io import StringIO
 from types import SimpleNamespace
@@ -254,15 +255,57 @@ def test_normalizes_rich_assistant_parts_into_message_fields():
             "model": "gpt-4.1",
             "output": [
                 {
+                    "type": "reasoning",
+                    "id": "rs_1",
+                    "status": "completed",
+                    "summary": [
+                        {"type": "summary_text", "text": "Step one."},
+                        {"type": "summary_text", "text": "Step two."},
+                    ],
+                    "encrypted_content": "enc_blob",
+                },
+                {
+                    "type": "code_interpreter_call",
+                    "id": "ci_1",
+                    "status": "completed",
+                    "container_id": "cntr_1",
+                    "code": "print('made files')",
+                    "outputs": [
+                        {"type": "logs", "logs": "made files"},
+                        {"type": "image", "url": "https://example.com/chart.png"},
+                    ],
+                },
+                {
                     "type": "message",
                     "role": "assistant",
                     "status": "completed",
                     "content": [
-                        {"type": "output_text", "text": "Answer.", "annotations": [{"type": "url_citation", "url": "https://example.com"}]},
-                        {"type": "reasoning", "summary": [{"text": "Step one."}, {"text": "Step two."}]},
-                        {"type": "output_image", "file_id": "file_img_1"},
-                        {"type": "output_file", "file_id": "file_doc_1", "filename": "notes.txt"},
-                        {"type": "encrypted_content", "encrypted_content": "enc_blob"},
+                        {
+                            "type": "output_text",
+                            "text": "Answer.",
+                            "annotations": [
+                                {
+                                    "type": "url_citation",
+                                    "url": "https://example.com",
+                                    "title": "Example",
+                                    "start_index": 0,
+                                    "end_index": 7,
+                                },
+                                {
+                                    "type": "container_file_citation",
+                                    "container_id": "cntr_1",
+                                    "file_id": "file_csv_1",
+                                    "filename": "snacks.csv",
+                                    "start_index": 8,
+                                    "end_index": 15,
+                                },
+                                {
+                                    "type": "file_path",
+                                    "file_id": "file_csv_1",
+                                    "index": 0,
+                                },
+                            ],
+                        },
                     ],
                 }
             ],
@@ -275,10 +318,34 @@ def test_normalizes_rich_assistant_parts_into_message_fields():
 
     assert result.message.content == "Answer."
     assert result.message.reasoning == "Step one. Step two."
-    assert result.message.sources == [{"type": "url_citation", "url": "https://example.com"}]
-    assert result.message.images == [{"file_id": "file_img_1"}]
-    assert result.message.files == [{"file_id": "file_doc_1", "filename": "notes.txt"}]
+    assert result.message.sources == [
+        {
+            "type": "url_citation",
+            "url": "https://example.com",
+            "title": "Example",
+            "start_index": 0,
+            "end_index": 7,
+        }
+    ]
+    assert result.message.images == [{"url": "https://example.com/chart.png"}]
+    assert result.message.files == [
+        {
+            "file_id": "file_csv_1",
+            "filename": "snacks.csv",
+            "container_id": "cntr_1",
+        }
+    ]
+    assert len(result.message.pending_outputs) == 1
+    assert result.message.pending_outputs[0].file_id == "file_csv_1"
+    assert result.message.pending_outputs[0].container_id == "cntr_1"
     assert result.message.encrypted_content == "enc_blob"
+    hosted_call = result.message.provider_extras["hosted_tool_calls"][0]
+    assert hosted_call == {
+        "type": "code_interpreter_call",
+        "id": "ci_1",
+        "status": "completed",
+        "container_id": "cntr_1",
+    }
 
 
 def test_normalization_falls_back_to_output_text_when_output_items_missing():
@@ -298,6 +365,94 @@ def test_normalization_falls_back_to_output_text_when_output_items_missing():
     result = adapter.create_completion(messages=[{"role": "user", "content": "hello"}], model="gpt-4.1")
 
     assert result.message.content == "Fallback text"
+
+
+@pytest.mark.parametrize(
+    ("image_b64", "extension"),
+    [
+        (
+            "iVBORw0KGgoAAAANSUhEUgAAAAgAAAAICAIAAABLbSncAAAACXBIWXMAAAABAAAAAQBPJcTW"
+            "AAAAEklEQVR4nGP4y8CAFWEXHbQSAPZwP0G2GkFNAAAAAElFTkSuQmCC",
+            "png",
+        ),
+        (
+            "/9j/4AAQSkZJRgABAgAAAQABAAD//gAPTGF2YzYwLjMuMTAwAP/bAEMACAQEBAQEBQUF"
+            "BQUFBgYGBgYGBgYGBgYGBgcHBwgICAcHBwYGBwcICAgICQkJCAgICAkJCgoKDAwLCw4O"
+            "DhERFP/EAEwAAQEAAAAAAAAAAAAAAAAAAAAGAQEBAAAAAAAAAAAAAAAAAAAGBxABAAAAAA"
+            "AAAAAAAAAAAAAAABEBAAAAAAAAAAAAAAAAAAAAAP/AABEIAAgACAMBIgACEQADEQD/2gAM"
+            "AwEAAhEDEQA/AIsAUX9//9k=",
+            "jpg",
+        ),
+        (
+            "UklGRjwAAABXRUJQVlA4IDAAAADQAQCdASoIAAgAAgA0JaACdLoB+AADsAD+8Oj3/yC5"
+            "YXXI1/8gP+QH/ID/+PIAAAA=",
+            "webp",
+        ),
+    ],
+)
+def test_image_generation_call_normalizes_pending_image_bytes(image_b64, extension):
+    """GPT Image results stay in memory until Chat captures them."""
+    image_bytes = base64.b64decode(image_b64)
+    response = _FakeObj(
+        {
+            "id": "resp_image",
+            "status": "completed",
+            "model": "gpt-5.4",
+            "output": [
+                {
+                    "type": "image_generation_call",
+                    "id": "ig_123",
+                    "status": "completed",
+                    "result": image_b64,
+                }
+            ],
+        }
+    )
+    ai = SimpleNamespace(client=SimpleNamespace(responses=SimpleNamespace(create=lambda **kwargs: response)))
+    adapter = ResponsesAdapter(ai)
+    result = adapter.create_completion(
+        messages=[{"role": "user", "content": "Draw an apple."}],
+        model="gpt-5.4",
+    )
+
+    assert result.message.images == []
+    assert len(result.message.pending_outputs) == 1
+    pending = result.message.pending_outputs[0]
+    assert pending.kind == "image"
+    assert pending.data == image_bytes
+    hosted_call = result.message.provider_extras["hosted_tool_calls"][0]
+    assert hosted_call["type"] == "image_generation_call"
+    assert "result" not in hosted_call
+    metadata_call = result.metadata["provider_extras"]["output"][0]
+    assert metadata_call["type"] == "image_generation_call"
+    assert "result" not in metadata_call
+
+
+def test_image_generation_call_leaves_signature_policy_to_chat_capture():
+    """The provider adapter only decodes generated image bytes."""
+    response = _FakeObj(
+        {
+            "id": "resp_image",
+            "status": "completed",
+            "model": "gpt-5.4",
+            "output": [
+                {
+                    "type": "image_generation_call",
+                    "id": "ig_unknown",
+                    "status": "completed",
+                    "result": base64.b64encode(b"not an image").decode("ascii"),
+                }
+            ],
+        }
+    )
+    ai = SimpleNamespace(client=SimpleNamespace(responses=SimpleNamespace(create=lambda **kwargs: response)))
+    result = ResponsesAdapter(ai).create_completion(
+        messages=[{"role": "user", "content": "Draw an apple."}],
+        model="gpt-5.4",
+    )
+
+    assert result.message.images == []
+    assert result.message.pending_outputs[0].data == b"not an image"
 
 
 def test_profile_default_merge_model_overrides_and_explicit_kwarg_precedence():

@@ -296,6 +296,41 @@ answer = chat.ask(
 )
 ```
 
+## Tip 12: Keep Generated Assets In The Chat
+
+Use `.chat()` when the result includes an image or file. The continued chat owns the result and gives it back as a `ChatFile`:
+
+```python
+from chatsnack import Chat, utensil
+
+artist = Chat(
+    "Always use image generation for icon requests.",
+    model="gpt-5.6-terra",
+    utensils=[utensil.image_generation(model="gpt-image-2")],
+)
+drawing = artist.chat("Create a flat two-color lantern icon.")
+
+image = drawing.images[0]
+print(image.filename, image.path)
+image.save_as("lantern.png")
+```
+
+`.images` is the image-only view. `.files` includes every returned file, including generated images and Code Interpreter downloads:
+
+```python
+analyst = Chat(
+    "Use code interpreter to create requested files.",
+    model="gpt-5.6-terra",
+    utensils=[utensil.code_interpreter],
+)
+report = analyst.chat("Create a CSV scorecard and provide it as a download.")
+scorecard = next(file for file in report.files if file.filename == "scorecard.csv")
+
+judge = Chat("Judge the attached scorecard.").chat(files=[scorecard])
+```
+
+A captured `ChatFile` can be read with `.read_bytes()`, copied with `.save_as()`, used as a path, or passed through `files=` or `images=`. Saved YAML keeps a compact `asset` reference rather than provider base64. Move the chatsnack data directory with the YAML when the local bytes need to travel too.
+
 ## Quick Smell Translations
 
 | Smell | Chatsnackian translation |
@@ -306,3 +341,4 @@ answer = chat.ask(
 | model capability described in prose but implemented elsewhere | `utensils=[...]` |
 | many variants hard-coded in Python branches | variant chats/texts selected at runtime |
 | brace escaping leaks into product logic | prompt rendered too early |
+| `last["images"]` or provider annotations in app code | use the continued chat's `.images` and `.files` |

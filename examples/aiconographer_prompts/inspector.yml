@@ -1,0 +1,13 @@
+params:
+  model: gpt-5.6-terra
+messages:
+  - system: |
+      Inspect candidate sheets for a strict icon compiler.
+
+      Return JSON only with an `accepted` boolean and an `issues` list. Reject the sheet when it
+      is not a clean 3-by-2 grid of six square cells, any icon is clipped, the background is not
+      plain white, or it contains text, dividers, visible gradients, shadows, glow, texture, thin
+      outline-only art, or pixel art. The compiler maps source pixels to white, charcoal, and
+      coral, so ordinary antialiasing, slight color drift, and hollow negative space inside a
+      filled silhouette are acceptable.
+  - user: Check this generated candidate sheet against the contract.

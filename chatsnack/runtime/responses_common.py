@@ -1,3 +1,4 @@
+import base64
 import json
 import os
 import warnings
@@ -9,6 +10,7 @@ from .attachment_resolver import AttachmentResolver
 from .types import (
     NormalizedAssistantMessage,
     NormalizedCompletionResult,
+    PendingOutput,
     NormalizedToolCall,
     NormalizedToolFunction,
 )
@@ -38,6 +40,53 @@ class ResponsesNormalizationMixin:
         if isinstance(content, str):
             return content
         return str(content)
+
+    @staticmethod
+    def _append_unique_attachment(
+        entries: List[Dict[str, Any]],
+        candidate: Dict[str, Any],
+    ) -> None:
+        """Add one normalized output reference without duplicating the same asset."""
+        if not candidate:
+            return
+        candidate_ids = {
+            (key, value)
+            for key in ("file_id", "path", "url")
+            if (value := candidate.get(key))
+        }
+        if candidate_ids:
+            for existing in entries:
+                existing_ids = {
+                    (key, value)
+                    for key in ("file_id", "path", "url")
+                    if (value := existing.get(key))
+                }
+                if candidate_ids & existing_ids:
+                    for key, value in candidate.items():
+                        existing.setdefault(key, value)
+                    return
+        entries.append(candidate)
+
+    @staticmethod
+    def _decode_generated_image(result: str) -> Optional[bytes]:
+        """Decode hosted image output without choosing a persistence policy."""
+        if not result:
+            return None
+        try:
+            return base64.b64decode(result, validate=True)
+        except (ValueError, TypeError) as exc:
+            warnings.warn(f"Could not decode generated image result: {exc}", RuntimeWarning)
+            return None
+
+    def _sanitized_provider_output(self, output: Any) -> List[Dict[str, Any]]:
+        """Keep diagnostic output structure without retaining generated-image base64."""
+        sanitized = []
+        for item in output or []:
+            item_dict = dict(self._to_dict(item))
+            if item_dict.get("type") == "image_generation_call":
+                item_dict.pop("result", None)
+            sanitized.append(item_dict)
+        return sanitized
 
     def _message_to_input_items(self, message: Dict[str, Any]) -> List[Dict[str, Any]]:
         role = message.get("role")
@@ -313,9 +362,11 @@ class ResponsesNormalizationMixin:
         sources: List[Dict[str, Any]] = []
         images: List[Dict[str, Any]] = []
         files: List[Dict[str, Any]] = []
+        pending_outputs: List[PendingOutput] = []
         encrypted_content: Optional[str] = None
         tool_calls: List[NormalizedToolCall] = []
         hosted_tool_calls: List[Dict[str, Any]] = []
+        code_interpreter_container_ids: List[str] = []
         assistant_phase: Optional[str] = None
 
         for item in response_dict.get("output") or []:
@@ -330,7 +381,14 @@ class ResponsesNormalizationMixin:
                         content_parts.append(part_dict.get("text", ""))
                         for ann in part_dict.get("annotations") or []:
                             ann_dict = self._to_dict(ann)
-                            if ann_dict:
+                            annotation_type = ann_dict.get("type")
+                            if annotation_type in {"container_file_citation", "file_path"}:
+                                output_file: Dict[str, Any] = {}
+                                for key in ("file_id", "filename", "container_id"):
+                                    if ann_dict.get(key):
+                                        output_file[key] = ann_dict[key]
+                                self._append_unique_attachment(files, output_file)
+                            elif ann_dict:
                                 sources.append(ann_dict)
                     elif part_type == "reasoning":
                         reasoning_text = part_dict.get("text") or ""
@@ -351,7 +409,7 @@ class ResponsesNormalizationMixin:
                         if part_dict.get("image_url"):
                             image["url"] = part_dict["image_url"]
                         if image:
-                            images.append(image)
+                            self._append_unique_attachment(images, image)
                     elif part_type == "output_file":
                         output_file: Dict[str, Any] = {}
                         if part_dict.get("file_id"):
@@ -359,7 +417,7 @@ class ResponsesNormalizationMixin:
                         if part_dict.get("filename"):
                             output_file["filename"] = part_dict["filename"]
                         if output_file:
-                            files.append(output_file)
+                            self._append_unique_attachment(files, output_file)
                     elif part_type == "encrypted_content":
                         encrypted_content = part_dict.get("encrypted_content") or part_dict.get("text")
             elif item_type == "function_call":
@@ -387,6 +445,46 @@ class ResponsesNormalizationMixin:
                         payload=payload,
                     )
                 )
+            elif item_type == "image_generation_call":
+                image_bytes = self._decode_generated_image(item_dict.get("result", ""))
+                if image_bytes:
+                    pending_outputs.append(PendingOutput(kind="image", data=image_bytes))
+                hosted_tool_calls.append(
+                    {key: value for key, value in item_dict.items() if key != "result"}
+                )
+            elif item_type == "code_interpreter_call":
+                if item_dict.get("container_id"):
+                    code_interpreter_container_ids.append(item_dict["container_id"])
+                for output in item_dict.get("outputs") or []:
+                    output_dict = self._to_dict(output)
+                    if output_dict.get("type") == "image" and output_dict.get("url"):
+                        self._append_unique_attachment(
+                            images,
+                            {"url": output_dict["url"]},
+                        )
+                hosted_tool_calls.append(
+                    {
+                        key: value
+                        for key, value in item_dict.items()
+                        if key not in {"code", "outputs"}
+                    }
+                )
+            elif item_type == "reasoning":
+                summary = item_dict.get("summary") or []
+                item_reasoning = " ".join(
+                    self._to_dict(chunk).get("text", "")
+                    for chunk in summary
+                    if self._to_dict(chunk).get("text")
+                )
+                if not item_reasoning:
+                    item_reasoning = " ".join(
+                        self._to_dict(chunk).get("text", "")
+                        for chunk in item_dict.get("content") or []
+                        if self._to_dict(chunk).get("text")
+                    )
+                if item_reasoning:
+                    reasoning_parts.append(item_reasoning)
+                encrypted_content = encrypted_content or item_dict.get("encrypted_content")
             elif item_type in ("web_search_call", "file_search_call"):
                 # Hosted tool calls are informational — the model already
                 # handled them. Keep canonical web-search sources in
@@ -408,6 +506,24 @@ class ResponsesNormalizationMixin:
         if hosted_tool_calls:
             provider_extras = {"hosted_tool_calls": hosted_tool_calls}
 
+        unique_container_ids = set(code_interpreter_container_ids)
+        if len(unique_container_ids) == 1:
+            container_id = next(iter(unique_container_ids))
+            for output_file in files:
+                if output_file.get("file_id") and not output_file.get("container_id"):
+                    output_file["container_id"] = container_id
+
+        for output_file in files:
+            if output_file.get("file_id") and output_file.get("container_id"):
+                pending_outputs.append(
+                    PendingOutput(
+                        kind="file",
+                        filename=output_file.get("filename"),
+                        file_id=output_file["file_id"],
+                        container_id=output_file["container_id"],
+                    )
+                )
+
         message = NormalizedAssistantMessage(
             role="assistant",
             content="".join(content_parts) or None,
@@ -418,6 +534,7 @@ class ResponsesNormalizationMixin:
             files=files,
             tool_calls=tool_calls,
             provider_extras=provider_extras,
+            pending_outputs=pending_outputs,
         )
         return message, assistant_phase
 
@@ -433,7 +550,7 @@ class ResponsesNormalizationMixin:
             "provider_extras": {
                 "status": response_dict.get("status"),
                 "incomplete_details": response_dict.get("incomplete_details"),
-                "output": response_dict.get("output"),
+                "output": self._sanitized_provider_output(response_dict.get("output")),
             },
         }
 

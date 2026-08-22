@@ -1,0 +1,12 @@
+{
+  "name": "aiconographer-script-dependencies",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Pinned runtime dependencies for the Aiconographer deterministic SVG compiler.",
+  "license": "UNLICENSED",
+  "dependencies": {
+    "@resvg/resvg-js": "2.6.2",
+    "@visioncortex/vtracer": "1.0.0-alpha.3",
+    "sharp": "0.35.3"
+  }
+}

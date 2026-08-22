@@ -3,6 +3,7 @@ from typing import Dict, List, Optional, Union, Any
 from loguru import logger
 import pprint
 
+from ..assets import ChatFile
 from .turns import (
     CANONICAL_SYSTEM_ROLE,
     DEVELOPER_ALIAS,
@@ -244,6 +245,69 @@ class ChatMessagesMixin:
             return last_message[list(last_message.keys())[-1]]
         else:
             return None
+
+    def _latest_assistant_outputs(self) -> dict:
+        """Return rich output fields from the most recent assistant turn.
+
+        Output conveniences follow ``response`` semantics: a trailing user
+        message does not hide the latest assistant result, while scalar text
+        responses naturally expose no generated files.
+        """
+        for raw_message in reversed(self.messages):
+            message = self._msg_dict(raw_message)
+            if "assistant" in message:
+                assistant = message["assistant"]
+                return assistant if isinstance(assistant, dict) else {}
+        return {}
+
+    @property
+    def images(self) -> list[ChatFile]:
+        """Return images produced by the most recent assistant response."""
+        images = self._latest_assistant_outputs().get("images")
+        if not isinstance(images, list):
+            return []
+        return [
+            ChatFile.from_reference(image, kind="image")
+            for image in images
+            if isinstance(image, dict)
+        ]
+
+    @property
+    def files(self) -> list[ChatFile]:
+        """Return every file produced by the latest assistant, including images."""
+        outputs = self._latest_assistant_outputs()
+        images = outputs.get("images")
+        files = outputs.get("files")
+        combined = []
+        if isinstance(images, list):
+            combined.extend((entry, "image") for entry in images if isinstance(entry, dict))
+        if isinstance(files, list):
+            combined.extend((entry, "file") for entry in files if isinstance(entry, dict))
+        unique = []
+        identified = {}
+        for raw_entry, kind in combined:
+            entry = dict(raw_entry)
+            identities = [
+                (key, entry[key])
+                for key in ("asset", "file_id", "path", "url")
+                if entry.get(key)
+            ]
+            existing = next(
+                (identified[identity] for identity in identities if identity in identified),
+                None,
+            )
+            if existing is not None:
+                existing_entry, _ = existing
+                for key, value in entry.items():
+                    existing_entry.setdefault(key, value)
+                for identity in identities:
+                    identified[identity] = existing
+                continue
+            item = (entry, kind)
+            unique.append(item)
+            for identity in identities:
+                identified[identity] = item
+        return [ChatFile.from_reference(entry, kind=kind) for entry, kind in unique]
 
     @property
     def system_message(self) -> str:
