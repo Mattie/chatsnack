@@ -52,13 +52,26 @@ async function fileSha256(filePath) {
 }
 
 /** Copy a file only when the destination does not already exist. */
-async function copyExclusive(source, destination) {
+async function copyExclusive(source, destination, copiedDestinations) {
   await fs.copyFile(source, destination, constants.COPYFILE_EXCL);
+  copiedDestinations.push(destination);
   return {
     path: destination,
     bytes: (await fs.stat(destination)).size,
     sha256: await fileSha256(destination),
   };
+}
+
+/** Verify every copy can start before creating any canonical file. */
+async function preflightCopy(source, destination) {
+  const sourceStat = await fs.stat(source);
+  if (!sourceStat.isFile()) throw new Error(`Canonical source is not a file: ${source}`);
+  try {
+    await fs.access(destination);
+    throw new Error(`Canonical destination already exists: ${destination}`);
+  } catch (error) {
+    if (error?.code !== 'ENOENT') throw error;
+  }
 }
 
 /** Finalize the selected candidate and write auditable selection metadata. */
@@ -95,28 +108,47 @@ async function main() {
 
   const svgSource = path.join(runRoot, 'svg', `${candidate}.svg`);
   const svgDestination = path.join(runRoot, `${slug}.svg`);
-  const canonical = {
-    svg: await copyExclusive(svgSource, svgDestination),
-    previews: {},
-  };
-
   const previewSizes = validation.previewSizes ?? Object.keys(validation.candidates[candidate].previews);
-  for (const size of previewSizes) {
-    const source = path.join(runRoot, 'previews', String(size), `${candidate}.png`);
-    const destination = path.join(runRoot, `${slug}-${size}.png`);
-    canonical.previews[String(size)] = await copyExclusive(source, destination);
-  }
+  const previewCopies = previewSizes.map((size) => ({
+    size: String(size),
+    source: path.join(runRoot, 'previews', String(size), `${candidate}.png`),
+    destination: path.join(runRoot, `${slug}-${size}.png`),
+  }));
+  const copies = [
+    { source: svgSource, destination: svgDestination },
+    ...previewCopies,
+  ];
+  await Promise.all(copies.map(({ source, destination }) => preflightCopy(source, destination)));
 
-  const selection = {
-    candidate,
-    slug,
-    canonical,
-    candidateValidation: validation.candidates[candidate],
-  };
-  await fs.writeFile(selectionPath, `${JSON.stringify(selection, null, 2)}\n`, {
-    encoding: 'utf8',
-    flag: 'wx',
-  });
+  const copiedDestinations = [];
+  let canonical;
+  try {
+    canonical = {
+      svg: await copyExclusive(svgSource, svgDestination, copiedDestinations),
+      previews: {},
+    };
+    for (const { size, source, destination } of previewCopies) {
+      canonical.previews[size] = await copyExclusive(
+        source,
+        destination,
+        copiedDestinations,
+      );
+    }
+
+    const selection = {
+      candidate,
+      slug,
+      canonical,
+      candidateValidation: validation.candidates[candidate],
+    };
+    await fs.writeFile(selectionPath, `${JSON.stringify(selection, null, 2)}\n`, {
+      encoding: 'utf8',
+      flag: 'wx',
+    });
+  } catch (error) {
+    await Promise.allSettled(copiedDestinations.map((destination) => fs.unlink(destination)));
+    throw error;
+  }
 
   process.stdout.write(
     `${JSON.stringify({ ok: true, candidate, slug, selectionPath, canonical }, null, 2)}\n`,

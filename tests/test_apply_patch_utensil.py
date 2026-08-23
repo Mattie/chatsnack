@@ -659,3 +659,40 @@ async def test_apply_patch_rejects_unsupported_query_paths_before_provider_io():
     chat.params.stream = True
     with pytest.raises(RuntimeError, match="stream=False"):
         await chat.chat_a("Make the edit.")
+
+
+@pytest.mark.asyncio
+async def test_custom_responses_runtime_can_execute_apply_patch():
+    handled = []
+    requests = []
+    completions = iter([_patch_completion(), _final_completion()])
+
+    class CustomResponsesRuntime:
+        runtime_family = "responses"
+
+        async def create_completion_a(self, messages, **kwargs):
+            requests.append((messages, kwargs))
+            return next(completions)
+
+    def execute(call):
+        handled.append(call.call_id)
+        return {"status": "completed", "output": "Updated snacks.txt"}
+
+    chat = Chat(
+        "Edit carefully.",
+        runtime=CustomResponsesRuntime(),
+        tool_choice="required",
+        utensils=[utensil.apply_patch(execute=execute)],
+    )
+
+    continued = await chat.chat_a("Make the edit.")
+
+    assert handled == ["call_patch_1"]
+    assert continued.last == "Patch complete."
+    assert requests[0][1]["tool_choice"] == "required"
+    assert "tool_choice" not in requests[1][1]
+    assert [
+        message["output_type"]
+        for message in requests[1][0]
+        if message.get("role") == "tool"
+    ] == ["apply_patch_call_output"]

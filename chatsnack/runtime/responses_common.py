@@ -19,6 +19,7 @@ from .types import (
 class ResponsesNormalizationMixin:
     """Shared request-building and normalization for Responses transports."""
 
+    runtime_family = "responses"
     _RESPONSES_DEBUG_TRUE_VALUES = frozenset({"1", "true", "yes", "on"})
 
     @staticmethod

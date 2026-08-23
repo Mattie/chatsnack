@@ -371,6 +371,13 @@ def test_unit_v4a_single_unmatched_anchor_can_fall_back_to_context():
     )
 
 
+@pytest.mark.parametrize("diff", ["", "@@\n snack"])
+def test_unit_v4a_keeps_reference_compatible_noop_updates(diff: str):
+    original = "snack\n"
+
+    assert _apply_v4a_diff(original, diff) == original
+
+
 def test_unit_v4a_stacked_anchors_narrow_to_the_named_block():
     original = (
         "class First\n"

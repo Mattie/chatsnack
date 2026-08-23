@@ -153,7 +153,12 @@ class RuntimeAdapter(Protocol):
     """
     RuntimeAdapter owns only provider I/O and normalization.
     Prompt compilation and template expansion remain Chat-layer responsibilities.
+
+    ``runtime_family`` tells Chat which provider-native input and output shapes
+    the adapter can carry. Custom Responses adapters should use ``"responses"``.
     """
+
+    runtime_family: Literal["chat_completions", "responses"]
 
     def create_completion(self, messages: List[Dict[str, Any]], **kwargs: Any) -> NormalizedCompletionResult:
         ...

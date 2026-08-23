@@ -566,9 +566,8 @@ class ChatQueryMixin(ChatMessagesMixin, ChatParamsMixin):
         if not tool_types:
             return
 
-        from ..runtime import ResponsesAdapter, ResponsesWebSocketAdapter
-
-        if not isinstance(getattr(self, "runtime", None), (ResponsesAdapter, ResponsesWebSocketAdapter)):
+        runtime = getattr(self, "runtime", None)
+        if getattr(runtime, "runtime_family", None) != "responses":
             raise RuntimeError(
                 "Caller-executed native utensils require a Responses runtime; "
                 "Chat Completions cannot carry Apply Patch calls."
@@ -640,9 +639,8 @@ class ChatQueryMixin(ChatMessagesMixin, ChatParamsMixin):
             )
 
     def _runtime_supports_continuation(self) -> bool:
-        from ..runtime import ResponsesAdapter, ResponsesWebSocketAdapter
         runtime = getattr(self, "runtime", None)
-        return isinstance(runtime, (ResponsesAdapter, ResponsesWebSocketAdapter))
+        return getattr(runtime, "runtime_family", None) == "responses"
 
     def _runtime_supports_provider_continuation(self, request_kwargs: Optional[Dict[str, object]] = None) -> bool:
         """Return True when provider-side continuation is safe for this turn.

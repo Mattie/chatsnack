@@ -417,11 +417,13 @@ def run(args: argparse.Namespace, source_text: str) -> Path:
             images=review_images,
         )
         scorecard_file = find_scorecard(judging.files)
-        scorecard_path = scorecard_file.save_as(
-            args.workdir / "aiconographer-scorecard.json"
-        )
         scorecard = json.loads(scorecard_file.read_bytes().decode("utf-8"))
         validate_scorecard(scorecard)
+        scorecard_path = args.workdir / "aiconographer-scorecard.json"
+        scorecard_path.write_text(
+            json.dumps(scorecard, indent=2) + "\n",
+            encoding="utf-8",
+        )
 
         review_map = json.loads(
             (args.workdir / "compiled" / "review-map.json").read_text(encoding="utf-8")
