@@ -133,6 +133,8 @@ chat.reasoning.summary = "auto"
 The `sources=True` on `web_search` automatically populates `params.responses["include"]`
 without manual dict mutation.
 
+See the [Utensils guide](docs/guides/utensils.md) for more information.
+
 For unusually long local-utensil workflows, `auto_feed` controls the automatic
 execute-and-follow-up loop. Leave it unset (or use `True` / `None`) for the legacy
 five-cycle limit. A positive integer allows that many cycles; `False` or `0` still

@@ -95,6 +95,17 @@ class ResponsesNormalizationMixin:
 
         if role == "tool":
             output_type = message.get("output_type")
+            if output_type == "apply_patch_call_output":
+                item = dict(self._to_dict(message.get("provider_extras") or {}))
+                item.update(
+                    {
+                        "type": "apply_patch_call_output",
+                        "call_id": message.get("tool_call_id", ""),
+                        "status": message.get("status", "failed"),
+                        "output": self._coerce_text(content),
+                    }
+                )
+                return [item]
             if output_type == "tool_search_output":
                 return [
                     {
@@ -124,6 +135,27 @@ class ResponsesNormalizationMixin:
                     }
                 )
             for tool_call in tool_calls:
+                tool_type = tool_call.get("type", "function")
+                if tool_type == "apply_patch":
+                    payload = self._to_dict(tool_call.get("payload") or {})
+                    item = dict(self._to_dict(tool_call.get("provider_extras") or {}))
+                    item.update(
+                        {
+                            "type": "apply_patch_call",
+                            "call_id": tool_call.get("id", ""),
+                            "status": tool_call.get("status")
+                            or payload.get("status")
+                            or "completed",
+                            "operation": self._to_dict(payload.get("operation") or {}),
+                        }
+                    )
+                    if tool_call.get("item_id"):
+                        item["id"] = tool_call["item_id"]
+                    for key in ("caller", "agent", "created_by"):
+                        if payload.get(key) is not None:
+                            item[key] = payload[key]
+                    items.append(item)
+                    continue
                 function = self._to_dict(tool_call.get("function") or {})
                 items.append(
                     {
@@ -257,7 +289,7 @@ class ResponsesNormalizationMixin:
     _NATIVE_TOOL_TYPES = frozenset({
         "web_search", "file_search", "tool_search",
         "code_interpreter", "image_generation", "mcp",
-        "namespace",
+        "namespace", "apply_patch",
     })
 
     @classmethod
@@ -429,6 +461,38 @@ class ResponsesNormalizationMixin:
                             name=item_dict.get("name", ""),
                             arguments=item_dict.get("arguments", ""),
                         ),
+                    )
+                )
+            elif item_type == "apply_patch_call":
+                payload: Dict[str, Any] = {
+                    "operation": dict(self._to_dict(item_dict.get("operation") or {})),
+                }
+                for key in ("caller", "agent", "created_by"):
+                    if item_dict.get(key) is not None:
+                        payload[key] = item_dict[key]
+                known_fields = {
+                    "type",
+                    "id",
+                    "call_id",
+                    "status",
+                    "operation",
+                    "caller",
+                    "agent",
+                    "created_by",
+                }
+                extras = {
+                    key: value
+                    for key, value in item_dict.items()
+                    if key not in known_fields
+                }
+                tool_calls.append(
+                    NormalizedToolCall(
+                        id=item_dict.get("call_id", ""),
+                        item_id=item_dict.get("id"),
+                        type="apply_patch",
+                        status=item_dict.get("status"),
+                        payload=payload,
+                        provider_extras=extras or None,
                     )
                 )
             elif item_type == "tool_search_call":

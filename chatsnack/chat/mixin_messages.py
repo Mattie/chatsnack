@@ -88,8 +88,9 @@ class ChatMessagesMixin:
         # now we need to handle the tool message the same way as the assistant message, it should have a tool_call_id and content
         elif role == "tool" and isinstance(content, dict) and "tool_call_id" in content and "content" in content:
             tool_block = {"tool_call_id": content["tool_call_id"], "content": content["content"]}
-            if "output_type" in content:
-                tool_block["output_type"] = content["output_type"]
+            for key in ("output_type", "status", "item_id", "provider_extras"):
+                if key in content:
+                    tool_block[key] = content[key]
             self.messages.append({"tool": tool_block})
         else:
             self.messages.append({role: content})
@@ -126,14 +127,19 @@ class ChatMessagesMixin:
                             # Convert dict back to string for consistency
                             arguments = json.dumps(arguments)
                             
-                        tool_calls.append({
+                        normalized_call = {
                             "id": tool_call.get("id", ""),
                             "type": tool_call.get("type", "function"),
-                            "function": {
+                        }
+                        if function_data:
+                            normalized_call["function"] = {
                                 "name": function_data.get("name", ""),
                                 "arguments": arguments
                             }
-                        })
+                        for key in ("item_id", "status", "payload", "provider_extras"):
+                            if tool_call.get(key) is not None:
+                                normalized_call[key] = tool_call[key]
+                        tool_calls.append(normalized_call)
                         
                     # Create the assistant message with proper structure
                     self.assistant({"content": content, "tool_calls": tool_calls})
@@ -148,6 +154,9 @@ class ChatMessagesMixin:
                     payload = {"tool_call_id": tool_call_id, "content": tool_content}
                     if output_type:
                         payload["output_type"] = output_type
+                    for key in ("status", "item_id", "provider_extras"):
+                        if key in message:
+                            payload[key] = message[key]
                     self.tool(payload)
                     
                 else:
@@ -404,12 +413,16 @@ class ChatMessagesMixin:
                             }
                         if isinstance(tool_call.get("payload"), dict):
                             tc["payload"] = tool_call["payload"]
+                        for key in ("item_id", "status", "provider_extras"):
+                            if tool_call.get(key) is not None:
+                                tc[key] = tool_call[key]
                         tool_calls.append(tc)
                     new_messages.append({"role": api_role, "content": content.get('text', content.get('content')), "tool_calls": tool_calls})
                 elif api_role == "tool" and isinstance(content, dict) and "tool_call_id" in content and "content" in content:
                     tool_msg = {"role": api_role, "content": content["content"], "tool_call_id": content["tool_call_id"]}
-                    if "output_type" in content:
-                        tool_msg["output_type"] = content["output_type"]
+                    for key in ("output_type", "status", "item_id", "provider_extras"):
+                        if key in content:
+                            tool_msg[key] = content[key]
                     new_messages.append(tool_msg)
                 elif isinstance(content, dict) and (
                     "text" in content or "images" in content or "files" in content

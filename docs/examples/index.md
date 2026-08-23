@@ -5,6 +5,7 @@ These examples are short, copyable snacks pulled from the same authored patterns
 ## Good starting points
 
 - [Prompt Recipes](prompt-recipes.md)
+- [Local Apply Patch workspace](local-apply-patch.md)
 - [`examples/run_chat_yaml.py`](https://github.com/Mattie/chatsnack/blob/master/examples/run_chat_yaml.py)
 - [`examples/reciperemix.py`](https://github.com/Mattie/chatsnack/blob/master/examples/reciperemix.py)
 - [`examples/snackbar-cli.py`](https://github.com/Mattie/chatsnack/blob/master/examples/snackbar-cli.py)

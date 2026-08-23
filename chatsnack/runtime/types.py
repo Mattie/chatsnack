@@ -1,5 +1,7 @@
+from copy import deepcopy
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Literal, Optional, Protocol, AsyncIterator, Iterator, runtime_checkable
+from types import MappingProxyType
+from typing import Any, AsyncIterator, Dict, Iterator, List, Literal, Mapping, Optional, Protocol, runtime_checkable
 
 EVENT_SCHEMA_VERSION = "1.0"
 RESERVED_EVENT_TYPES = {
@@ -25,6 +27,58 @@ class NormalizedToolCall:
     type: str = "function"
     function: Optional[NormalizedToolFunction] = None
     payload: Optional[Dict[str, Any]] = None
+    item_id: Optional[str] = None
+    status: Optional[str] = None
+    provider_extras: Optional[Dict[str, Any]] = None
+
+
+@dataclass(frozen=True)
+class ApplyPatchCall:
+    """Isolated Apply Patch request passed to the caller's executor.
+
+    ``call_id`` correlates the required provider output. ``item_id`` identifies
+    the response item itself. The operation and provider extras are copied
+    before execution so application code cannot mutate Chat history by accident.
+    """
+
+    item_id: Optional[str]
+    call_id: str
+    status: str
+    operation: Mapping[str, Any]
+    caller: Optional[Mapping[str, Any]] = None
+    agent: Optional[Mapping[str, Any]] = None
+    created_by: Optional[str] = None
+    provider_extras: Mapping[str, Any] = field(
+        default_factory=lambda: MappingProxyType({})
+    )
+
+    @classmethod
+    def from_normalized(cls, tool_call: NormalizedToolCall) -> "ApplyPatchCall":
+        """Build an isolated executor value from one normalized provider call."""
+        payload = deepcopy(tool_call.payload or {})
+        operation = payload.pop("operation", {})
+        caller = payload.pop("caller", None)
+        agent = payload.pop("agent", None)
+        created_by = payload.pop("created_by", None)
+        extras = deepcopy(tool_call.provider_extras or {})
+        if caller is not None and not isinstance(caller, Mapping):
+            extras.setdefault("caller", caller)
+            caller = None
+        if agent is not None and not isinstance(agent, Mapping):
+            extras.setdefault("agent", agent)
+            agent = None
+        for key, value in payload.items():
+            extras.setdefault(key, value)
+        return cls(
+            item_id=tool_call.item_id,
+            call_id=tool_call.id,
+            status=tool_call.status or "",
+            operation=MappingProxyType(dict(operation)),
+            caller=MappingProxyType(dict(caller)) if caller is not None else None,
+            agent=MappingProxyType(dict(agent)) if agent is not None else None,
+            created_by=created_by,
+            provider_extras=MappingProxyType(extras),
+        )
 
 
 @dataclass
