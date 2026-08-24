@@ -378,6 +378,28 @@ class TestPhase3ANaturalAttachmentsSteerUnit:
         with pytest.raises(ValueError, match="ambiguous sources"):
             Chat._prepare_query_vars("x", files=[{"path": "a", "url": "b"}])
 
+    @pytest.mark.parametrize("filename", [None, 42])
+    def test_attachment_filename_must_be_a_string_when_provided(self, filename):
+        with pytest.raises(ValueError, match="filename must be a string"):
+            Chat._prepare_query_vars(
+                "x",
+                files=[{"file_id": "file_1", "filename": filename}],
+            )
+
+    @pytest.mark.parametrize(
+        "entry",
+        [
+            {"asset": "sha256:" + "a" * 64},
+            {"asset": "sha256:" + "a" * 64, "filename": ""},
+        ],
+    )
+    def test_asset_attachment_requires_a_filename(self, entry):
+        with pytest.raises(
+            ValueError,
+            match="asset attachment requires a non-empty filename",
+        ):
+            Chat._prepare_query_vars("x", files=[entry])
+
     # ------------------------------------------------------------------
     # Merge behaviour: existing __user must not be overwritten
     # ------------------------------------------------------------------

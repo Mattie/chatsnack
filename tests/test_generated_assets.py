@@ -1,5 +1,6 @@
 import hashlib
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -54,6 +55,11 @@ class TestGeneratedAssetsGoals:
         drawing = Chat(runtime=runtime).chat("Draw one tiny popcorn kernel.")
         image = drawing.images[0]
 
+        assert drawing.response == "Here is your tiny snack."
+        assert str(drawing) == "Here is your tiny snack."
+        drawing.pattern = r"tiny (snack)"
+        assert drawing.response == "snack"
+        drawing.pattern = None
         assert isinstance(image, ChatFile)
         assert image.read_bytes() == PNG_BYTES
         assert image.captured
@@ -73,6 +79,10 @@ class TestGeneratedAssetsGoals:
         assert loaded.files == loaded.images
 
     def test_g2_code_interpreter_file_is_local_before_chat_returns(self, asset_root, monkeypatch):
+        async def download(container_id, file_id):
+            assert (container_id, file_id) == ("container_snacks", "file_inventory")
+            return b"snack,score\npopcorn,9\n"
+
         runtime = _OneResponseRuntime(
             NormalizedAssistantMessage(
                 content="The inventory is ready.",
@@ -93,13 +103,13 @@ class TestGeneratedAssetsGoals:
                 ],
             )
         )
+        runtime.ai_client = SimpleNamespace(download_container_file_async=download)
         chat = Chat(runtime=runtime)
 
-        async def download(container_id, file_id):
-            assert (container_id, file_id) == ("container_snacks", "file_inventory")
-            return b"snack,score\npopcorn,9\n"
+        async def wrong_client(*args):
+            raise AssertionError("generated files must use the active runtime client")
 
-        monkeypatch.setattr(chat.ai, "download_container_file_async", download)
+        monkeypatch.setattr(chat.ai, "download_container_file_async", wrong_client)
 
         report = chat.chat("Make the inventory CSV.")
         generated = report.files[0]

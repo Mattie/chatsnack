@@ -110,6 +110,9 @@ def _normalize_entry(entry: Any, bucket: str) -> Dict[str, Any]:
 def _normalize_dict_entry(entry: Dict[str, Any], bucket: str) -> Dict[str, Any]:
     keys = set(entry.keys())
 
+    if "filename" in entry and not isinstance(entry["filename"], str):
+        raise ValueError("Attachment filename must be a string when provided.")
+
     if "file" in entry:
         if bucket != "files":
             raise ValueError("images= does not support {'file': ...} entries; use a path/url/file_id instead.")
@@ -140,7 +143,11 @@ def _normalize_dict_entry(entry: Dict[str, Any], bucket: str) -> Dict[str, Any]:
             f"Attachment dict for {bucket} has unsupported keys: {sorted(unexpected)}"
         )
 
-    out: Dict[str, Any] = {source_keys[0]: entry[source_keys[0]]}
+    source = source_keys[0]
+    if source == "asset" and not entry.get("filename"):
+        raise ValueError("A generated asset attachment requires a non-empty filename.")
+
+    out: Dict[str, Any] = {source: entry[source]}
     if "filename" in entry:
         out["filename"] = entry["filename"]
     return out

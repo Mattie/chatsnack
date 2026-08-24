@@ -391,11 +391,14 @@ class ChatQueryMixin(ChatMessagesMixin, ChatParamsMixin):
         if not pending_outputs:
             return
 
+        runtime_client = getattr(getattr(self, "runtime", None), "ai_client", None)
+        download_client = runtime_client or self.ai
+
         for pending in pending_outputs:
             try:
                 data = pending.data
                 if data is None and pending.file_id and pending.container_id:
-                    data = await self.ai.download_container_file_async(
+                    data = await download_client.download_container_file_async(
                         pending.container_id,
                         pending.file_id,
                     )
@@ -898,15 +901,20 @@ class ChatQueryMixin(ChatMessagesMixin, ChatParamsMixin):
         }
 
     @property
-    def response(self) -> str:
-        """ Returns the value of the last assistant message in the chat prompt ⭐"""
+    def response(self) -> Optional[str]:
+        """Return the text from the last assistant message, when it has any. ⭐"""
         last_assistant_message = None
         for _message in self.messages:
             message = self._msg_dict(_message)
             if "assistant" in message:
                 last_assistant_message = message["assistant"]
-        # filter the response if we have a pattern
-        last_assistant_message = self.filter_by_pattern(last_assistant_message)
+        if isinstance(last_assistant_message, dict):
+            last_assistant_message = last_assistant_message.get("text")
+        if not isinstance(last_assistant_message, str):
+            last_assistant_message = None
+        # Filter only assistant text; rich output-only turns have no string to filter.
+        if last_assistant_message is not None:
+            last_assistant_message = self.filter_by_pattern(last_assistant_message)
         return last_assistant_message
 
     def __str__(self):
