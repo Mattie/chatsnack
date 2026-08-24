@@ -246,12 +246,15 @@ class ChatMessagesMixin:
 
     # define a read-only attribute "last" that returns the last message in the list
     @property
-    def last(self) -> str:
-        """ Returns the value of the last message in the chat prompt (any)"""
+    def last(self) -> Optional[Union[str, List, Dict]]:
+        """Return the last turn's text, or its structured value when it has no text."""
         # last message is a dictionary, we need the last value in the dictionary
         if len(self.messages) > 0:
             last_message = self.messages[-1]
-            return last_message[list(last_message.keys())[-1]]
+            value = last_message[list(last_message.keys())[-1]]
+            if isinstance(value, dict) and isinstance(value.get("text"), str):
+                return value["text"]
+            return value
         else:
             return None
 

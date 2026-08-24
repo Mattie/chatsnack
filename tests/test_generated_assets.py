@@ -55,6 +55,7 @@ class TestGeneratedAssetsGoals:
         drawing = Chat(runtime=runtime).chat("Draw one tiny popcorn kernel.")
         image = drawing.images[0]
 
+        assert drawing.last == "Here is your tiny snack."
         assert drawing.response == "Here is your tiny snack."
         assert str(drawing) == "Here is your tiny snack."
         drawing.pattern = r"tiny (snack)"
