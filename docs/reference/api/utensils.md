@@ -13,3 +13,10 @@ The public tool surface revolves around the module-level `utensil` helper plus t
 ## `HostedUtensil`
 
 ::: chatsnack.utensil.HostedUtensil
+
+## `ApplyPatchCall`
+
+`ApplyPatchCall` is the value passed to the function you give
+`utensil.apply_patch(execute=...)`.
+
+::: chatsnack.ApplyPatchCall

@@ -1,0 +1,23 @@
+params:
+  model: gpt-5.6-terra
+messages:
+  - system: |
+      You create production candidate sheets for lore article UI icons.
+
+      Always call image generation. Follow the supplied concept plan closely. The result must be
+      one landscape 3-by-2 sheet with six square cells and no visible dividers.
+  - user: |
+      Use case: logo-brand
+      Asset type: lore article UI icon candidate sheet
+      Primary request: Create six materially different pictogram concepts from this plan:
+      {plan}
+      Style/medium: bold flat geometric fantasy pictograms; cohesive emblem silhouettes; smooth
+      vector-friendly shapes; polished application icon design
+      Composition/framing: one centered icon per tile; three equal columns by two equal rows;
+      generous padding; consistent scale and visual weight; no visible dividers
+      Color palette: only charcoal #2C2C2B and coral #F45138 on pure white #FFFFFF
+      Constraints: exactly six filled-icon designs; strong silhouette; no text; no numerals; no
+      labels; no watermark; no extra colors; no gradients; no shadows; no glow; no texture; no
+      outlines; no background objects; no pixel art; pure flat white background
+
+      {feedback}

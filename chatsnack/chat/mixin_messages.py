@@ -3,6 +3,7 @@ from typing import Dict, List, Optional, Union, Any
 from loguru import logger
 import pprint
 
+from ..assets import ChatFile
 from .turns import (
     CANONICAL_SYSTEM_ROLE,
     DEVELOPER_ALIAS,
@@ -87,8 +88,9 @@ class ChatMessagesMixin:
         # now we need to handle the tool message the same way as the assistant message, it should have a tool_call_id and content
         elif role == "tool" and isinstance(content, dict) and "tool_call_id" in content and "content" in content:
             tool_block = {"tool_call_id": content["tool_call_id"], "content": content["content"]}
-            if "output_type" in content:
-                tool_block["output_type"] = content["output_type"]
+            for key in ("output_type", "status", "item_id", "provider_extras"):
+                if key in content:
+                    tool_block[key] = content[key]
             self.messages.append({"tool": tool_block})
         else:
             self.messages.append({role: content})
@@ -125,14 +127,19 @@ class ChatMessagesMixin:
                             # Convert dict back to string for consistency
                             arguments = json.dumps(arguments)
                             
-                        tool_calls.append({
+                        normalized_call = {
                             "id": tool_call.get("id", ""),
                             "type": tool_call.get("type", "function"),
-                            "function": {
+                        }
+                        if function_data:
+                            normalized_call["function"] = {
                                 "name": function_data.get("name", ""),
                                 "arguments": arguments
                             }
-                        })
+                        for key in ("item_id", "status", "payload", "provider_extras"):
+                            if tool_call.get(key) is not None:
+                                normalized_call[key] = tool_call[key]
+                        tool_calls.append(normalized_call)
                         
                     # Create the assistant message with proper structure
                     self.assistant({"content": content, "tool_calls": tool_calls})
@@ -147,6 +154,9 @@ class ChatMessagesMixin:
                     payload = {"tool_call_id": tool_call_id, "content": tool_content}
                     if output_type:
                         payload["output_type"] = output_type
+                    for key in ("status", "item_id", "provider_extras"):
+                        if key in message:
+                            payload[key] = message[key]
                     self.tool(payload)
                     
                 else:
@@ -236,14 +246,80 @@ class ChatMessagesMixin:
 
     # define a read-only attribute "last" that returns the last message in the list
     @property
-    def last(self) -> str:
-        """ Returns the value of the last message in the chat prompt (any)"""
+    def last(self) -> Optional[Union[str, List, Dict]]:
+        """Return the last turn's text, or its structured value when it has no text."""
         # last message is a dictionary, we need the last value in the dictionary
         if len(self.messages) > 0:
             last_message = self.messages[-1]
-            return last_message[list(last_message.keys())[-1]]
+            value = last_message[list(last_message.keys())[-1]]
+            if isinstance(value, dict) and isinstance(value.get("text"), str):
+                return value["text"]
+            return value
         else:
             return None
+
+    def _latest_assistant_outputs(self) -> dict:
+        """Return rich output fields from the most recent assistant turn.
+
+        Output conveniences follow ``response`` semantics: a trailing user
+        message does not hide the latest assistant result, while scalar text
+        responses naturally expose no generated files.
+        """
+        for raw_message in reversed(self.messages):
+            message = self._msg_dict(raw_message)
+            if "assistant" in message:
+                assistant = message["assistant"]
+                return assistant if isinstance(assistant, dict) else {}
+        return {}
+
+    @property
+    def images(self) -> list[ChatFile]:
+        """Return images produced by the most recent assistant response."""
+        images = self._latest_assistant_outputs().get("images")
+        if not isinstance(images, list):
+            return []
+        return [
+            ChatFile.from_reference(image, kind="image")
+            for image in images
+            if isinstance(image, dict)
+        ]
+
+    @property
+    def files(self) -> list[ChatFile]:
+        """Return every file produced by the latest assistant, including images."""
+        outputs = self._latest_assistant_outputs()
+        images = outputs.get("images")
+        files = outputs.get("files")
+        combined = []
+        if isinstance(images, list):
+            combined.extend((entry, "image") for entry in images if isinstance(entry, dict))
+        if isinstance(files, list):
+            combined.extend((entry, "file") for entry in files if isinstance(entry, dict))
+        unique = []
+        identified = {}
+        for raw_entry, kind in combined:
+            entry = dict(raw_entry)
+            identities = [
+                (key, entry[key])
+                for key in ("asset", "file_id", "path", "url")
+                if entry.get(key)
+            ]
+            existing = next(
+                (identified[identity] for identity in identities if identity in identified),
+                None,
+            )
+            if existing is not None:
+                existing_entry, _ = existing
+                for key, value in entry.items():
+                    existing_entry.setdefault(key, value)
+                for identity in identities:
+                    identified[identity] = existing
+                continue
+            item = (entry, kind)
+            unique.append(item)
+            for identity in identities:
+                identified[identity] = item
+        return [ChatFile.from_reference(entry, kind=kind) for entry, kind in unique]
 
     @property
     def system_message(self) -> str:
@@ -340,12 +416,16 @@ class ChatMessagesMixin:
                             }
                         if isinstance(tool_call.get("payload"), dict):
                             tc["payload"] = tool_call["payload"]
+                        for key in ("item_id", "status", "provider_extras"):
+                            if tool_call.get(key) is not None:
+                                tc[key] = tool_call[key]
                         tool_calls.append(tc)
                     new_messages.append({"role": api_role, "content": content.get('text', content.get('content')), "tool_calls": tool_calls})
                 elif api_role == "tool" and isinstance(content, dict) and "tool_call_id" in content and "content" in content:
                     tool_msg = {"role": api_role, "content": content["content"], "tool_call_id": content["tool_call_id"]}
-                    if "output_type" in content:
-                        tool_msg["output_type"] = content["output_type"]
+                    for key in ("output_type", "status", "item_id", "provider_extras"):
+                        if key in content:
+                            tool_msg[key] = content[key]
                     new_messages.append(tool_msg)
                 elif isinstance(content, dict) and (
                     "text" in content or "images" in content or "files" in content

@@ -17,6 +17,7 @@
 # WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION 
 # WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 from io import StringIO
+import re
 from typing import Dict, List, Union
 from loguru import logger
 from snapclass import formatters
@@ -31,6 +32,9 @@ from .chat.turns import (
     NormalizedTurn,
 )
 from .compact_tools import parse_tools_authoring, serialize_tools_authoring, split_tools_for_params, reconstruct_tool_order
+
+
+_ASSET_REFERENCE = re.compile(r"^sha256:[0-9a-f]{64}$")
 
 
 # ── Phase 3 helpers ────────────────────────────────────────────────────
@@ -352,6 +356,8 @@ class YAML(formatters.FileFormatter):
 
         # Define custom string representation function
         def represent_plain_str(dumper, data):
+            if _ASSET_REFERENCE.fullmatch(data):
+                return dumper.represent_scalar("tag:yaml.org,2002:str", data, style="'")
             if "\n" in data or "\r" in data or "#" in data or ":" in data or "'" in data or '"' in data:
                 return dumper.represent_scalar("tag:yaml.org,2002:str", data, style='|')
             return dumper.represent_scalar("tag:yaml.org,2002:str", data, style='')

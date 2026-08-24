@@ -109,6 +109,7 @@ class Chat(ChatQueryMixin, ChatSerializationMixin, ChatUtensilMixin):
         session = kwargs.pop("session", None)
         stream = kwargs.pop("stream", None)
         tool_search_handler = kwargs.pop("tool_search_handler", None)
+        runtime_bindings = kwargs.pop("_runtime_bindings", None)
         if isinstance(runtime, str) and runtime_selector is None:
             runtime_selector = runtime
             runtime = None
@@ -183,17 +184,35 @@ class Chat(ChatQueryMixin, ChatSerializationMixin, ChatUtensilMixin):
         if auto_feed is not None:
             self.auto_feed = auto_feed
 
-       
+        # Executable services are live application state. Keep them beside the
+        # serialized tool declarations without placing callables in ChatParams.
+        self._runtime_bindings = dict(runtime_bindings or {})
+        self.tool_search_handler = tool_search_handler
+        if tool_search_handler is not None:
+            self._runtime_bindings["tool_search"] = tool_search_handler
+
         # Register utensils if provided
         if utensils:
             if self.params is None:
                 self.params = ChatParams()
 
             # Import here to avoid circular imports
-            from ..utensil import extract_utensil_functions, get_openai_tools, collect_include_entries
+            from ..utensil import (
+                collect_include_entries,
+                collect_runtime_bindings,
+                get_openai_tools,
+            )
             
             # Store local registry of utensil functions
             self._local_registry = utensils  # Store original objects, extract when needed
+
+            for tool_type, handler in collect_runtime_bindings(utensils).items():
+                existing = self._runtime_bindings.get(tool_type)
+                if existing is not None and existing is not handler:
+                    raise ValueError(
+                        f"Conflicting runtime bindings were configured for {tool_type!r}."
+                    )
+                self._runtime_bindings[tool_type] = handler
             
             # Get tool definitions for OpenAI API
             tools_list = get_openai_tools(utensils)
@@ -227,9 +246,9 @@ class Chat(ChatQueryMixin, ChatSerializationMixin, ChatUtensilMixin):
         self._initial_system_message = self.system_message
         # do the same for the tool registry
         self._initial_registry = getattr(self, '_local_registry', None)
+        self._initial_runtime_bindings = dict(self._runtime_bindings)
 
         self.ai = AiClient()
-        self.tool_search_handler = tool_search_handler
         profile = None
         session_mode = None
         explicit_runtime_selector = runtime_selector
@@ -348,6 +367,9 @@ class Chat(ChatQueryMixin, ChatSerializationMixin, ChatUtensilMixin):
             self._local_registry = self._initial_registry
             # Re-load tools from the initial registry
             self._load_tools_from_params()
+        self._runtime_bindings = dict(
+            getattr(self, "_initial_runtime_bindings", {})
+        )
         self._last_runtime_metadata = _empty_runtime_metadata()
         self._last_call_usage = None
         return self
@@ -540,6 +562,7 @@ def _apply_chat_constructor_overrides(chat):
         chat.auto_feed = overrides["auto_feed"]
     if "tool_search_handler" in overrides:
         chat.tool_search_handler = overrides["tool_search_handler"]
+        chat._runtime_bindings["tool_search"] = overrides["tool_search_handler"]
     return overrides
 
 
@@ -549,6 +572,9 @@ def _capture_chat_reset_state(chat):
     chat._initial_messages = copy.copy(chat.messages)
     chat._initial_system_message = chat.system_message
     chat._initial_registry = getattr(chat, "_local_registry", None)
+    chat._initial_runtime_bindings = dict(
+        getattr(chat, "_runtime_bindings", {})
+    )
 
 
 def _ensure_chat_live_state(self):
@@ -560,6 +586,10 @@ def _ensure_chat_live_state(self):
         self.ai = AiClient()
     if not hasattr(self, "tool_search_handler"):
         self.tool_search_handler = None
+    if not hasattr(self, "_runtime_bindings"):
+        self._runtime_bindings = {}
+    if self.tool_search_handler is not None:
+        self._runtime_bindings.setdefault("tool_search", self.tool_search_handler)
     if not hasattr(self, "runtime"):
         runtime_selector, profile, session_mode = _runtime_config_from_chat_params(self)
         self.runtime = self._select_runtime(

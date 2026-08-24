@@ -20,6 +20,7 @@ except:
 _DEFAULT_CHATSNACK_BASE_DIR = "./datafiles/chatsnack"
 CHATSNACK_ROOT = Stash(_DEFAULT_CHATSNACK_BASE_DIR, env="CHATSNACK_BASE_DIR")
 CHATSNACK_PROMPTS = CHATSNACK_ROOT
+CHATSNACK_ASSETS = CHATSNACK_ROOT / "assets"
 
 
 def _normalize_exported_path(path):

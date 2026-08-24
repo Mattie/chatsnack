@@ -12,6 +12,8 @@ from .types import (
 
 
 class ChatCompletionsAdapter:
+    runtime_family = "chat_completions"
+
     # Keys that belong to the Responses API surface and must never reach
     # chat.completions.create().  Acts as a defensive backstop in case the
     # request-compilation layer accidentally leaks them.

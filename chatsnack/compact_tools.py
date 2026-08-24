@@ -4,7 +4,15 @@ import re
 from typing import Any, Dict, List, Optional, Tuple
 
 RESERVED_CHILD_KEYS = {"description", "args", "required", "defer_loading"}
-BUILTIN_TYPES = {"web_search", "file_search", "tool_search", "code_interpreter", "image_generation", "mcp"}
+BUILTIN_TYPES = {
+    "web_search",
+    "file_search",
+    "tool_search",
+    "code_interpreter",
+    "image_generation",
+    "mcp",
+    "apply_patch",
+}
 
 
 def _apply_builtin_defaults(tool: Dict[str, Any]) -> Dict[str, Any]:

@@ -1,20 +1,17 @@
 import inspect
 import functools
 import json
-from typing import Any, Callable, Dict, List, Optional, Union, get_type_hints
+from typing import Any, Callable, Dict, List, Literal, Optional, Union, get_type_hints
 from .chat.mixin_params import ToolDefinition, FunctionDefinition
 from loguru import logger
 
 
-# ── Hosted utensil specs ───────────────────────────────────────────────
+# ── Provider-native utensil specs ──────────────────────────────────────
 
-class HostedUtensil:
-    """A hosted OpenAI tool spec passable in ``utensils=[...]``.
+CALLER_EXECUTED_NATIVE_TOOL_TYPES = frozenset({"apply_patch"})
 
-    Instances carry the provider tool definition and any implied
-    ``params.responses.include`` entries so that ``Chat`` can wire both
-    from a single ``utensils`` list without manual dict mutation.
-    """
+class _NativeUtensilSpec:
+    """Internal provider-native tool declaration shared by utensil families."""
 
     def __init__(self, tool_type: str, config: Optional[Dict[str, Any]] = None,
                  include_entries: Optional[List[str]] = None):
@@ -34,7 +31,36 @@ class HostedUtensil:
 
     def __repr__(self) -> str:
         cfg = f", {self.config}" if self.config else ""
-        return f"HostedUtensil({self.tool_type!r}{cfg})"
+        return f"{type(self).__name__}({self.tool_type!r}{cfg})"
+
+
+class HostedUtensil(_NativeUtensilSpec):
+    """A hosted OpenAI tool spec passable in ``utensils=[...]``.
+
+    Instances carry the provider tool definition and any implied
+    ``params.responses.include`` entries so that ``Chat`` can wire both
+    from a single ``utensils`` list without manual dict mutation. Hosted
+    properties such as ``utensil.image_generation`` can also be called with
+    options to create a configured copy while preserving the bare zero-config
+    form.
+    """
+
+    def __call__(self, **config: Any) -> "HostedUtensil":
+        """Return a configured copy while keeping hosted tools under ``utensil``."""
+        merged = dict(self.config)
+        merged.update(config)
+        return HostedUtensil(self.tool_type, merged, self.include_entries)
+
+
+class _CallerExecutedUtensil(_NativeUtensilSpec):
+    """Provider-native declaration paired with a runtime-only app executor."""
+
+    def __init__(self, tool_type: str, execute: Callable[[Any], Any],
+                 config: Optional[Dict[str, Any]] = None):
+        if not callable(execute):
+            raise TypeError("execute must be callable")
+        super().__init__(tool_type, config=config)
+        self.execute = execute
 
 
 def _make_web_search(*, domains: Optional[List[str]] = None,
@@ -442,7 +468,11 @@ class _UtensilNamespace:
 
     @property
     def code_interpreter(self) -> HostedUtensil:
-        return HostedUtensil("code_interpreter", {"container": {"type": "auto"}})
+        return HostedUtensil(
+            "code_interpreter",
+            {"container": {"type": "auto"}},
+            ["code_interpreter_call.outputs"],
+        )
 
     @property
     def image_generation(self) -> HostedUtensil:
@@ -465,6 +495,26 @@ class _UtensilNamespace:
         """Create a configured ``mcp`` hosted utensil."""
         return _make_mcp(**kwargs)
 
+    @staticmethod
+    def apply_patch(
+        *,
+        execute: Callable[[Any], Any],
+        allowed_callers: Optional[List[Literal["direct", "programmatic"]]] = None,
+    ) -> _CallerExecutedUtensil:
+        """Create an Apply Patch utensil executed by the calling application.
+
+        ``allowed_callers`` follows the provider's beta declaration and may
+        contain ``"direct"`` and/or ``"programmatic"``.
+        """
+        config: Dict[str, Any] = {}
+        if allowed_callers is not None:
+            invalid = set(allowed_callers) - {"direct", "programmatic"}
+            if invalid:
+                values = ", ".join(sorted(repr(value) for value in invalid))
+                raise ValueError(f"Unsupported Apply Patch allowed_callers: {values}")
+            config["allowed_callers"] = list(allowed_callers)
+        return _CallerExecutedUtensil("apply_patch", execute, config=config)
+
 
 # Module-level singleton that replaces the old ``utensil`` function.
 utensil = _UtensilNamespace()
@@ -479,7 +529,7 @@ def extract_utensil_functions(utensils=None) -> List[UtensilFunction]:
     """
     Extract all UtensilFunction objects from various input types.
     
-    Note: HostedUtensil and UtensilGroup instances are skipped here because
+    Note: provider-native utensils and groups are skipped here because
     they are not local Python functions.  Use ``get_openai_tools()`` for the
     full provider-ready tool list.
     
@@ -500,8 +550,8 @@ def extract_utensil_functions(utensils=None) -> List[UtensilFunction]:
             result.append(u)
         elif isinstance(u, UtensilGroup):
             result.extend(u.utensils)
-        elif isinstance(u, HostedUtensil):
-            # Hosted specs have no local callable — skip for function extraction
+        elif isinstance(u, _NativeUtensilSpec):
+            # Native specs do not participate in local function extraction.
             continue
         elif hasattr(u, '__utensil__'):
             result.append(u.__utensil__)
@@ -527,7 +577,7 @@ def get_openai_tools(utensils=None) -> List[Dict[str, str]]:
 
     result: List[Dict[str, Any]] = []
     for u in utensils:
-        if isinstance(u, HostedUtensil):
+        if isinstance(u, _NativeUtensilSpec):
             result.append(u.to_tool_dict())
         elif isinstance(u, UtensilGroup):
             result.append(u.to_namespace_tool_dict())
@@ -568,9 +618,23 @@ def collect_include_entries(utensils) -> List[str]:
         return []
     entries: List[str] = []
     for u in utensils:
-        if isinstance(u, HostedUtensil):
+        if isinstance(u, _NativeUtensilSpec):
             entries.extend(u.get_include_entries())
     return entries
+
+
+def collect_runtime_bindings(utensils) -> Dict[str, Callable[[Any], Any]]:
+    """Collect caller-executed native handlers without serializing them."""
+    bindings: Dict[str, Callable[[Any], Any]] = {}
+    for item in utensils or []:
+        if not isinstance(item, _CallerExecutedUtensil):
+            continue
+        if item.tool_type in bindings:
+            raise ValueError(
+                f"Only one runtime binding may be configured for {item.tool_type!r}."
+            )
+        bindings[item.tool_type] = item.execute
+    return bindings
 
 def get_tool_definitions(utensils=None) -> List[ToolDefinition]:
     """Convert utensil functions to ToolDefinition objects."""

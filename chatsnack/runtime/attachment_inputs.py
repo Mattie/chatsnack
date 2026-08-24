@@ -12,7 +12,7 @@ import uuid
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-_ALLOWED_SOURCE_KEYS = {"path", "file_id", "url"}
+_ALLOWED_SOURCE_KEYS = {"asset", "path", "file_id", "url"}
 _ALLOWED_OPTIONAL_KEYS = {"filename"}
 _IMAGE_SUFFIXES = {".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".tiff", ".tif", ".heic"}
 _MATERIALIZED_TEMP_PATHS: set[str] = set()
@@ -88,6 +88,10 @@ def _normalize_bucket(values: Optional[Any], bucket: str) -> List[Dict[str, Any]
 
 
 def _normalize_entry(entry: Any, bucket: str) -> Dict[str, Any]:
+    attachment_reference = getattr(entry, "_attachment_reference", None)
+    if callable(attachment_reference):
+        return _normalize_dict_entry(attachment_reference(), bucket=bucket)
+
     if isinstance(entry, (str, Path, os.PathLike)):
         return {"path": str(entry)}
 
@@ -106,6 +110,9 @@ def _normalize_entry(entry: Any, bucket: str) -> Dict[str, Any]:
 def _normalize_dict_entry(entry: Dict[str, Any], bucket: str) -> Dict[str, Any]:
     keys = set(entry.keys())
 
+    if "filename" in entry and not isinstance(entry["filename"], str):
+        raise ValueError("Attachment filename must be a string when provided.")
+
     if "file" in entry:
         if bucket != "files":
             raise ValueError("images= does not support {'file': ...} entries; use a path/url/file_id instead.")
@@ -120,14 +127,14 @@ def _normalize_dict_entry(entry: Dict[str, Any], bucket: str) -> Dict[str, Any]:
             raise ValueError("files attachment dict {'file': ...} requires a readable file object.")
         return _materialize_file_obj(file_obj, filename=entry.get("filename"))
 
-    source_keys = [k for k in ("path", "file_id", "url") if k in entry]
+    source_keys = [k for k in ("asset", "path", "file_id", "url") if k in entry]
     if len(source_keys) == 0:
         raise ValueError(
-            f"Attachment dict for {bucket} must include exactly one of path/file_id/url."
+            f"Attachment dict for {bucket} must include exactly one of asset/path/file_id/url."
         )
     if len(source_keys) > 1:
         raise ValueError(
-            f"Attachment dict for {bucket} has ambiguous sources {source_keys}; provide only one of path/file_id/url."
+            f"Attachment dict for {bucket} has ambiguous sources {source_keys}; provide only one of asset/path/file_id/url."
         )
 
     unexpected = keys - _ALLOWED_SOURCE_KEYS - _ALLOWED_OPTIONAL_KEYS
@@ -136,7 +143,11 @@ def _normalize_dict_entry(entry: Dict[str, Any], bucket: str) -> Dict[str, Any]:
             f"Attachment dict for {bucket} has unsupported keys: {sorted(unexpected)}"
         )
 
-    out: Dict[str, Any] = {source_keys[0]: entry[source_keys[0]]}
+    source = source_keys[0]
+    if source == "asset" and not entry.get("filename"):
+        raise ValueError("A generated asset attachment requires a non-empty filename.")
+
+    out: Dict[str, Any] = {source: entry[source]}
     if "filename" in entry:
         out["filename"] = entry["filename"]
     return out

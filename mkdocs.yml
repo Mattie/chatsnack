@@ -90,6 +90,7 @@ nav:
   - Examples:
       - examples/index.md
       - examples/prompt-recipes.md
+      - Local Apply Patch workspace: examples/local-apply-patch.md
   - API Reference:
       - reference/index.md
       - Chat: reference/api/chat.md

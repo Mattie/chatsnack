@@ -1,0 +1,23 @@
+params:
+  model: gpt-5.6-terra
+messages:
+  - system: |
+      Blind-judge six lore icon candidates at 192px and 48px.
+
+      The paired files are anonymously named ash, birch, cedar, dune, ember, and flint. Score each
+      from 1 to 5 for article specificity (30%), 48px legibility (25%), professional craft (20%),
+      silhouette and composition (15%), and two-fill style compliance (10%). Disqualify text,
+      embedded raster data, an opaque SVG background, extra fills, pixel-art styling, or loss of
+      the central feature at 48px.
+
+      Use code interpreter to write the final result to `aiconographer-scorecard.json` and provide
+      that file as a download. Its JSON must contain `candidates`, `winner`, `runner_up`, `reason`,
+      and `refinement`. Each candidate must use exactly these score keys: `article_specificity`,
+      `legibility_48px`, `professional_craft`, `silhouette_and_composition`, and
+      `two_fill_style_compliance`. It must also contain `alias`, `weighted_total`, and `notes`.
+      Winner and runner-up must be different anonymous aliases. Keep the response itself brief.
+  - user: |
+      Source material:
+      {source_material}
+
+      Judge the attached anonymous candidate previews.

@@ -17,6 +17,10 @@ _SDK_VERSION_GUIDANCE = (
     "Upgrade OpenAI or install openai[realtime]."
 )
 
+# Hosted-tool results such as generated images can exceed the SDK's 1 MiB
+# default. Keep a finite ceiling so one incoming frame cannot grow unbounded.
+_WEBSOCKET_MAX_MESSAGE_BYTES = 64 * 1024 * 1024
+
 _AUTH_ERROR_CODES = {
     "auth_error",
     "authentication_error",
@@ -163,7 +167,9 @@ class ResponsesWebSocketAdapter(ResponsesNormalizationMixin):
         client = self._get_sync_client()
         self._check_sdk_support(client)
         try:
-            conn = client.responses.connect().enter()
+            conn = client.responses.connect(
+                websocket_connection_options={"max_size": _WEBSOCKET_MAX_MESSAGE_BYTES},
+            ).enter()
         except Exception as exc:
             raise self._connect_error_from_exception(exc) from exc
         self.session.sync_connection = conn
@@ -179,7 +185,9 @@ class ResponsesWebSocketAdapter(ResponsesNormalizationMixin):
         aclient = self._get_async_client()
         self._check_sdk_support(aclient)
         try:
-            conn = await aclient.responses.connect().enter()
+            conn = await aclient.responses.connect(
+                websocket_connection_options={"max_size": _WEBSOCKET_MAX_MESSAGE_BYTES},
+            ).enter()
         except Exception as exc:
             raise self._connect_error_from_exception(exc) from exc
         self.session.async_connection = conn

@@ -2,6 +2,7 @@ import asyncio
 import openai
 import os
 import json
+import inspect
 from loguru import logger
 
 # class that wraps the OpenAI client and Azure clients
@@ -83,6 +84,24 @@ class AiClient:
         with open(file_path, "rb") as f:
             result = await self.aclient.files.create(file=f, purpose=purpose)
         return result.id
+
+    async def download_container_file_async(self, container_id: str, file_id: str) -> bytes:
+        """Download bytes from one authenticated code interpreter container file."""
+        result = await self.aclient.containers.files.content.retrieve(
+            file_id,
+            container_id=container_id,
+        )
+        content = getattr(result, "content", None)
+        if isinstance(content, (bytes, bytearray)):
+            return bytes(content)
+        reader = getattr(result, "read", None)
+        if callable(reader):
+            content = reader()
+            if inspect.isawaitable(content):
+                content = await content
+            if isinstance(content, (bytes, bytearray)):
+                return bytes(content)
+        raise TypeError("Container file download did not return bytes.")
 
     @staticmethod
     def _supports_responses_endpoint(client) -> bool:

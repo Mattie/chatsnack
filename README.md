@@ -91,6 +91,13 @@ print(thread.last)
 When attachments are present, chatsnack stores the user turn as an expanded YAML block
 (`text` + `files` / `images`) while keeping plain text turns scalar-first.
 
+Generated outputs stay on the continued `Chat`. `.images` gives us image
+`ChatFile` values, and `.files` includes every returned file. A `ChatFile` can
+be passed into another chat. Captured files can also be read or copied; remote-only
+references keep their provider metadata but do not have local bytes. Saved chats
+keep a small local asset reference in YAML. When moving one, take the configured
+chatsnack data folder with it.
+
 ### Utensils (Tools)
 
 Local Python functions and hosted OpenAI tools share one `utensils=[...]` surface:
@@ -125,6 +132,8 @@ chat.reasoning.summary = "auto"
 
 The `sources=True` on `web_search` automatically populates `params.responses["include"]`
 without manual dict mutation.
+
+See the [Utensils guide](docs/guides/utensils.md) for more information.
 
 For unusually long local-utensil workflows, `auto_feed` controls the automatic
 execute-and-follow-up loop. Leave it unset (or use `True` / `None`) for the legacy

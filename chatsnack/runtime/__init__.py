@@ -1,6 +1,7 @@
 from .types import (
     EVENT_SCHEMA_VERSION,
     RESERVED_EVENT_TYPES,
+    ApplyPatchCall,
     NormalizedAssistantMessage,
     NormalizedCompletionResult,
     NormalizedToolCall,
@@ -24,6 +25,7 @@ from .responses_websocket_adapter import (
 __all__ = [
     "EVENT_SCHEMA_VERSION",
     "RESERVED_EVENT_TYPES",
+    "ApplyPatchCall",
     "RuntimeAdapter",
     "NormalizedCompletionResult",
     "NormalizedAssistantMessage",

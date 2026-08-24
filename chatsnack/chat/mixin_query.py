@@ -1,14 +1,17 @@
 import asyncio
 import json
 import uuid
+import warnings
+from collections.abc import Mapping
 from datetime import datetime
 from typing import Dict, List, Optional
 
 from loguru import logger
 
+from ..assets import capture_asset
 from ..asynchelpers import aformatter
 from ..fillings import active_filling_stash, filling_machine
-from ..runtime import EVENT_SCHEMA_VERSION
+from ..runtime import ApplyPatchCall, EVENT_SCHEMA_VERSION
 from ..runtime.attachment_inputs import normalize_attachment_inputs
 
 from .mixin_messages import ChatMessagesMixin
@@ -265,7 +268,18 @@ class ChatQueryMixin(ChatMessagesMixin, ChatParamsMixin):
         return prepared
 
     @staticmethod
-    def _serialize_tool_call(id: str, type: str, function_name: str, function_arguments: str) -> dict:
+    def _serialize_tool_call(
+        id: str,
+        type: str,
+        function_name: str,
+        function_arguments: str,
+        *,
+        item_id: Optional[str] = None,
+        status: Optional[str] = None,
+        payload: Optional[Dict] = None,
+        provider_extras: Optional[Dict] = None,
+    ) -> dict:
+        """Store provider call identity and payload without binding runtime code."""
         out = {
             "id": id,
             "type": type,
@@ -275,6 +289,14 @@ class ChatQueryMixin(ChatMessagesMixin, ChatParamsMixin):
                 "name": function_name,
                 "arguments": function_arguments,
             }
+        if item_id:
+            out["item_id"] = item_id
+        if status:
+            out["status"] = status
+        if isinstance(payload, dict):
+            out["payload"] = payload
+        if isinstance(provider_extras, dict):
+            out["provider_extras"] = provider_extras
         return out
 
     @staticmethod
@@ -304,6 +326,10 @@ class ChatQueryMixin(ChatMessagesMixin, ChatParamsMixin):
                         type=tc.get("type", "function"),
                         function_name=function.get("name", ""),
                         function_arguments=function.get("arguments", ""),
+                        item_id=tc.get("item_id"),
+                        status=tc.get("status"),
+                        payload=tc.get("payload"),
+                        provider_extras=tc.get("provider_extras"),
                     )
                 )
                 continue
@@ -314,10 +340,11 @@ class ChatQueryMixin(ChatMessagesMixin, ChatParamsMixin):
                 type=getattr(tc, "type", "function"),
                 function_name=function.name if function else "",
                 function_arguments=function.arguments if function else "",
+                item_id=getattr(tc, "item_id", None),
+                status=getattr(tc, "status", None),
+                payload=getattr(tc, "payload", None),
+                provider_extras=getattr(tc, "provider_extras", None),
             )
-            payload = getattr(tc, "payload", None)
-            if isinstance(payload, dict):
-                serialized["payload"] = payload
             tool_calls.append(serialized)
         out["tool_calls"] = tool_calls
         return out
@@ -342,6 +369,65 @@ class ChatQueryMixin(ChatMessagesMixin, ChatParamsMixin):
         if expanded and (len(expanded) > 1 or "text" not in expanded):
             return expanded
         return text
+
+    @staticmethod
+    def _pending_output_matches(reference, pending) -> bool:
+        """Match one provider file reference to its pending download."""
+        if not isinstance(reference, dict):
+            return False
+        return bool(
+            pending.file_id
+            and reference.get("file_id") == pending.file_id
+            and (
+                not pending.container_id
+                or not reference.get("container_id")
+                or reference.get("container_id") == pending.container_id
+            )
+        )
+
+    async def _capture_assistant_outputs(self, response_message) -> None:
+        """Capture pending generated outputs before a continued Chat adopts them."""
+        pending_outputs = list(getattr(response_message, "pending_outputs", None) or [])
+        if not pending_outputs:
+            return
+
+        runtime_client = getattr(getattr(self, "runtime", None), "ai_client", None)
+        download_client = runtime_client or self.ai
+
+        for pending in pending_outputs:
+            try:
+                data = pending.data
+                if data is None and pending.file_id and pending.container_id:
+                    data = await download_client.download_container_file_async(
+                        pending.container_id,
+                        pending.file_id,
+                    )
+                if data is None:
+                    raise RuntimeError("The provider output did not include retrievable bytes.")
+                reference = capture_asset(
+                    data,
+                    filename=pending.filename,
+                    kind=pending.kind,
+                )
+            except Exception as exc:
+                warnings.warn(
+                    f"Could not capture generated {pending.kind}: {exc}",
+                    RuntimeWarning,
+                )
+                continue
+
+            bucket_name = "images" if pending.kind == "image" else "files"
+            bucket = list(getattr(response_message, bucket_name, None) or [])
+            if pending.kind == "file":
+                bucket = [
+                    item
+                    for item in bucket
+                    if not self._pending_output_matches(item, pending)
+                ]
+            bucket.append(reference)
+            setattr(response_message, bucket_name, bucket)
+
+        response_message.pending_outputs = []
 
     def _run_sync(self, coro, method_name: str):
         try:
@@ -432,6 +518,85 @@ class ChatQueryMixin(ChatMessagesMixin, ChatParamsMixin):
 
         return kwargs
 
+    def _caller_executed_tool_types(self) -> List[str]:
+        """Return caller-executed native declarations currently owned by the Chat."""
+        from ..utensil import CALLER_EXECUTED_NATIVE_TOOL_TYPES
+
+        tools = self.get_tools() if hasattr(self, "get_tools") else []
+        return [
+            tool.get("type")
+            for tool in tools
+            if isinstance(tool, dict)
+            and tool.get("type") in CALLER_EXECUTED_NATIVE_TOOL_TYPES
+        ]
+
+    def _runtime_binding(self, tool_type: str):
+        """Look up live application code while honoring the tool_search shim."""
+        if tool_type == "tool_search":
+            return getattr(self, "tool_search_handler", None)
+        bindings = getattr(self, "_runtime_bindings", None) or {}
+        return bindings.get(tool_type)
+
+    def _validate_caller_executed_batch(self, tool_calls) -> None:
+        """Validate a native batch before any caller-owned effect can run."""
+        for tool_call in tool_calls:
+            if getattr(tool_call, "type", None) == "apply_patch":
+                self._apply_patch_executor_for(tool_call)
+
+    def _apply_patch_executor_for(self, tool_call):
+        """Return the executor only when a native call is safe to correlate."""
+        status = getattr(tool_call, "status", None)
+        if status != "completed":
+            raise RuntimeError(
+                f"Apply Patch call status {status!r} is not executable; "
+                "only completed calls may run."
+            )
+        if not getattr(tool_call, "id", None):
+            raise RuntimeError(
+                "Apply Patch call is missing call_id; the executor did not run."
+            )
+        handler = self._runtime_binding("apply_patch")
+        if handler is None:
+            raise RuntimeError(
+                "Missing runtime binding for apply_patch. Rebind with "
+                "utensil.apply_patch(execute=...) before chat()."
+            )
+        return handler
+
+    def _validate_caller_executed_tools(self, method_name: str) -> None:
+        """Fail before provider I/O when a query cannot honor native calls safely."""
+        tool_types = self._caller_executed_tool_types()
+        if not tool_types:
+            return
+
+        runtime = getattr(self, "runtime", None)
+        if getattr(runtime, "runtime_family", None) != "responses":
+            raise RuntimeError(
+                "Caller-executed native utensils require a Responses runtime; "
+                "Chat Completions cannot carry Apply Patch calls."
+            )
+        if method_name != "chat":
+            raise RuntimeError(
+                "Apply Patch requires chat()/chat_a() so the continued Chat can "
+                "retain the call and its output."
+            )
+        if getattr(self, "stream", False):
+            raise RuntimeError(
+                "Apply Patch automatic execution requires stream=False and chat()/chat_a()."
+            )
+
+        params = getattr(self, "params", None)
+        auto_execute = getattr(params, "auto_execute", None) if params is not None else None
+        if auto_execute is False:
+            return
+        missing = [tool_type for tool_type in tool_types if self._runtime_binding(tool_type) is None]
+        if missing:
+            names = ", ".join(sorted(set(missing)))
+            raise RuntimeError(
+                f"Missing runtime binding for {names}. Rebind with "
+                "utensil.apply_patch(execute=...) before chat()."
+            )
+
     def _build_tool_followup_request_kwargs(self) -> Dict[str, object]:
         """Build kwargs for an auto-fed tool-output follow-up request."""
         kwargs = self._build_completion_request_kwargs()
@@ -477,9 +642,8 @@ class ChatQueryMixin(ChatMessagesMixin, ChatParamsMixin):
             )
 
     def _runtime_supports_continuation(self) -> bool:
-        from ..runtime import ResponsesAdapter, ResponsesWebSocketAdapter
         runtime = getattr(self, "runtime", None)
-        return isinstance(runtime, (ResponsesAdapter, ResponsesWebSocketAdapter))
+        return getattr(runtime, "runtime_family", None) == "responses"
 
     def _runtime_supports_provider_continuation(self, request_kwargs: Optional[Dict[str, object]] = None) -> bool:
         """Return True when provider-side continuation is safe for this turn.
@@ -672,8 +836,36 @@ class ChatQueryMixin(ChatMessagesMixin, ChatParamsMixin):
         """Execute one normalized tool call and return a tool turn payload."""
         tc_type = getattr(tool_call, "type", None)
         tc_id = getattr(tool_call, "id", "")
+        if tc_type == "apply_patch":
+            handler = self._apply_patch_executor_for(tool_call)
+            try:
+                result = handler(ApplyPatchCall.from_normalized(tool_call))
+                if asyncio.iscoroutine(result):
+                    result = await result
+                if not isinstance(result, Mapping):
+                    raise TypeError(
+                        "Apply Patch executor must return a mapping with status and output."
+                    )
+                output_status = result.get("status")
+                if output_status not in {"completed", "failed"}:
+                    raise ValueError(
+                        "Apply Patch executor status must be 'completed' or 'failed'."
+                    )
+                output = result.get("output")
+                if output is not None and not isinstance(output, str):
+                    raise TypeError("Apply Patch executor output must be a string or None.")
+            except Exception as exc:
+                output_status = "failed"
+                output = f"{type(exc).__name__}: {exc}"
+            return {
+                "tool_call_id": tc_id,
+                "output_type": "apply_patch_call_output",
+                "status": output_status,
+                "content": output or "",
+            }
+
         if tc_type == "tool_search":
-            handler = getattr(self, "tool_search_handler", None)
+            handler = self._runtime_binding("tool_search")
             if handler is None and getattr(self, "params", None) is not None:
                 handler = getattr(self.params, "tool_search_handler", None)
             if handler is None:
@@ -709,15 +901,20 @@ class ChatQueryMixin(ChatMessagesMixin, ChatParamsMixin):
         }
 
     @property
-    def response(self) -> str:
-        """ Returns the value of the last assistant message in the chat prompt ⭐"""
+    def response(self) -> Optional[str]:
+        """Return the text from the last assistant message, when it has any. ⭐"""
         last_assistant_message = None
         for _message in self.messages:
             message = self._msg_dict(_message)
             if "assistant" in message:
                 last_assistant_message = message["assistant"]
-        # filter the response if we have a pattern
-        last_assistant_message = self.filter_by_pattern(last_assistant_message)
+        if isinstance(last_assistant_message, dict):
+            last_assistant_message = last_assistant_message.get("text")
+        if not isinstance(last_assistant_message, str):
+            last_assistant_message = None
+        # Filter only assistant text; rich output-only turns have no string to filter.
+        if last_assistant_message is not None:
+            last_assistant_message = self.filter_by_pattern(last_assistant_message)
         return last_assistant_message
 
     def __str__(self):
@@ -742,6 +939,7 @@ class ChatQueryMixin(ChatMessagesMixin, ChatParamsMixin):
         return self._run_sync(self.ask_a(**additional_vars), "ask")
     async def ask_a(self, usermsg=None, files=None, images=None, **additional_vars) -> str:
         """Async form of `ask()`."""
+        self._validate_caller_executed_tools("ask")
         if self.stream:
             raise Exception("Cannot use ask() with a stream")
         additional_vars = self._prepare_query_vars(usermsg, files=files, images=images, **additional_vars)
@@ -754,6 +952,7 @@ class ChatQueryMixin(ChatMessagesMixin, ChatParamsMixin):
         Executes the internal chat query as-is and returns a listener object that can be iterated on for the text.
         If usermsg is passed in, it will be added as a user message to the chat before executing the query. ⭐
         """
+        self._validate_caller_executed_tools("listen")
         additional_vars = self._prepare_query_vars(usermsg, files=files, images=images, **additional_vars)
         _, response = self._run_sync(self._submit_for_response_and_prompt(**additional_vars), "listen")
         if self.stream:
@@ -764,6 +963,7 @@ class ChatQueryMixin(ChatMessagesMixin, ChatParamsMixin):
         return response
     async def listen_a(self, usermsg=None, async_listen=True, events=False, event_schema="legacy", files=None, images=None, **additional_vars) -> ChatStreamListener:
         """Async form of `listen()`."""
+        self._validate_caller_executed_tools("listen")
         if not self.stream:
             raise Exception("Cannot use listen() without a stream")
         additional_vars = self._prepare_query_vars(usermsg, files=files, images=images, **additional_vars)
@@ -786,6 +986,7 @@ class ChatQueryMixin(ChatMessagesMixin, ChatParamsMixin):
         """Return a continued chat with call-scoped provider usage attached."""
         from ..runtime.usage import _CallUsageLedger
 
+        self._validate_caller_executed_tools("chat")
         additional_vars = self._prepare_query_vars(usermsg, files=files, images=images, **additional_vars)
 
         ledger = _CallUsageLedger()
@@ -824,6 +1025,7 @@ class ChatQueryMixin(ChatMessagesMixin, ChatParamsMixin):
             params=getattr(self, "params", None),
             runtime=getattr(self, "runtime", None),
             tool_search_handler=getattr(self, "tool_search_handler", None),
+            _runtime_bindings=getattr(self, "_runtime_bindings", None),
         )
 
         logger.trace("Expanded prompt: " + prompt)
@@ -840,6 +1042,7 @@ class ChatQueryMixin(ChatMessagesMixin, ChatParamsMixin):
             # Adapter path: response is a NormalizedCompletionResult with
             # .message (content/tool_calls) and .metadata for continuation.
             message = response.message if hasattr(response, "message") else response
+            await self._capture_assistant_outputs(message)
             content = message.content if hasattr(message, "content") else None
             has_tool_calls = hasattr(message, "tool_calls") and message.tool_calls
             
@@ -896,6 +1099,7 @@ class ChatQueryMixin(ChatMessagesMixin, ChatParamsMixin):
                     else:
                         logger.debug("Executing pending tool calls without auto-feed")
                    
+                    self._validate_caller_executed_batch(message.tool_calls)
                     for tool_call in message.tool_calls:
                         tool_output = await self._execute_model_tool_call(tool_call)
                         current_chat = current_chat.tool(tool_output)
@@ -927,6 +1131,7 @@ class ChatQueryMixin(ChatMessagesMixin, ChatParamsMixin):
                         else:
                             # follow_up is a NormalizedCompletionResult; extract message.
                             follow_msg = follow_up.message if hasattr(follow_up, "message") else follow_up
+                            await temp_chat._capture_assistant_outputs(follow_msg)
                             has_tool_calls = hasattr(follow_msg, "tool_calls") and follow_msg.tool_calls
                             
                             if has_tool_calls:
@@ -1007,6 +1212,7 @@ class ChatQueryMixin(ChatMessagesMixin, ChatParamsMixin):
                 runtime_selector=copied_runtime_selector,
                 session=copied_session,
                 tool_search_handler=getattr(self, "tool_search_handler", None),
+                _runtime_bindings=getattr(self, "_runtime_bindings", None),
             )
         else:
             # if the existing name ends with _{datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}-{uuid.uuid4()}" then we need to trim that off and add a new one
@@ -1025,9 +1231,11 @@ class ChatQueryMixin(ChatMessagesMixin, ChatParamsMixin):
                 runtime_selector=copied_runtime_selector,
                 session=copied_session,
                 tool_search_handler=getattr(self, "tool_search_handler", None),
+                _runtime_bindings=getattr(self, "_runtime_bindings", None),
             )
 
-        # copy local registry
+        # Keep the established local-utensil copy behavior. Caller-executed
+        # services retain identity through the separate runtime binding map.
         new_chat._local_registry = copy.deepcopy(self._local_registry) if hasattr(self, '_local_registry') else None
         #new_chat.set_tools(self.get_tools())
 

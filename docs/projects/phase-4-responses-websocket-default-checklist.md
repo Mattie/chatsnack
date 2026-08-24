@@ -106,7 +106,8 @@ Drop a note into `## Progress Notes` whenever something meaningfully changes.
   RFC: `Built-in tool outputs and YAML fidelity`
 - [ ] Hosted `tool_search` internals stay out of the default transcript and have a clear home in `assistant.provider_extras`.
   RFC: `Built-in tool outputs and YAML fidelity`
-- [ ] Generated files and images from built-in tools continue to land in `assistant.files` and `assistant.images`.
+- [x] Generated files and images from built-in tools continue to land in `assistant.files` and `assistant.images`.
+  _Done. GPT Image 2 results materialize as local image references; SDK-shaped code-interpreter image outputs and container-file citations normalize into the assistant turn. A live WebSocket test creates, exposes, and downloads a generated CSV through `Chat.files`._
   RFC: `Built-in tool outputs and YAML fidelity`
 
 ### Example assets and implementation naming

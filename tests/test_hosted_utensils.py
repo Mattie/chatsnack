@@ -3,6 +3,7 @@
 Tests cover the _UtensilNamespace callable object, hosted utensil specs,
 group namespaces, Chat integration, and YAML round-trip.
 """
+import base64
 import json
 import pytest
 from pathlib import Path
@@ -68,6 +69,74 @@ class TestGoalReadmeStyleExample:
 
         # No set_tools() or params.responses["include"] manual mutation used
         # — all wired through utensils=[] only.
+
+    def test_gpt_image_chat_keeps_asset_and_readable_yaml(self, tmp_path, monkeypatch):
+        """Goal: the notebook-style image flow produces durable chat state."""
+        monkeypatch.chdir(tmp_path)
+        data_dir = Path(CHATSNACK_BASE_DIR)
+        data_dir.mkdir(parents=True, exist_ok=True)
+        monkeypatch.setenv("CHATSNACK_BASE_DIR", str(data_dir))
+        image_b64 = (
+            "iVBORw0KGgoAAAANSUhEUgAAAAgAAAAICAIAAABLbSncAAAACXBIWXMAAAABAAAAAQBPJcTW"
+            "AAAAEklEQVR4nGP4y8CAFWEXHbQSAPZwP0G2GkFNAAAAAElFTkSuQmCC"
+        )
+
+        class ImageRuntime:
+            async def create_completion_a(self, messages, **kwargs):
+                assert kwargs["tools"] == [
+                    {
+                        "type": "image_generation",
+                        "model": "gpt-image-2",
+                        "quality": "low",
+                        "size": "1024x1024",
+                    }
+                ]
+                response = {
+                    "id": "resp_image_goal",
+                    "status": "completed",
+                    "model": "gpt-5.4",
+                    "output": [
+                        {
+                            "type": "image_generation_call",
+                            "id": "ig_goal",
+                            "status": "completed",
+                            "result": image_b64,
+                        }
+                    ],
+                }
+                return ResponsesNormalizationMixin().normalize_completion(response, kwargs)
+
+        image_tool = utensil.image_generation(
+            model="gpt-image-2",
+            quality="low",
+            size="1024x1024",
+        )
+        artist = Chat(
+            "Always use the image generation utensil for image requests.",
+            name="gpt_image_goal",
+            model="gpt-5.4",
+            utensils=[image_tool],
+            runtime=ImageRuntime(),
+        )
+
+        drawing = artist.chat("Generate a smiling red apple.")
+
+        image = drawing.images[0]
+        assert image.read_bytes() == base64.b64decode(image_b64)
+        assert image.filename.endswith(".png")
+        assert drawing.files == drawing.images
+        assert "- image_generation:" in drawing.yaml
+        assert "model: gpt-image-2" in drawing.yaml
+        assert "provider_extras" not in drawing.yaml
+        assert image_b64 not in drawing.yaml
+
+        saved_path = data_dir / "gpt_image_goal.yml"
+        drawing.save(str(saved_path))
+        loaded = Chat()
+        loaded.load(str(saved_path))
+        loaded_image = loaded.images[0]
+        assert loaded_image.path.exists()
+        assert loaded.files == loaded.images
 
 
 # ── Steer tests ───────────────────────────────────────────────────────
@@ -178,11 +247,28 @@ class TestHostedUtensils:
             "type": "code_interpreter",
             "container": {"type": "auto"},
         }
+        assert ci.get_include_entries() == ["code_interpreter_call.outputs"]
 
     def test_zero_config_image_generation(self):
         ig = utensil.image_generation
         assert isinstance(ig, HostedUtensil)
         assert ig.to_tool_dict() == {"type": "image_generation"}
+
+    def test_configured_image_generation_stays_in_the_utensil_family(self):
+        image_tool = utensil.image_generation(
+            model="gpt-image-2",
+            quality="low",
+            size="1024x1024",
+        )
+
+        assert isinstance(image_tool, HostedUtensil)
+        assert image_tool.to_tool_dict() == {
+            "type": "image_generation",
+            "model": "gpt-image-2",
+            "quality": "low",
+            "size": "1024x1024",
+        }
+        assert utensil.image_generation.to_tool_dict() == {"type": "image_generation"}
 
     def test_web_search_with_domains_and_sources(self):
         ws = utensil.web_search(domains=["docs.python.org"], sources=True)
@@ -317,6 +403,7 @@ class TestChatIntegration:
         ci = next((t for t in request["tools"] if t.get("type") == "code_interpreter"), None)
         assert ci is not None
         assert ci["container"]["type"] == "auto"
+        assert chat.params.responses["include"] == ["code_interpreter_call.outputs"]
 
 
 class TestYamlRoundTrip:
