@@ -6,7 +6,8 @@ repo_name: Mattie/chatsnack
 edit_uri: edit/master/docs/
 copyright: >-
   The chatsnack Nibbletrail font is a modified version of Paysage by Anton Moglia, using the ss12 stylistic set.
-  <a href="https://font-lab-test1.mattie.ai/docs/previews/paysage-chatsnack-blind5c/notices/OFL-1.1.txt">License and attribution</a>
+  <a href="/chatsnack/assets/fonts/NOTICE.txt">Font attribution</a> ·
+  <a href="/chatsnack/assets/fonts/OFL-1.1.txt">OFL 1.1 license</a>
 docs_dir: docs
 site_dir: site
 strict: true
