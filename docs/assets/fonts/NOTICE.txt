@@ -1,0 +1,18 @@
+chatsnack Nibbletrail font notice
+=================================
+
+chatsnack Nibbletrail modifications copyright (c) 2026 Mattie Casper.
+
+The chatsnack Nibbletrail font is a modified version of Paysage, created by
+Anton Moglia and distributed by Tunera Type Foundry. Its alternate letterforms
+are exposed through the OpenType ss12 stylistic set.
+
+Bundled webfont: chatsnack-Nibbletrail-Black.woff
+SHA-256: FC9AC7CACB987B792B9A00E6083C05C806FF98E9E93F85285C53A2984C1E0DB3
+
+Paysage: https://www.tunera.xyz/fonts/paysage/
+chatsnack Nibbletrail preview: https://font-lab-test1.mattie.ai/docs/previews/font-lab.html?collection=paysage-chatsnack-blind5c
+License: OFL-1.1.txt
+
+This font software is licensed under the SIL Open Font License, Version 1.1.
+The complete license is included in OFL-1.1.txt.

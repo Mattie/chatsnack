@@ -1,6 +1,18 @@
+@font-face {
+  font-family: "chatsnack Nibbletrail";
+  src: url("fonts/chatsnack-Nibbletrail-Black.woff") format("woff");
+  font-display: swap;
+  font-style: normal;
+  font-weight: 900;
+}
+
 :root {
   --md-primary-fg-color: #0f766e;
   --md-accent-fg-color: #d97706;
+  --snack-ui-font: "Segoe UI Variable", "Segoe UI", system-ui, sans-serif;
+  --snack-body-font: "Roboto", "Segoe UI Variable", "Segoe UI", system-ui, sans-serif;
+  --snack-heading-font: "chatsnack Nibbletrail", "Segoe UI", system-ui, sans-serif;
+  --snack-grape: #652bb2;
   --snack-cream: #fffaf2;
   --snack-cream-deep: #f7eddc;
   --snack-mint-wash: rgba(15, 118, 110, 0.07);
@@ -14,9 +26,29 @@ body,
     linear-gradient(180deg, #fffdf9 0%, var(--snack-cream) 100%);
 }
 
+body {
+  --md-text-font-family: var(--snack-ui-font);
+  font-family: var(--snack-ui-font);
+}
+
 .md-typeset {
+  font-family: var(--snack-body-font);
+  font-feature-settings: "kern" 1, "liga" 1;
+  font-kerning: normal;
   font-size: 1rem;
   line-height: 1.7;
+}
+
+.md-typeset :is(h1, h2, h3, h4, h5, h6) {
+  color: var(--snack-grape);
+  font-family: var(--snack-heading-font);
+  font-feature-settings: "kern" 1, "liga" 1, "ss12" 1;
+  font-kerning: normal;
+}
+
+.md-typeset :is(.admonition-title, summary, .tabbed-labels) {
+  font-family: var(--snack-ui-font);
+  font-feature-settings: "kern" 1, "liga" 1;
 }
 
 .md-typeset p,
