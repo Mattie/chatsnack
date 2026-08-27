@@ -17,8 +17,11 @@ TOOL_COMPATIBLE_ENGINES = [
 ]
 
 @pytest.mark.parametrize("engine", TOOL_COMPATIBLE_ENGINES)
-@pytest.mark.skipif(os.environ.get("OPENAI_API_KEY") is None, 
-                    reason="OPENAI_API_KEY is not set in environment or .env")
+@pytest.mark.skipif(
+    not os.environ.get("OPENAI_API_KEY")
+    or os.environ.get("CHATSNACK_RUN_LIVE_TESTS", "").lower() not in {"1", "true", "yes"},
+    reason="Live OpenAI tests require OPENAI_API_KEY and CHATSNACK_RUN_LIVE_TESTS=1",
+)
 def test_engine_tool_calls(engine):
     """Test that each compatible engine can properly make tool calls."""
     # Define test-local utensil
@@ -370,8 +373,11 @@ def test_utensil_group_local_registry():
 
 
 @pytest.mark.parametrize("engine", TOOL_COMPATIBLE_ENGINES)
-@pytest.mark.skipif(os.environ.get("OPENAI_API_KEY") is None, 
-                    reason="OPENAI_API_KEY is not set in environment or .env")
+@pytest.mark.skipif(
+    not os.environ.get("OPENAI_API_KEY")
+    or os.environ.get("CHATSNACK_RUN_LIVE_TESTS", "").lower() not in {"1", "true", "yes"},
+    reason="Live OpenAI tests require OPENAI_API_KEY and CHATSNACK_RUN_LIVE_TESTS=1",
+)
 def test_engine_tool_calls_local_registry(engine):
     """Test that each compatible engine can properly make tool calls using a local utensil group registry."""
     # Create a unique local utensil group
@@ -477,8 +483,11 @@ def test_auto_feed_initialization():
 
 # === Test 8: Execution Without Feeding Tool Results ===
 @pytest.mark.parametrize("engine", TOOL_COMPATIBLE_ENGINES[:1])  # Use just the first engine for this test
-@pytest.mark.skipif(os.environ.get("OPENAI_API_KEY") is None, 
-                    reason="OPENAI_API_KEY is not set in environment or .env")
+@pytest.mark.skipif(
+    not os.environ.get("OPENAI_API_KEY")
+    or os.environ.get("CHATSNACK_RUN_LIVE_TESTS", "").lower() not in {"1", "true", "yes"},
+    reason="Live OpenAI tests require OPENAI_API_KEY and CHATSNACK_RUN_LIVE_TESTS=1",
+)
 def test_auto_execute_without_auto_feed(engine):
     """Test that tools execute but don't feed results back to the engine when auto_execute=True and auto_feed=False."""
     
@@ -550,8 +559,11 @@ def test_auto_execute_without_auto_feed(engine):
 
 # === Test 9: Comparing Behavior with auto_feed True vs False ===
 @pytest.mark.parametrize("engine", TOOL_COMPATIBLE_ENGINES[:1])  # Use just the first engine to save time
-@pytest.mark.skipif(os.environ.get("OPENAI_API_KEY") is None, 
-                    reason="OPENAI_API_KEY is not set in environment or .env")
+@pytest.mark.skipif(
+    not os.environ.get("OPENAI_API_KEY")
+    or os.environ.get("CHATSNACK_RUN_LIVE_TESTS", "").lower() not in {"1", "true", "yes"},
+    reason="Live OpenAI tests require OPENAI_API_KEY and CHATSNACK_RUN_LIVE_TESTS=1",
+)
 def test_auto_feed_behavior_comparison(engine):
     """Compare behavior with auto_feed True vs False."""
     

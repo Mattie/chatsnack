@@ -35,6 +35,7 @@ from .compact_tools import parse_tools_authoring, serialize_tools_authoring, spl
 
 
 _ASSET_REFERENCE = re.compile(r"^sha256:[0-9a-f]{64}$")
+_URL_REFERENCE = re.compile(r"^[A-Za-z][A-Za-z0-9+.-]*://\S+$")
 
 
 # ── Phase 3 helpers ────────────────────────────────────────────────────
@@ -230,11 +231,23 @@ def _normalize_data_on_load(data):
     if not isinstance(data, dict):
         return data
 
+    params = data.get("params")
+    if isinstance(params, dict):
+        legacy_client_fields = sorted(
+            {"api_base", "api_type", "api_version", "deployment"}.intersection(params)
+        )
+        if legacy_client_fields:
+            names = ", ".join(legacy_client_fields)
+            raise ValueError(
+                "Legacy Chat client fields are no longer supported: "
+                f"{names}. Use a complete base_url plus api_key_env; for Azure v1, "
+                "put the deployment name in model."
+            )
+
     messages = data.get("messages")
     if isinstance(messages, list):
         data["messages"] = [_normalize_message_on_load(m) for m in messages]
 
-    params = data.get("params")
     if isinstance(params, dict) and "auto_feed" in params:
         # Validate the authored scalar before snapclass can coerce a float or
         # string into one of the bool/int union members.
@@ -358,6 +371,8 @@ class YAML(formatters.FileFormatter):
         def represent_plain_str(dumper, data):
             if _ASSET_REFERENCE.fullmatch(data):
                 return dumper.represent_scalar("tag:yaml.org,2002:str", data, style="'")
+            if _URL_REFERENCE.fullmatch(data):
+                return dumper.represent_scalar("tag:yaml.org,2002:str", data, style='')
             if "\n" in data or "\r" in data or "#" in data or ":" in data or "'" in data or '"' in data:
                 return dumper.represent_scalar("tag:yaml.org,2002:str", data, style='|')
             return dumper.represent_scalar("tag:yaml.org,2002:str", data, style='')

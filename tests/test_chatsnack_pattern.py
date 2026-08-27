@@ -41,7 +41,11 @@ def test_set_response_filter():
     with pytest.raises(ValueError):
         chat.set_response_filter(pattern=test_pattern, prefix=test_prefix)
 
-@pytest.mark.skipif(os.environ.get("OPENAI_API_KEY") is None, reason="OPENAI_API_KEY is not set in environment or .env")
+@pytest.mark.skipif(
+    not os.environ.get("OPENAI_API_KEY")
+    or os.environ.get("CHATSNACK_RUN_LIVE_TESTS", "").lower() not in {"1", "true", "yes"},
+    reason="Live OpenAI tests require OPENAI_API_KEY and CHATSNACK_RUN_LIVE_TESTS=1",
+)
 def test_ask_with_pattern():
     chat = Chat()
     chat.temperature = 0.0
@@ -60,7 +64,11 @@ def test_response_with_pattern():
     response = chat.response
     assert response == "POPSICLE"
 
-@pytest.mark.skipif(os.environ.get("OPENAI_API_KEY") is None, reason="OPENAI_API_KEY is not set in environment or .env")
+@pytest.mark.skipif(
+    not os.environ.get("OPENAI_API_KEY")
+    or os.environ.get("CHATSNACK_RUN_LIVE_TESTS", "").lower() not in {"1", "true", "yes"},
+    reason="Live OpenAI tests require OPENAI_API_KEY and CHATSNACK_RUN_LIVE_TESTS=1",
+)
 def test_ask_without_pattern():
     chat = Chat()
     chat.temperature = 0.0

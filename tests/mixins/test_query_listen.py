@@ -1,4 +1,13 @@
+import os
+
 import pytest
+
+_RUN_OPENAI_LIVE = os.environ.get("CHATSNACK_RUN_LIVE_TESTS", "").lower() in {
+    "1",
+    "true",
+    "yes",
+}
+
 from chatsnack import Chat, Text, CHATSNACK_BASE_DIR
 
 
@@ -9,38 +18,49 @@ from chatsnack.chat.mixin_utensil import ChatUtensilMixin
 from chatsnack.aiclient import AiClient
 
 
+_SKIP_OPENAI_LIVE = pytest.mark.skipif(
+    not _RUN_OPENAI_LIVE or not os.environ.get("OPENAI_API_KEY"),
+    reason="Live OpenAI tests require OPENAI_API_KEY and CHATSNACK_RUN_LIVE_TESTS=1",
+)
 
 
+
+@_SKIP_OPENAI_LIVE
 @pytest.mark.asyncio
 async def test_get_responses_a():
     ai = AiClient()
-    listener = ChatStreamListener(ai, '[{"role":"system","content":"Respond only with POPSICLE 20 times."}]')
-    responses = []
-    await listener.start_a()
-    async for resp in listener:
-        responses.append(resp)
-    assert len(responses) > 10
-    assert listener.is_complete
-    assert 'POPSICLE' in listener.current_content
-    assert 'POPSICLE' in listener.response
+    try:
+        listener = ChatStreamListener(ai, '[{"role":"system","content":"Respond only with POPSICLE 20 times."}]')
+        responses = []
+        await listener.start_a()
+        async for resp in listener:
+            responses.append(resp)
+        assert len(responses) > 10
+        assert listener.is_complete
+        assert 'POPSICLE' in listener.current_content
+        assert 'POPSICLE' in listener.response
+    finally:
+        await ai.close_a()
 
+@_SKIP_OPENAI_LIVE
 def test_get_responses():
     ai = AiClient()
-    listener = ChatStreamListener(ai, '[{"role":"system","content":"Respond only with POPSICLE 20 times."}]')
-    listener.start()
-    responses = list(listener)
-    assert len(responses) > 10
-    assert listener.is_complete
-    assert 'POPSICLE' in listener.current_content
-    assert 'POPSICLE' in listener.response
+    try:
+        listener = ChatStreamListener(ai, '[{"role":"system","content":"Respond only with POPSICLE 20 times."}]')
+        listener.start()
+        responses = list(listener)
+        assert len(responses) > 10
+        assert listener.is_complete
+        assert 'POPSICLE' in listener.current_content
+        assert 'POPSICLE' in listener.response
+    finally:
+        ai.close()
 
-import os
-import pytest
 from chatsnack.packs import Jane
 
 
 
-@pytest.mark.skipif(os.environ.get("OPENAI_API_KEY") is None, reason="OPENAI_API_KEY is not set in environment or .env")
+@_SKIP_OPENAI_LIVE
 def test_listen():
     # Define constants
     SENTENCE = "A short sentence about the difference between green and blue."

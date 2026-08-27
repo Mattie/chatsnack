@@ -173,7 +173,7 @@ def test_copy_creates_independent_adapter_instances():
 
 
 def test_chat_continuation_creates_independent_adapter_instance(chat, monkeypatch):
-    """chat() continuation must not share the source chat's adapter instance."""
+    """chat() keeps request-client ownership while isolating adapter state."""
     chat.runtime = ResponsesAdapter(chat.ai)
 
     async def fake_create_completion_a(self, messages, **kwargs):
@@ -184,7 +184,7 @@ def test_chat_continuation_creates_independent_adapter_instance(chat, monkeypatc
     result = chat.chat("hello")
     assert isinstance(result.runtime, ResponsesAdapter)
     assert result.runtime is not chat.runtime
-    assert result.runtime.ai_client is not chat.runtime.ai_client
+    assert result.runtime.ai_client is chat.runtime.ai_client
 
 
 

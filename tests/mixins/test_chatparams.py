@@ -1,5 +1,12 @@
 import os
 import pytest
+
+_RUN_OPENAI_LIVE = os.environ.get("CHATSNACK_RUN_LIVE_TESTS", "").lower() in {
+    "1",
+    "true",
+    "yes",
+}
+
 from chatsnack.packs import Jane
 from chatsnack.chat.mixin_params import DEFAULT_MODEL_FALLBACK
 from chatsnack import Chat, ChatParams
@@ -75,11 +82,12 @@ def test_set_tool_choice_creates_params(chat_params_mixin):
 
 # Existing engine tests for various models; you can skip these if needed.
 @pytest.mark.parametrize("engine", ["gpt-3.5-turbo", "gpt-4", "gpt-4o", "o1", "o3-mini", "gpt-4o-mini", "gpt-4-turbo", "gpt-5-nano", "gpt-5-mini", "gpt-5.6-terra", "gpt-5.4"])
-@pytest.mark.skipif(os.environ.get("OPENAI_API_KEY") is None, reason="OPENAI_API_KEY is not set in environment or .env")
+@pytest.mark.skipif(
+    not _RUN_OPENAI_LIVE or not os.environ.get("OPENAI_API_KEY"),
+    reason="Live OpenAI tests require OPENAI_API_KEY and CHATSNACK_RUN_LIVE_TESTS=1",
+)
 def test_engines(engine):
     SENTENCE = "A short sentence about the difference between green and blue."
-    TEMPERATURE = 0.0
-    SEED = 42
     ENGINE = engine
     
     # Jane is an existing chat we can build upon
@@ -87,8 +95,6 @@ def test_engines(engine):
     cp = chat.user(SENTENCE)
     assert cp.last == SENTENCE
 
-    cp.temperature = TEMPERATURE
-    cp.seed = SEED
     cp.model = ENGINE
 
     output_iter = cp.listen()
@@ -111,6 +117,32 @@ def test_get_non_none_params_preserves_profile(chat_params):
     out = chat_params._get_non_none_params()
     assert "profile" in out
     assert out["profile"] == {"defaults": {"temperature": 0.5}}
+
+
+def test_provider_model_options_pass_through_and_client_fields_do_not():
+    params = ChatParams(
+        model="openrouter/vendor-new-model",
+        temperature=0.73,
+        max_tokens=321,
+        base_url="https://provider.example/v1",
+        api_key_env="PROVIDER_KEY",
+    )
+
+    provider_params = params._get_non_none_params()
+
+    assert provider_params["temperature"] == 0.73
+    assert provider_params["max_tokens"] == 321
+    assert "base_url" not in provider_params
+    assert "api_key_env" not in provider_params
+
+
+def test_known_unsupported_temperature_warns_and_passes_through():
+    params = ChatParams(model="gpt-5.4", temperature=0.2)
+
+    with pytest.warns(UserWarning, match="forwarding as authored"):
+        provider_params = params._get_non_none_params()
+
+    assert provider_params["temperature"] == 0.2
 
 
 @pytest.mark.asyncio

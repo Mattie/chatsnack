@@ -26,9 +26,44 @@ Read more below, watch the [intro video](https://www.youtube.com/watch?v=Yjwi54r
 ### Responses API Support
 `Chat()` now defaults to the Responses family over WebSocket with `session="inherit"`.
 If you stay on that default path--or explicitly choose another Responses transport--
-chatsnack requires the OpenAI Python client to be `openai>=2.29.0` (or newer).
+chatsnack requires the OpenAI Python client to be `openai>=3.5.0,<4.0.0`.
 For explicit WebSocket support outside chatsnack's packaged dependencies, install
-`openai[realtime]>=2.29.0`.
+`openai[realtime]>=3.5.0,<4.0.0`.
+
+### OpenRouter and Azure v1
+
+A Chat can name its own OpenAI-compatible endpoint and the environment variable
+that holds its key. The two fields travel together, and the key value never goes
+into YAML:
+
+```python
+from chatsnack import Chat
+
+openrouter = Chat(
+    "Answer tersely.",
+    model="openai/gpt-oss-20b",
+    base_url="https://openrouter.ai/api/v1",
+    api_key_env="OPENROUTER_API_KEY",
+)
+
+azure = Chat(
+    "Answer tersely.",
+    model="my-deployment",
+    base_url="https://my-resource.openai.azure.com/openai/v1/",
+    api_key_env="AZURE_OPENAI_API_KEY",
+)
+```
+
+Custom endpoints use Responses HTTP (including SSE streaming) unless a runtime
+is selected explicitly. Chats without these fields keep the normal OpenAI SDK
+environment and Chatsnack's Responses WebSocket default. Legacy Azure fields
+(`api_base`, `api_type`, `api_version`, and `deployment`) are no longer accepted;
+use the complete Azure v1 URL and put the deployment name in `model`.
+
+Client settings are bound when a Chat is created or first loaded. Continued and
+copied Chats keep that binding, and `reset()` does not re-read the credential
+environment variable. Create a new Chat to use a different endpoint, credential,
+or transport.
 
 ## Usage
 

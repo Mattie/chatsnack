@@ -53,7 +53,8 @@ def test_reset_empty_chat():
     # Check the chat messages after reset
     assert len(my_chat.get_messages()) == 0
 
-def test_reset_with_includes():
+def test_reset_with_includes(tmp_path, monkeypatch):
+    monkeypatch.setenv("CHATSNACK_BASE_DIR", str(tmp_path))
     # Create a base chat and save it
     base_chat = Chat(name="BaseChat").user("What's your favorite color?")
     base_chat.save()

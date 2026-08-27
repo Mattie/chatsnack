@@ -41,15 +41,18 @@ def test_constructor_kwargs_apply_model_and_session():
 def test_responses_runtime_with_inherit_selects_websocket_and_inherits_lineage(monkeypatch):
     chat = Chat(params=ChatParams(runtime="responses", session="inherit"))
     assert isinstance(chat.runtime, ResponsesWebSocketAdapter)
+    captured = {}
 
     async def fake_create_completion_a(self, messages, **kwargs):
+        captured["request_session"] = self.session
         return SimpleNamespace(message=SimpleNamespace(content="hello", tool_calls=[]), metadata={"response_id": "r1"})
 
     monkeypatch.setattr(ResponsesWebSocketAdapter, "create_completion_a", fake_create_completion_a)
     next_chat = chat.chat("hello")
 
     assert isinstance(next_chat.runtime, ResponsesWebSocketAdapter)
-    assert next_chat.runtime.session is chat.runtime.session
+    assert next_chat.runtime.session is captured["request_session"]
+    assert next_chat.runtime.session is not chat.runtime.session
 
 
 def test_responses_runtime_with_new_selects_websocket_and_descendants_get_new_session(monkeypatch):
