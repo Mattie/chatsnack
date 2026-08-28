@@ -548,17 +548,18 @@ def test_copy_chatprompt_no_system():
 
 def test_copy_chatprompt_copies_params():
     """Copying a ChatPrompt should copy over params."""
-    chat = Chat(name="test", params={"key": "value"})
+    chat = Chat(name="test", params={"temperature": 0.2})
     new_chat = chat.copy()
-    assert new_chat.params == {"key": "value"}
+    assert isinstance(new_chat.params, ChatParams)
+    assert new_chat.params.temperature == 0.2
 
 def test_copy_chatprompt_independent_params():
     """Copying a ChatPrompt should result in independent params."""
-    chat = Chat(name="test", params={"key": "value"})
+    chat = Chat(name="test", params={"temperature": 0.2})
     new_chat = chat.copy()
-    new_chat.params["key"] = "new_value"
-    assert chat.params == {"key": "value"}
-    assert new_chat.params == {"key": "new_value"}
+    new_chat.params.temperature = 0.8
+    assert chat.params.temperature == 0.2
+    assert new_chat.params.temperature == 0.8
 
 
 

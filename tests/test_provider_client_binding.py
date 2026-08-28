@@ -91,17 +91,39 @@ def test_named_new_chat_still_applies_endpoint_overrides(tmp_path, monkeypatch):
     assert isinstance(chat.runtime, ResponsesAdapter)
 
 
-def test_mapping_client_params_default_custom_endpoint_to_responses_http(monkeypatch):
+def test_mapping_client_params_run_custom_endpoint_request(monkeypatch):
     monkeypatch.setenv("MAPPING_PROVIDER_KEY", "provider-sentinel")
+    captured = {}
+
+    async def fake_create_completion_a(self, messages, **kwargs):
+        captured["messages"] = messages
+        captured["kwargs"] = kwargs
+        return SimpleNamespace(
+            message=SimpleNamespace(content="mapping-reply", tool_calls=[])
+        )
+
+    monkeypatch.setattr(
+        ResponsesAdapter,
+        "create_completion_a",
+        fake_create_completion_a,
+    )
 
     chat = Chat(
         params={
+            "model": "provider/model",
             "base_url": "https://provider.example/v1",
             "api_key_env": "MAPPING_PROVIDER_KEY",
         }
     )
 
+    assert isinstance(chat.params, ChatParams)
     assert isinstance(chat.runtime, ResponsesAdapter)
+    assert chat.ask("Prove the mapping request ran.") == "mapping-reply"
+    assert captured["messages"][-1] == {
+        "role": "user",
+        "content": "Prove the mapping request ran.",
+    }
+    assert captured["kwargs"]["model"] == "provider/model"
 
 
 def test_missing_named_credential_fails_before_sdk_client_creation(monkeypatch):
@@ -419,6 +441,67 @@ def test_in_place_transport_change_fails_before_submit(monkeypatch, change):
         chat.params.runtime = "chat_completions"
     else:
         chat.session = "inherit"
+
+    with pytest.raises(ValueError, match="Provider and transport settings.*new Chat"):
+        chat.ask("Do not submit this request.")
+
+
+def test_explicit_runtime_does_not_mask_later_param_change(monkeypatch):
+    chat = Chat(runtime="responses")
+
+    async def fail_if_submitted(*args, **kwargs):
+        pytest.fail("transport changes must fail before the provider request")
+
+    monkeypatch.setattr(ResponsesAdapter, "create_completion_a", fail_if_submitted)
+    chat.params.runtime = "chat_completions"
+
+    with pytest.raises(ValueError, match="Provider and transport settings.*new Chat"):
+        chat.ask("Do not submit this request.")
+
+
+@pytest.mark.parametrize(
+    "change",
+    ("runtime_family", "runtime_client", "websocket_mode"),
+)
+def test_installed_transport_change_fails_before_submit(monkeypatch, change):
+    monkeypatch.setenv("INSTALLED_TRANSPORT_KEY", "provider-sentinel")
+
+    async def fail_if_submitted(*args, **kwargs):
+        pytest.fail("installed transport changes must fail before the provider request")
+
+    monkeypatch.setattr(
+        ResponsesAdapter,
+        "create_completion_a",
+        fail_if_submitted,
+    )
+    monkeypatch.setattr(
+        ChatCompletionsAdapter,
+        "create_completion_a",
+        fail_if_submitted,
+    )
+    monkeypatch.setattr(
+        ResponsesWebSocketAdapter,
+        "create_completion_a",
+        fail_if_submitted,
+    )
+
+    if change in {"runtime_family", "runtime_client"}:
+        chat = Chat(
+            base_url="https://installed-transport.example/v1",
+            api_key_env="INSTALLED_TRANSPORT_KEY",
+        )
+        chat.runtime = (
+            ChatCompletionsAdapter(chat.ai)
+            if change == "runtime_family"
+            else ResponsesAdapter(SimpleNamespace())
+        )
+    else:
+        chat = Chat(
+            base_url="https://installed-transport.example/v1",
+            api_key_env="INSTALLED_TRANSPORT_KEY",
+            session="inherit",
+        )
+        chat.runtime.session.mode = "new"
 
     with pytest.raises(ValueError, match="Provider and transport settings.*new Chat"):
         chat.ask("Do not submit this request.")

@@ -223,17 +223,16 @@ async def test_chat_a_failure_exposes_partial_usage_without_wrapping_exception()
 
 @pytest.mark.asyncio
 async def test_next_call_replaces_source_usage_and_leaves_prior_result_intact():
-    first_runtime = _SequenceRuntime(
-        [_completion("First.", {"total_tokens": 5}, response_id="resp_first")]
+    runtime = _SequenceRuntime(
+        [
+            _completion("First.", {"total_tokens": 5}, response_id="resp_first"),
+            _completion("Second.", {"total_tokens": 8}, response_id="resp_second"),
+        ]
     )
-    source = Chat("Answer briefly.", runtime=first_runtime)
+    source = Chat("Answer briefly.", runtime=runtime)
     first = await source.chat_a("First?")
     first_call = first.last_call_usage
 
-    second_runtime = _SequenceRuntime(
-        [_completion("Second.", {"total_tokens": 8}, response_id="resp_second")]
-    )
-    source.runtime = second_runtime
     second = await source.chat_a("Second?")
 
     assert first.last_call_usage is first_call
@@ -245,19 +244,20 @@ async def test_next_call_replaces_source_usage_and_leaves_prior_result_intact():
 
 @pytest.mark.asyncio
 async def test_in_flight_call_preserves_most_recently_finished_source_usage():
-    first_runtime = _SequenceRuntime(
-        [_completion("First.", {"total_tokens": 5}, response_id="resp_first")]
-    )
-    source = Chat("Answer briefly.", runtime=first_runtime)
-    first = await source.chat_a("First?")
-    first_call = first.last_call_usage
-
-    class _BlockingRuntime:
+    class _BlockingSecondRuntime:
         def __init__(self):
             self.started = asyncio.Event()
             self.release = asyncio.Event()
+            self.calls = 0
 
         async def create_completion_a(self, messages, **kwargs):
+            self.calls += 1
+            if self.calls == 1:
+                return _completion(
+                    "First.",
+                    {"total_tokens": 5},
+                    response_id="resp_first",
+                )
             self.started.set()
             await self.release.wait()
             return _completion(
@@ -266,8 +266,11 @@ async def test_in_flight_call_preserves_most_recently_finished_source_usage():
                 response_id="resp_second",
             )
 
-    runtime = _BlockingRuntime()
-    source.runtime = runtime
+    runtime = _BlockingSecondRuntime()
+    source = Chat("Answer briefly.", runtime=runtime)
+    first = await source.chat_a("First?")
+    first_call = first.last_call_usage
+
     pending = asyncio.create_task(source.chat_a("Second?"))
     await runtime.started.wait()
 

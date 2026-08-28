@@ -2,6 +2,7 @@ import copy
 import os
 import warnings
 import uuid
+from collections.abc import Mapping
 from dataclasses import field
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Union
@@ -169,7 +170,12 @@ class Chat(ChatQueryMixin, ChatSerializationMixin, ChatUtensilMixin):
                 self.name = self.__dataclass_fields__["name"].default_factory()
         
         if "params" in kwargs:
-            self.params = kwargs["params"]
+            raw_params = kwargs["params"]
+            self.params = (
+                ChatParams(**dict(raw_params))
+                if isinstance(raw_params, Mapping)
+                else raw_params
+            )
         else:
             # get the default value from the dataclass field, it's optional
             self.params = self.__dataclass_fields__["params"].default
@@ -194,6 +200,10 @@ class Chat(ChatQueryMixin, ChatSerializationMixin, ChatUtensilMixin):
             self.session = session
         if stream is not None:
             self.stream = stream
+        if runtime_selector is not None:
+            if self.params is None:
+                self.params = ChatParams()
+            self.params.runtime = runtime_selector
             
         if "system" in kwargs:
             self.system_message = kwargs["system"]
@@ -317,6 +327,8 @@ class Chat(ChatQueryMixin, ChatSerializationMixin, ChatUtensilMixin):
         if explicit_session and runtime_source in {"default_policy", "explicit_session"} and runtime_selector == "responses":
             session_mode = self.session
         self.runtime = self._select_runtime(runtime=runtime, runtime_selector=runtime_selector, profile=profile, session_mode=session_mode)
+        if runtime is not None:
+            self._chatsnack_constructor_overrides["runtime"] = self.runtime
         self._transport_binding = self._runtime_binding_signature(self.runtime)
         self._provider_binding_error = None
         self._last_runtime_metadata = _empty_runtime_metadata()
@@ -440,15 +452,19 @@ class Chat(ChatQueryMixin, ChatSerializationMixin, ChatUtensilMixin):
         return ChatCompletionsAdapter(self.ai)
 
     @staticmethod
-    def _runtime_binding_signature(runtime) -> tuple[object, object]:
+    def _runtime_binding_signature(runtime) -> tuple[object, object, object]:
         """Describe the built-in transport state that stays fixed for a lineage."""
         if isinstance(runtime, ResponsesWebSocketAdapter):
-            return "responses_websocket", getattr(runtime.session, "mode", None)
+            return (
+                "responses_websocket",
+                getattr(runtime.session, "mode", None),
+                id(runtime.ai_client),
+            )
         if isinstance(runtime, ResponsesAdapter):
-            return "responses_http", None
+            return "responses_http", None, id(runtime.ai_client)
         if isinstance(runtime, ChatCompletionsAdapter):
-            return "chat_completions", None
-        return "custom", id(runtime)
+            return "chat_completions", None, id(runtime.ai_client)
+        return "custom", None, id(runtime)
 
     def _selected_runtime_binding_signature(
         self,
@@ -457,31 +473,27 @@ class Chat(ChatQueryMixin, ChatSerializationMixin, ChatUtensilMixin):
         runtime_selector=None,
         profile=None,
         session_mode=None,
-    ) -> tuple[object, object]:
+    ) -> tuple[object, object, object]:
         """Describe the transport that the final authored parameters request."""
         if runtime is not None and not isinstance(runtime, str):
             if isinstance(runtime, ResponsesWebSocketAdapter):
                 mode = session_mode or getattr(runtime.session, "mode", None)
-                return "responses_websocket", mode
+                return "responses_websocket", mode, id(runtime.ai_client)
             return self._runtime_binding_signature(runtime)
         if self._is_responses_runtime_selected(runtime_selector) or (
             isinstance(profile, dict)
             and self._is_responses_runtime_selected(profile.get("runtime"))
         ):
             if session_mode in {"inherit", "new"}:
-                return "responses_websocket", session_mode
-            return "responses_http", None
-        return "chat_completions", None
+                return "responses_websocket", session_mode, id(self.ai)
+            return "responses_http", None, id(self.ai)
+        return "chat_completions", None, id(self.ai)
 
     def _requested_runtime_configuration(self):
         """Resolve the final runtime inputs without constructing another adapter."""
         overrides = getattr(self, "_chatsnack_constructor_overrides", {})
         runtime = overrides.get("runtime")
         runtime_selector, profile, session_mode = _runtime_config_from_chat_params(self)
-        if overrides.get("runtime_selector") is not None:
-            runtime_selector = overrides["runtime_selector"]
-            if _chat_param_value(self.params, "session") is None:
-                session_mode = None
         return runtime, runtime_selector, profile, session_mode
 
     def _assert_bound_configuration(self) -> None:
@@ -505,7 +517,26 @@ class Chat(ChatQueryMixin, ChatSerializationMixin, ChatUtensilMixin):
             "_transport_binding",
             self._runtime_binding_signature(self.runtime),
         )
-        if desired_client != current_client or desired_runtime != current_runtime:
+        actual_runtime = self._runtime_binding_signature(self.runtime)
+        binding_locked = bool(getattr(self, "_provider_binding_locked", False))
+        if (
+            not binding_locked
+            and desired_client == current_client
+            and desired_runtime == current_runtime
+            and actual_runtime != current_runtime
+        ):
+            # A low-level runtime installed before first use becomes the
+            # Chat's explicit transport. Once a request starts, the same
+            # signature is enforced like any constructor-selected runtime.
+            self._chatsnack_constructor_overrides["runtime"] = self.runtime
+            self._transport_binding = actual_runtime
+            desired_runtime = actual_runtime
+            current_runtime = actual_runtime
+        if (
+            desired_client != current_client
+            or desired_runtime != current_runtime
+            or actual_runtime != current_runtime
+        ):
             raise ValueError(
                 "Provider and transport settings are fixed for an active Chat. "
                 "Create a new Chat to use different provider or transport settings."
@@ -735,9 +766,15 @@ def _install_datafiles_compat(cls, should_autoload):
                 "auto_execute",
                 "tool_choice",
                 "auto_feed",
+                "runtime",
+                "runtime_selector",
             ):
                 if kwargs.get(name) is not None:
-                    deferred_param_overrides[name] = kwargs.pop(name)
+                    value = kwargs.pop(name)
+                    if name == "runtime" and isinstance(value, str):
+                        deferred_param_overrides["runtime_selector"] = value
+                    else:
+                        deferred_param_overrides[name] = value
         refresh_snapclass_config_stash(cls)
         original_init(self, *args, **kwargs)
         if deferred_param_overrides:
@@ -811,6 +848,10 @@ def _apply_chat_constructor_overrides(chat):
         chat.tool_choice = overrides["tool_choice"]
     if "auto_feed" in overrides:
         chat.auto_feed = overrides["auto_feed"]
+    if "runtime_selector" in overrides:
+        if chat.params is None:
+            chat.params = ChatParams()
+        chat.params.runtime = overrides["runtime_selector"]
     if "tool_search_handler" in overrides:
         chat.tool_search_handler = overrides["tool_search_handler"]
         chat._runtime_bindings["tool_search"] = overrides["tool_search_handler"]
@@ -917,6 +958,8 @@ def _refresh_chat_after_snapshot_load(self):
             profile=profile,
             session_mode=session_mode,
         )
+        if runtime is not None:
+            self._chatsnack_constructor_overrides["runtime"] = self.runtime
         self._transport_binding = self._runtime_binding_signature(self.runtime)
     else:
         self._restart_websocket_session()
