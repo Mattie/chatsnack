@@ -6,6 +6,12 @@ from typing import Any, Optional
 import openai
 
 
+_LEGACY_ENDPOINT_ENV_VARS = (
+    "OPENAI_API_BASE",
+    "OPENAI_AZURE_ENDPOINT",
+)
+
+
 class AiClient:
     """Own lazy sync and async OpenAI clients for one Chat endpoint."""
 
@@ -29,6 +35,20 @@ class AiClient:
 
     def _client_kwargs(self, client_class) -> dict:
         """Build ordinary SDK options without ambient OpenAI tenant headers."""
+        if self.base_url is None:
+            legacy_endpoint_vars = [
+                name
+                for name in _LEGACY_ENDPOINT_ENV_VARS
+                if os.getenv(name, "").strip()
+            ]
+            if legacy_endpoint_vars:
+                names = ", ".join(legacy_endpoint_vars)
+                raise ValueError(
+                    f"Legacy endpoint environment settings are no longer supported: {names}. "
+                    "Configure base_url and api_key_env on the Chat or in "
+                    "its YAML. For ordinary global OpenAI SDK configuration, use "
+                    "OPENAI_BASE_URL."
+                )
         kwargs = {}
         if self._api_key is not None:
             kwargs["api_key"] = self._api_key

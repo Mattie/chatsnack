@@ -53,6 +53,53 @@ def test_missing_named_credential_fails_before_sdk_client_creation(monkeypatch):
         )
 
 
+@pytest.mark.parametrize(
+    "legacy_env",
+    ("OPENAI_AZURE_ENDPOINT", "OPENAI_API_BASE"),
+)
+@pytest.mark.parametrize("client_attr", ("client", "aclient"))
+def test_legacy_endpoint_environment_fails_closed_with_overlapping_openai_key(
+    monkeypatch,
+    legacy_env,
+    client_attr,
+):
+    monkeypatch.setenv("OPENAI_API_KEY", "overlapping-openai-sentinel")
+    monkeypatch.setenv(legacy_env, "https://legacy-provider.example/v1")
+    for other_env in {"OPENAI_AZURE_ENDPOINT", "OPENAI_API_BASE"} - {legacy_env}:
+        monkeypatch.delenv(other_env, raising=False)
+
+    chat = Chat()
+    assert chat.ai._client is None
+    assert chat.ai._aclient is None
+
+    with pytest.raises(ValueError) as exc_info:
+        getattr(chat.ai, client_attr)
+
+    message = str(exc_info.value)
+    assert legacy_env in message
+    assert "base_url" in message
+    assert "api_key_env" in message
+    assert "https://legacy-provider.example/v1" not in message
+    assert chat.ai._client is None
+    assert chat.ai._aclient is None
+
+
+def test_authored_client_configuration_takes_precedence_over_legacy_environment(
+    monkeypatch,
+):
+    monkeypatch.setenv("OPENAI_AZURE_ENDPOINT", "https://legacy-azure.example")
+    monkeypatch.setenv("OPENAI_API_BASE", "https://legacy-base.example/v1")
+    monkeypatch.setenv("AUTHORED_PROVIDER_KEY", "authored-sentinel")
+
+    chat = Chat(
+        base_url="https://authored.example/v1",
+        api_key_env="AUTHORED_PROVIDER_KEY",
+    )
+
+    assert chat.ai.base_url == "https://authored.example/v1"
+    assert chat.ai.api_key == "authored-sentinel"
+
+
 @pytest.mark.parametrize("legacy_key", ("api_base", "deployment", "api_type", "api_version"))
 def test_python_legacy_client_fields_are_unexpected_keywords(legacy_key):
     with pytest.raises(TypeError, match=rf"unexpected keyword argument '{legacy_key}'"):

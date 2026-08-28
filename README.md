@@ -32,33 +32,66 @@ For explicit WebSocket support outside chatsnack's packaged dependencies, instal
 
 ### OpenRouter and Azure v1
 
-A Chat can name its own OpenAI-compatible endpoint and the environment variable
-that holds its key. The two fields travel together, and the key value never goes
-into YAML:
+A saved Chat can name its OpenAI-compatible endpoint and the environment variable
+that holds its key. The key value stays in the environment. For example, save
+this as `datafiles/chatsnack/OpenRouterSnack.yml` (or under the directory named
+by `CHATSNACK_BASE_DIR`):
+
+```yaml
+params:
+  model: z-ai/glm-5.3-flash
+  base_url: https://openrouter.ai/api/v1
+  api_key_env: OPENROUTER_API_KEY
+messages:
+  - system: Answer tersely and recommend excellent snacks.
+```
+
+Load it and use it like any other named Chat:
 
 ```python
 from chatsnack import Chat
 
-openrouter = Chat(
-    "Answer tersely.",
-    model="openai/gpt-oss-20b",
+openrouter = Chat(name="OpenRouterSnack")
+print(openrouter.ask("Name one movie-night snack."))
+
+thread = openrouter.chat("Name one salty snack.")
+thread = thread.chat("What drink pairs with it?")
+print(thread.last)
+```
+
+Dynamic applications can use the same fields directly:
+
+```python
+dynamic = Chat(
+    "Answer tersely and recommend excellent snacks.",
+    model="z-ai/glm-5.3-flash",
     base_url="https://openrouter.ai/api/v1",
     api_key_env="OPENROUTER_API_KEY",
 )
-
-azure = Chat(
-    "Answer tersely.",
-    model="my-deployment",
-    base_url="https://my-resource.openai.azure.com/openai/v1/",
-    api_key_env="AZURE_OPENAI_API_KEY",
-)
 ```
 
-Custom endpoints use Responses HTTP (including SSE streaming) unless a runtime
-is selected explicitly. Chats without these fields keep the normal OpenAI SDK
-environment and Chatsnack's Responses WebSocket default. Legacy Azure fields
-(`api_base`, `api_type`, `api_version`, and `deployment`) are no longer accepted;
-use the complete Azure v1 URL and put the deployment name in `model`.
+Azure v1 uses the same saved-Chat shape with its complete v1 URL and the
+deployment name in `model`:
+
+```yaml
+params:
+  model: my-deployment
+  base_url: https://my-resource.openai.azure.com/openai/v1/
+  api_key_env: AZURE_OPENAI_API_KEY
+messages:
+  - system: Answer tersely.
+```
+
+Custom endpoints use Responses HTTP, including SSE streaming, unless a runtime
+is selected explicitly. Chats without these fields keep the standard
+`OPENAI_API_KEY` / `OPENAI_BASE_URL` SDK behavior and Chatsnack's Responses
+WebSocket default.
+
+Legacy Azure fields (`api_base`, `api_type`, `api_version`, and `deployment`) are
+no longer accepted. The legacy endpoint variables `OPENAI_AZURE_ENDPOINT` and
+`OPENAI_API_BASE` also raise a migration error when no new endpoint is authored.
+Move the complete endpoint and credential-variable name to `base_url` and
+`api_key_env`; put the Azure deployment name in `model`.
 
 Client settings are bound when a Chat is created or first loaded. Continued and
 copied Chats keep that binding, and `reset()` does not re-read the credential
