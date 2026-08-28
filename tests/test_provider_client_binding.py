@@ -43,6 +43,67 @@ def test_named_credential_is_resolved_when_chat_is_bound(monkeypatch):
     assert isinstance(chat.runtime, ResponsesAdapter)
 
 
+def test_named_autoload_endpoint_overrides_preserve_saved_params(
+    tmp_path,
+    monkeypatch,
+):
+    monkeypatch.setenv("CHATSNACK_BASE_DIR", str(tmp_path))
+    monkeypatch.setenv("AUTOLOAD_PROVIDER_KEY", "provider-sentinel")
+    saved = Chat(
+        name="SavedProvider",
+        params=ChatParams(
+            model="saved-model",
+            temperature=0.42,
+            runtime="chat_completions",
+        ),
+    )
+    saved.system("Load this saved prompt.")
+    saved.save()
+
+    loaded = Chat(
+        name="SavedProvider",
+        model="override-model",
+        base_url="https://provider.example/v1",
+        api_key_env="AUTOLOAD_PROVIDER_KEY",
+    )
+
+    assert loaded.system_message == "Load this saved prompt."
+    assert loaded.model == "override-model"
+    assert loaded.temperature == 0.42
+    assert loaded.params.runtime == "chat_completions"
+    assert loaded.params.base_url == "https://provider.example/v1"
+    assert loaded.params.api_key_env == "AUTOLOAD_PROVIDER_KEY"
+    assert isinstance(loaded.runtime, ChatCompletionsAdapter)
+
+
+def test_named_new_chat_still_applies_endpoint_overrides(tmp_path, monkeypatch):
+    monkeypatch.setenv("CHATSNACK_BASE_DIR", str(tmp_path))
+    monkeypatch.setenv("NEW_PROVIDER_KEY", "provider-sentinel")
+
+    chat = Chat(
+        name="NewProvider",
+        base_url="https://provider.example/v1",
+        api_key_env="NEW_PROVIDER_KEY",
+    )
+
+    assert chat.params.base_url == "https://provider.example/v1"
+    assert chat.params.api_key_env == "NEW_PROVIDER_KEY"
+    assert isinstance(chat.runtime, ResponsesAdapter)
+
+
+def test_mapping_client_params_default_custom_endpoint_to_responses_http(monkeypatch):
+    monkeypatch.setenv("MAPPING_PROVIDER_KEY", "provider-sentinel")
+
+    chat = Chat(
+        params={
+            "base_url": "https://provider.example/v1",
+            "api_key_env": "MAPPING_PROVIDER_KEY",
+        }
+    )
+
+    assert isinstance(chat.runtime, ResponsesAdapter)
+
+
 def test_missing_named_credential_fails_before_sdk_client_creation(monkeypatch):
     monkeypatch.delenv("MISSING_PROVIDER_KEY", raising=False)
 
@@ -339,6 +400,28 @@ def test_in_place_client_parameter_change_requires_a_new_chat(monkeypatch):
 
     with pytest.raises(ValueError, match="new Chat"):
         chat.copy()
+
+
+@pytest.mark.parametrize("change", ("runtime", "session"))
+def test_in_place_transport_change_fails_before_submit(monkeypatch, change):
+    monkeypatch.setenv("TRANSPORT_CHANGE_KEY", "provider-sentinel")
+    chat = Chat(
+        base_url="https://transport-change.example/v1",
+        api_key_env="TRANSPORT_CHANGE_KEY",
+    )
+
+    async def fail_if_submitted(*args, **kwargs):
+        pytest.fail("transport changes must fail before the provider request")
+
+    monkeypatch.setattr(ResponsesAdapter, "create_completion_a", fail_if_submitted)
+
+    if change == "runtime":
+        chat.params.runtime = "chat_completions"
+    else:
+        chat.session = "inherit"
+
+    with pytest.raises(ValueError, match="Provider and transport settings.*new Chat"):
+        chat.ask("Do not submit this request.")
 
 
 def test_authored_provider_binding_is_fixed_before_first_request(tmp_path, monkeypatch):

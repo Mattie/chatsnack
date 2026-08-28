@@ -63,6 +63,13 @@ def _runtime_policy_from_env() -> tuple[str, Optional[str]]:
     return "responses", "inherit"
 
 
+def _chat_param_value(params: Any, name: str) -> Any:
+    """Read one authored value from ChatParams or its supported dict form."""
+    if isinstance(params, dict):
+        return params.get(name)
+    return getattr(params, name, None) if params is not None else None
+
+
 ########################################################################################################################
 # Core datafile classes of Plunkychat
 # (1) Chat, high-level class that symbolizes a prompt/request/response, can reference other Chat objects to chain
@@ -276,10 +283,10 @@ class Chat(ChatQueryMixin, ChatSerializationMixin, ChatUtensilMixin):
         explicit_session = session is not None
         params_runtime = None
         if hasattr(self, "params") and self.params is not None:
-            profile = getattr(self.params, "profile", None)
-            params_runtime = getattr(self.params, "runtime", None)
+            profile = _chat_param_value(self.params, "profile")
+            params_runtime = _chat_param_value(self.params, "runtime")
             runtime_selector = runtime_selector or params_runtime
-            session_mode = getattr(self.params, "session", None)
+            session_mode = _chat_param_value(self.params, "session")
 
         # Phase 4 runtime resolution order:
         # explicit runtime object -> explicit runtime selector -> params.runtime
@@ -297,7 +304,7 @@ class Chat(ChatQueryMixin, ChatSerializationMixin, ChatUtensilMixin):
         elif session_specified:
             runtime_selector = "responses"
             runtime_source = "explicit_session"
-        elif getattr(self.params, "base_url", None):
+        elif _chat_param_value(self.params, "base_url"):
             runtime_selector = "responses"
             runtime_source = "custom_endpoint"
         else:
@@ -310,6 +317,7 @@ class Chat(ChatQueryMixin, ChatSerializationMixin, ChatUtensilMixin):
         if explicit_session and runtime_source in {"default_policy", "explicit_session"} and runtime_selector == "responses":
             session_mode = self.session
         self.runtime = self._select_runtime(runtime=runtime, runtime_selector=runtime_selector, profile=profile, session_mode=session_mode)
+        self._transport_binding = self._runtime_binding_signature(self.runtime)
         self._provider_binding_error = None
         self._last_runtime_metadata = _empty_runtime_metadata()
         self._last_call_usage = None
@@ -472,6 +480,8 @@ class Chat(ChatQueryMixin, ChatSerializationMixin, ChatUtensilMixin):
         runtime_selector, profile, session_mode = _runtime_config_from_chat_params(self)
         if overrides.get("runtime_selector") is not None:
             runtime_selector = overrides["runtime_selector"]
+            if _chat_param_value(self.params, "session") is None:
+                session_mode = None
         return runtime, runtime_selector, profile, session_mode
 
     def _assert_bound_configuration(self) -> None:
@@ -481,10 +491,24 @@ class Chat(ChatQueryMixin, ChatSerializationMixin, ChatUtensilMixin):
             raise ValueError(error)
         desired_client = self._client_config_from_params()
         current_client = getattr(self, "_client_binding", desired_client)
-        if desired_client != current_client:
+        runtime, runtime_selector, profile, session_mode = (
+            self._requested_runtime_configuration()
+        )
+        desired_runtime = self._selected_runtime_binding_signature(
+            runtime=runtime,
+            runtime_selector=runtime_selector,
+            profile=profile,
+            session_mode=session_mode,
+        )
+        current_runtime = getattr(
+            self,
+            "_transport_binding",
+            self._runtime_binding_signature(self.runtime),
+        )
+        if desired_client != current_client or desired_runtime != current_runtime:
             raise ValueError(
-                "Provider settings are fixed for an active Chat. "
-                "Create a new Chat to use different client parameters."
+                "Provider and transport settings are fixed for an active Chat. "
+                "Create a new Chat to use different provider or transport settings."
             )
 
     def _ai_client_for_copy(self, *, share: bool = False):
@@ -693,8 +717,33 @@ def _install_datafiles_compat(cls, should_autoload):
 
     def __init__(self, *args, **kwargs):
         autoload = should_autoload(args, kwargs)
+        deferred_param_overrides = {}
+        client_pair_is_complete = (
+            kwargs.get("base_url") is None
+        ) == (kwargs.get("api_key_env") is None)
+        if autoload and client_pair_is_complete:
+            # Load the durable ChatParams before applying live constructor
+            # knobs. Prebuilding defaults here would erase saved options.
+            kwargs = dict(kwargs)
+            for name in (
+                "engine",
+                "model",
+                "base_url",
+                "api_key_env",
+                "session",
+                "stream",
+                "auto_execute",
+                "tool_choice",
+                "auto_feed",
+            ):
+                if kwargs.get(name) is not None:
+                    deferred_param_overrides[name] = kwargs.pop(name)
         refresh_snapclass_config_stash(cls)
         original_init(self, *args, **kwargs)
+        if deferred_param_overrides:
+            self._chatsnack_constructor_overrides.update(
+                deferred_param_overrides
+            )
         # snapclass attaches snapshot after the model's custom __init__ returns.
         # Install chatsnack's load/save hooks here so direct chat.snapshot.load()
         # gets the same runtime refresh as Chat.load() and Chat.objects.get().
@@ -713,16 +762,20 @@ def _install_datafiles_compat(cls, should_autoload):
                     after_load = getattr(self, "_after_legacy_autoload", None)
                 if after_load is not None:
                     after_load()
+        elif deferred_param_overrides:
+            # Named new Chats have no asset to load, so finish their deferred
+            # parameter binding against the freshly initialized params.
+            self._refresh_after_snapshot_load()
 
     cls.__init__ = __init__
     cls.objects = _LegacyObjects(cls)
 
 
 def _runtime_config_from_chat_params(chat):
-    profile = getattr(chat.params, "profile", None) if chat.params is not None else None
-    runtime_selector = getattr(chat.params, "runtime", None) if chat.params is not None else None
-    session_mode = getattr(chat.params, "session", None) if chat.params is not None else None
-    base_url = getattr(chat.params, "base_url", None) if chat.params is not None else None
+    profile = _chat_param_value(chat.params, "profile")
+    runtime_selector = _chat_param_value(chat.params, "runtime")
+    session_mode = _chat_param_value(chat.params, "session")
+    base_url = _chat_param_value(chat.params, "base_url")
     if runtime_selector is None and session_mode is None and base_url:
         runtime_selector = "responses"
     elif runtime_selector is None and session_mode is None:
@@ -800,6 +853,8 @@ def _ensure_chat_live_state(self):
             profile=profile,
             session_mode=session_mode,
         )
+    if not hasattr(self, "_transport_binding"):
+        self._transport_binding = self._runtime_binding_signature(self.runtime)
     if not hasattr(self, "_last_runtime_metadata"):
         self._last_runtime_metadata = _empty_runtime_metadata()
     if not hasattr(self, "_last_call_usage"):
@@ -833,7 +888,11 @@ def _refresh_chat_after_snapshot_load(self):
         profile=profile,
         session_mode=session_mode,
     )
-    current_runtime = self._runtime_binding_signature(previous_runtime)
+    current_runtime = getattr(
+        self,
+        "_transport_binding",
+        self._runtime_binding_signature(previous_runtime),
+    )
     active_binding = bool(
         getattr(self, "_provider_binding_locked", False)
         or (
@@ -858,6 +917,7 @@ def _refresh_chat_after_snapshot_load(self):
             profile=profile,
             session_mode=session_mode,
         )
+        self._transport_binding = self._runtime_binding_signature(self.runtime)
     else:
         self._restart_websocket_session()
     self._provider_binding_locked = True
