@@ -98,6 +98,8 @@ def test_authored_client_configuration_takes_precedence_over_legacy_environment(
 
     assert chat.ai.base_url == "https://authored.example/v1"
     assert chat.ai.api_key == "authored-sentinel"
+    assert str(chat.ai.client.base_url) == "https://authored.example/v1/"
+    chat.close()
 
 
 @pytest.mark.parametrize("legacy_key", ("api_base", "deployment", "api_type", "api_version"))
