@@ -89,6 +89,7 @@ nav:
   - Guides:
       - guides/chat-basics.md
       - guides/yaml-and-assets.md
+      - OpenAI-compatible providers: guides/providers.md
       - guides/fillings.md
       - guides/utensils.md
   - Examples:
