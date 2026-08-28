@@ -97,7 +97,22 @@ from . import packs
 from .utensil import utensil, get_all_utensils, get_openai_tools, UtensilGroup, HostedUtensil
 from .runtime import ApplyPatchCall, CallUsage, ResponseUsage, UsageCounts
 
-from .fillings import active_filling_stash, snack_catalog, filling_machine
+from .fillings import (
+    ChatsnackFillingSource,
+    FillingAuthorityError,
+    FillingCycleError,
+    FillingError,
+    FillingLimitError,
+    FillingLimits,
+    FillingResolution,
+    FillingResolutionError,
+    FillingSource,
+    active_filling_stash,
+    filling_machine,
+    resolve_fillings,
+    resolve_fillings_a,
+    snack_catalog,
+)
 
 
 async def _text_name_expansion(text_name: str, additional: Optional[dict] = None) -> str:

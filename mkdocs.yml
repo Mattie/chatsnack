@@ -100,6 +100,7 @@ nav:
       - reference/index.md
       - Chat: reference/api/chat.md
       - Text: reference/api/text.md
+      - Fillings: reference/api/fillings.md
       - Utensils: reference/api/utensils.md
       - Packs: reference/api/packs.md
   - Philosophy: philosophy.md
