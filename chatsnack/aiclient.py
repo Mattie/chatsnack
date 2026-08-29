@@ -103,8 +103,15 @@ class AiClient:
 
     def _clone_binding(self) -> "AiClient":
         """Create an independent lazy owner with this binding's resolved key."""
+        api_key = self._api_key
+        if api_key is None:
+            for opened_client in (self._client, self._aclient):
+                resolved_key = getattr(opened_client, "api_key", None)
+                if isinstance(resolved_key, str) and resolved_key:
+                    api_key = resolved_key
+                    break
         return AiClient(
-            api_key=self._api_key,
+            api_key=api_key,
             base_url=self.base_url,
             api_key_env=self.api_key_env,
         )

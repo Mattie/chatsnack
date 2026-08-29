@@ -614,6 +614,32 @@ def test_copy_clones_the_resolved_binding_without_rereading_the_environment(monk
     assert child.runtime is not root.runtime
 
 
+@pytest.mark.parametrize("opened_client", ("client", "aclient"))
+def test_copy_keeps_the_ambient_key_resolved_by_an_opened_sdk_client(
+    monkeypatch,
+    opened_client,
+):
+    monkeypatch.delenv("OPENAI_API_BASE", raising=False)
+    monkeypatch.delenv("OPENAI_AZURE_ENDPOINT", raising=False)
+    monkeypatch.setenv("OPENAI_API_KEY", "source-sentinel")
+    root = Chat(runtime="chat_completions")
+    child = None
+
+    try:
+        assert getattr(root.ai, opened_client).api_key == "source-sentinel"
+        monkeypatch.setenv("OPENAI_API_KEY", "rotated-sentinel")
+
+        child = root.copy()
+
+        assert child.ai is not root.ai
+        assert child.ai.api_key == "source-sentinel"
+        assert child.ai.client.api_key == "source-sentinel"
+    finally:
+        if child is not None:
+            child.close()
+        root.close()
+
+
 def test_transport_defaults_remain_configuration_driven(monkeypatch):
     monkeypatch.setenv("CUSTOM_PROVIDER_KEY", "provider-sentinel")
 
