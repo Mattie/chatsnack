@@ -1,4 +1,6 @@
 import os
+import warnings
+
 import pytest
 
 _RUN_OPENAI_LIVE = os.environ.get("CHATSNACK_RUN_LIVE_TESTS", "").lower() in {
@@ -136,12 +138,14 @@ def test_provider_model_options_pass_through_and_client_fields_do_not():
     assert "api_key_env" not in provider_params
 
 
-def test_known_unsupported_temperature_warns_and_passes_through():
+def test_reasoning_model_temperature_passes_through_without_local_warning():
     params = ChatParams(model="gpt-5.4", temperature=0.2)
 
-    with pytest.warns(UserWarning, match="forwarding as authored"):
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
         provider_params = params._get_non_none_params()
 
+    assert caught == []
     assert provider_params["temperature"] == 0.2
 
 

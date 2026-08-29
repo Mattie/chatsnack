@@ -489,15 +489,6 @@ class ChatParams:
         """Returns True if current model supports system messages."""
         return not ("o1" in self.model or "o1-preview" in self.model or "o1-mini" in self.model)
 
-    def _supports_temperature(self) -> Optional[bool]:
-        """Return known support while leaving provider model aliases unknown."""
-        model = (self.model or "").lower()
-        if self._get_reasoning_capabilities() is not None:
-            return False
-        if any(pattern in model for pattern in ("gpt-4o", "gpt-4-turbo")):
-            return True
-        return None
-
     def _get_non_none_params(self) -> dict:
         """
         Returns a dictionary of non-None parameters to send to the ChatCompletion API.
@@ -517,14 +508,6 @@ class ChatParams:
         # engine is deprecated; remove it from the final dict
         if "engine" in out:
             del out["engine"]
-
-        # Validation remains advisory so provider aliases and deployment names
-        # keep options authored by the caller.
-        if "temperature" in out and self._supports_temperature() is False:
-            warnings.warn(
-                f"Model '{self.model}' may not support temperature; forwarding as authored.",
-                stacklevel=3,
-            )
 
         # Remove tools and tool_choice as they are handled by the utensil_params
         if "tools" in out:

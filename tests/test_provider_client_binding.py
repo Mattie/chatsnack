@@ -469,6 +469,29 @@ def test_copied_chat_transport_change_fails_before_submit(monkeypatch, change):
         copied.ask("Do not submit this request.")
 
 
+def test_copy_rebuilds_an_authored_builtin_runtime_for_the_child(monkeypatch):
+    calls = []
+
+    async def fake_create_completion(runtime, messages, **kwargs):
+        calls.append((runtime, messages, kwargs))
+        return SimpleNamespace(
+            message=SimpleNamespace(content="copied reply", tool_calls=[]),
+        )
+
+    monkeypatch.setattr(ResponsesAdapter, "create_completion_a", fake_create_completion)
+    root = Chat(runtime=ResponsesAdapter(SimpleNamespace()))
+    copied = root.copy()
+
+    try:
+        assert copied.ai is not root.ai
+        assert copied.runtime.ai_client is copied.ai
+        assert copied.ask("Use the copied runtime.") == "copied reply"
+        assert len(calls) == 1
+    finally:
+        copied.close()
+        root.close()
+
+
 @pytest.mark.asyncio
 @pytest.mark.parametrize("change", ("runtime", "session"))
 async def test_continued_chat_transport_change_fails_before_submit(

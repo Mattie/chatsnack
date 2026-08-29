@@ -1022,9 +1022,7 @@ class ChatQueryMixin(ChatMessagesMixin, ChatParamsMixin):
             {},
         )
         if "runtime" in source_overrides:
-            child._chatsnack_constructor_overrides["runtime"] = (
-                source_overrides["runtime"]
-            )
+            child._chatsnack_constructor_overrides["runtime"] = child.runtime
         else:
             child._chatsnack_constructor_overrides.pop("runtime", None)
 
