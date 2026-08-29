@@ -694,3 +694,125 @@ def test_supported_client_path_succeeds_without_capability_error():
     result = adapter.create_completion(messages=[{"role": "user", "content": "hello"}], model="gpt-4.1")
 
     assert result.metadata["response_id"] == "resp_ok"
+
+
+def test_responses_boundary_strips_client_fields_and_maps_token_limit():
+    captured = {}
+
+    def create(**kwargs):
+        captured.update(kwargs)
+        return _FakeObj({"id": "resp_clean", "status": "completed", "model": "alias", "output": []})
+
+    ai = SimpleNamespace(client=SimpleNamespace(responses=SimpleNamespace(create=create)))
+    ResponsesAdapter(ai).create_completion(
+        messages=[],
+        model="alias",
+        max_tokens=123,
+        base_url="https://wrong.example/v1",
+        api_key_env="SECRET_NAME",
+    )
+
+    assert captured["max_output_tokens"] == 123
+    assert "max_tokens" not in captured
+    assert "base_url" not in captured
+    assert "api_key_env" not in captured
+
+
+def test_real_sse_events_are_incremental_and_close_transport():
+    class Stream:
+        def __init__(self):
+            self.closed = False
+            self.events = iter(
+                (
+                    _FakeObj({"type": "response.output_text.delta", "delta": "Pop"}),
+                    _FakeObj(
+                        {
+                            "type": "response.completed",
+                            "response": {
+                                "id": "resp_stream",
+                                "status": "completed",
+                                "model": "provider/model",
+                                "usage": {"total_tokens": 9},
+                                "output": [],
+                            },
+                        }
+                    ),
+                )
+            )
+
+        def __iter__(self):
+            return self
+
+        def __next__(self):
+            return next(self.events)
+
+        def close(self):
+            self.closed = True
+
+    stream = Stream()
+    ai = SimpleNamespace(
+        client=SimpleNamespace(
+            responses=SimpleNamespace(create=lambda **kwargs: stream)
+        )
+    )
+
+    events = list(ResponsesAdapter(ai).stream_completion(messages=[], model="provider/model"))
+
+    assert [event.type for event in events] == ["text_delta", "usage", "completed"]
+    assert events[0].data["text"] == "Pop"
+    assert stream.closed is True
+
+
+@pytest.mark.asyncio
+async def test_async_real_sse_is_incremental_and_closes_transport():
+    class Stream:
+        def __init__(self):
+            self.closed = False
+            self.events = iter(
+                (
+                    _FakeObj({"type": "response.output_text.delta", "delta": "Corn"}),
+                    _FakeObj(
+                        {
+                            "type": "response.completed",
+                            "response": {
+                                "id": "resp_stream",
+                                "status": "completed",
+                                "model": "provider/model",
+                                "output": [],
+                            },
+                        }
+                    ),
+                )
+            )
+
+        def __aiter__(self):
+            return self
+
+        async def __anext__(self):
+            try:
+                return next(self.events)
+            except StopIteration:
+                raise StopAsyncIteration
+
+        async def aclose(self):
+            self.closed = True
+
+    stream = Stream()
+
+    async def create(**kwargs):
+        return stream
+
+    ai = SimpleNamespace(
+        aclient=SimpleNamespace(responses=SimpleNamespace(create=create))
+    )
+
+    events = [
+        event
+        async for event in ResponsesAdapter(ai).stream_completion_a(
+            messages=[], model="provider/model"
+        )
+    ]
+
+    assert [event.type for event in events] == ["text_delta", "completed"]
+    assert events[0].data["text"] == "Corn"
+    assert stream.closed is True

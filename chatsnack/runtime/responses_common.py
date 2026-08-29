@@ -21,6 +21,16 @@ class ResponsesNormalizationMixin:
 
     runtime_family = "responses"
     _RESPONSES_DEBUG_TRUE_VALUES = frozenset({"1", "true", "yes", "on"})
+    _CLIENT_ONLY_KEYS = frozenset(
+        {
+            "base_url",
+            "api_key_env",
+            "api_base",
+            "api_type",
+            "api_version",
+            "deployment",
+        }
+    )
 
     @staticmethod
     def _to_dict(obj: Any) -> Dict[str, Any]:
@@ -158,14 +168,17 @@ class ResponsesNormalizationMixin:
                     items.append(item)
                     continue
                 function = self._to_dict(tool_call.get("function") or {})
-                items.append(
-                    {
-                        "type": "function_call",
-                        "call_id": tool_call.get("id", ""),
-                        "name": function.get("name", ""),
-                        "arguments": function.get("arguments", ""),
-                    }
-                )
+                item = {
+                    "type": "function_call",
+                    "call_id": tool_call.get("id", ""),
+                    "name": function.get("name", ""),
+                    "arguments": function.get("arguments", ""),
+                }
+                if tool_call.get("item_id"):
+                    item["id"] = tool_call["item_id"]
+                if tool_call.get("status"):
+                    item["status"] = tool_call["status"]
+                items.append(item)
             return items
 
         if role not in {"system", "developer", "user", "assistant"}:
@@ -368,6 +381,10 @@ class ResponsesNormalizationMixin:
 
     def build_responses_request(self, messages: List[Dict[str, Any]], kwargs: Dict[str, Any]) -> Dict[str, Any]:
         options = self._apply_profile_defaults(kwargs)
+        for key in self._CLIENT_ONLY_KEYS:
+            options.pop(key, None)
+        if "max_tokens" in options:
+            options.setdefault("max_output_tokens", options.pop("max_tokens"))
         input_messages = messages
         if options.get("previous_response_id"):
             input_messages = self._select_continuation_messages(messages)
@@ -457,6 +474,8 @@ class ResponsesNormalizationMixin:
                 tool_calls.append(
                     NormalizedToolCall(
                         id=item_dict.get("call_id", ""),
+                        item_id=item_dict.get("id"),
+                        status=item_dict.get("status"),
                         type="function",
                         function=NormalizedToolFunction(
                             name=item_dict.get("name", ""),

@@ -3,7 +3,11 @@ import pytest
 from chatsnack.packs import Jane as chat
 
 
-@pytest.mark.skipif(os.environ.get("OPENAI_API_KEY") is None, reason="OPENAI_API_KEY is not set in environment or .env")
+@pytest.mark.skipif(
+    not os.environ.get("OPENAI_API_KEY")
+    or os.environ.get("CHATSNACK_RUN_LIVE_TESTS", "").lower() not in {"1", "true", "yes"},
+    reason="Live OpenAI tests require OPENAI_API_KEY and CHATSNACK_RUN_LIVE_TESTS=1",
+)
 def test_snackpack_chat():
     cp = chat.user("Or is green a form of blue?")
     assert cp.last == "Or is green a form of blue?"
@@ -15,7 +19,11 @@ def test_snackpack_chat():
     assert len(output) > 0
 
 
-@pytest.mark.skipif(os.environ.get("OPENAI_API_KEY") is None, reason="OPENAI_API_KEY is not set in environment or .env")
+@pytest.mark.skipif(
+    not os.environ.get("OPENAI_API_KEY")
+    or os.environ.get("CHATSNACK_RUN_LIVE_TESTS", "").lower() not in {"1", "true", "yes"},
+    reason="Live OpenAI tests require OPENAI_API_KEY and CHATSNACK_RUN_LIVE_TESTS=1",
+)
 def test_snackpack_ask_with_existing_asst():
     cp = chat.copy()
     cp.user("Is the sky blue?")

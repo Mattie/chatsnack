@@ -173,7 +173,7 @@ def test_copy_creates_independent_adapter_instances():
 
 
 def test_chat_continuation_creates_independent_adapter_instance(chat, monkeypatch):
-    """chat() continuation must not share the source chat's adapter instance."""
+    """chat() keeps request-client ownership while isolating adapter state."""
     chat.runtime = ResponsesAdapter(chat.ai)
 
     async def fake_create_completion_a(self, messages, **kwargs):
@@ -184,7 +184,7 @@ def test_chat_continuation_creates_independent_adapter_instance(chat, monkeypatc
     result = chat.chat("hello")
     assert isinstance(result.runtime, ResponsesAdapter)
     assert result.runtime is not chat.runtime
-    assert result.runtime.ai_client is not chat.runtime.ai_client
+    assert result.runtime.ai_client is chat.runtime.ai_client
 
 
 
@@ -548,17 +548,18 @@ def test_copy_chatprompt_no_system():
 
 def test_copy_chatprompt_copies_params():
     """Copying a ChatPrompt should copy over params."""
-    chat = Chat(name="test", params={"key": "value"})
+    chat = Chat(name="test", params={"temperature": 0.2})
     new_chat = chat.copy()
-    assert new_chat.params == {"key": "value"}
+    assert isinstance(new_chat.params, ChatParams)
+    assert new_chat.params.temperature == 0.2
 
 def test_copy_chatprompt_independent_params():
     """Copying a ChatPrompt should result in independent params."""
-    chat = Chat(name="test", params={"key": "value"})
+    chat = Chat(name="test", params={"temperature": 0.2})
     new_chat = chat.copy()
-    new_chat.params["key"] = "new_value"
-    assert chat.params == {"key": "value"}
-    assert new_chat.params == {"key": "new_value"}
+    new_chat.params.temperature = 0.8
+    assert chat.params.temperature == 0.2
+    assert new_chat.params.temperature == 0.8
 
 
 

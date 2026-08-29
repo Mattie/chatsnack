@@ -26,9 +26,12 @@ Read more below, watch the [intro video](https://www.youtube.com/watch?v=Yjwi54r
 ### Responses API Support
 `Chat()` now defaults to the Responses family over WebSocket with `session="inherit"`.
 If you stay on that default path--or explicitly choose another Responses transport--
-chatsnack requires the OpenAI Python client to be `openai>=2.29.0` (or newer).
+chatsnack requires the OpenAI Python client to be `openai>=3.5.0,<4.0.0`.
 For explicit WebSocket support outside chatsnack's packaged dependencies, install
-`openai[realtime]>=2.29.0`.
+`openai[realtime]>=3.5.0,<4.0.0`.
+
+Using OpenRouter, Azure v1, or another OpenAI-compatible endpoint? See the
+[OpenAI-compatible providers guide](docs/guides/providers.md).
 
 ## Usage
 

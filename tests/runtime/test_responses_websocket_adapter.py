@@ -1225,7 +1225,7 @@ def test_sdk_version_check_raises_clear_message():
     adapter = ResponsesWebSocketAdapter(ai, session=ResponsesWebSocketSession(mode="inherit"))
 
     # Try to connect - should raise the version guidance message
-    with pytest.raises(ResponsesWebSocketTransportError, match="openai>=2.29.0") as exc_info:
+    with pytest.raises(ResponsesWebSocketTransportError, match="openai>=3.5.0") as exc_info:
         adapter._connect_sync()
 
     assert exc_info.value.code == "sdk_unsupported"

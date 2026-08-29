@@ -13,7 +13,7 @@ from .types import RuntimeErrorPayload, RuntimeStreamEvent, RuntimeTerminalMetad
 
 # Minimum SDK version string for clear error messages.
 _SDK_VERSION_GUIDANCE = (
-    "Responses WebSocket mode requires openai>=2.29.0 with websocket support. "
+    "Responses WebSocket mode requires openai>=3.5.0 with websocket support. "
     "Upgrade OpenAI or install openai[realtime]."
 )
 

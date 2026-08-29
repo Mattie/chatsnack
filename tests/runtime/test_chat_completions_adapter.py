@@ -203,6 +203,35 @@ def test_profile_is_stripped_before_api_call():
     assert "profile" not in captured
 
 
+def test_chat_completions_boundary_strips_client_fields_and_maps_token_limit():
+    captured = {}
+
+    def create(**kwargs):
+        captured.update(kwargs)
+        return _FakeObj(
+            {
+                "model": "provider/model",
+                "choices": [
+                    {"finish_reason": "stop", "message": {"role": "assistant", "content": "hi"}}
+                ],
+            }
+        )
+
+    ai = SimpleNamespace(client=SimpleNamespace(chat=SimpleNamespace(completions=SimpleNamespace(create=create))))
+    ChatCompletionsAdapter(ai).create_completion(
+        messages=[],
+        model="provider/model",
+        max_tokens=456,
+        base_url="https://wrong.example/v1",
+        api_key_env="SECRET_NAME",
+    )
+
+    assert captured["max_completion_tokens"] == 456
+    assert "max_tokens" not in captured
+    assert "base_url" not in captured
+    assert "api_key_env" not in captured
+
+
 def test_profile_is_stripped_in_stream_completion():
     captured = {}
     chunks = iter([

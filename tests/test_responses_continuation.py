@@ -231,8 +231,9 @@ class TestHTTPResponsesToolFollowUp:
 # ═══════════════════════════════════════════════════════════════════════
 
 @pytest.mark.skipif(
-    os.environ.get("OPENAI_API_KEY") is None,
-    reason="OPENAI_API_KEY is not set",
+    not os.environ.get("OPENAI_API_KEY")
+    or os.environ.get("CHATSNACK_RUN_LIVE_TESTS", "").lower() not in {"1", "true", "yes"},
+    reason="Live OpenAI tests require OPENAI_API_KEY and CHATSNACK_RUN_LIVE_TESTS=1",
 )
 class TestLiveHTTPResponsesToolLoop:
 

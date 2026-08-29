@@ -216,7 +216,7 @@ async def test_goal_saved_apply_patch_chat_requires_and_accepts_explicit_rebind(
     assert "- apply_patch" in authored.yaml
     assert "execute" not in authored.yaml
 
-    unbound = Chat(name="SavedPatchWriter")
+    unbound = Chat(name="SavedPatchWriter", runtime="responses")
     unbound_requests = []
 
     async def should_not_submit(adapter, messages, **kwargs):
@@ -224,12 +224,15 @@ async def test_goal_saved_apply_patch_chat_requires_and_accepts_explicit_rebind(
         raise AssertionError("unbound chat reached provider I/O")
 
     monkeypatch.setattr(ResponsesAdapter, "create_completion_a", should_not_submit)
-    unbound.runtime = ResponsesAdapter(unbound.ai)
     with pytest.raises(RuntimeError, match="Missing runtime binding for apply_patch"):
         await unbound.chat_a("Make the edit.")
     assert unbound_requests == []
 
-    rebound = Chat(name="SavedPatchWriter", utensils=[patch])
+    rebound = Chat(
+        name="SavedPatchWriter",
+        utensils=[patch],
+        runtime="responses",
+    )
     rebound.load()
     completions = iter([_patch_completion(), _final_completion()])
 
@@ -237,8 +240,6 @@ async def test_goal_saved_apply_patch_chat_requires_and_accepts_explicit_rebind(
         return next(completions)
 
     monkeypatch.setattr(ResponsesAdapter, "create_completion_a", create_completion_a)
-    rebound.runtime = ResponsesAdapter(rebound.ai)
-
     continued = await rebound.chat_a("Make the edit.")
 
     assert continued.last == "Patch complete."

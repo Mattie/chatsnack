@@ -28,6 +28,14 @@ class ChatCompletionsAdapter:
         "prompt_cache_retention",
         "input",
     })
+    _CLIENT_ONLY_KEYS = frozenset({
+        "base_url",
+        "api_key_env",
+        "api_base",
+        "api_type",
+        "api_version",
+        "deployment",
+    })
 
     def __init__(self, ai_client):
         self.ai_client = ai_client
@@ -35,7 +43,11 @@ class ChatCompletionsAdapter:
     @classmethod
     def _strip_responses_keys(cls, kwargs: Dict[str, Any]) -> Dict[str, Any]:
         """Remove Responses-only keys so they never reach the CC SDK call."""
-        cleaned = {k: v for k, v in kwargs.items() if k not in cls._RESPONSES_ONLY_KEYS}
+        stripped = cls._RESPONSES_ONLY_KEYS | cls._CLIENT_ONLY_KEYS
+        cleaned = {k: v for k, v in kwargs.items() if k not in stripped}
+        if "max_tokens" in cleaned:
+            cleaned.setdefault("max_completion_tokens", cleaned["max_tokens"])
+            cleaned.pop("max_tokens", None)
         # Flatten namespace tools — CC only accepts type="function".
         if "tools" in cleaned and isinstance(cleaned["tools"], list):
             cleaned["tools"] = cls._flatten_namespace_tools(cleaned["tools"])

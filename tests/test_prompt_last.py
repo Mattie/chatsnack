@@ -54,7 +54,11 @@ def test_message_order(empty_prompt):
 # def test_invalid_role(empty_prompt):
 #     with pytest.raises(Exception):
 #         empty_prompt.add_message("invalid_role", "Test content")
-@pytest.mark.skipif(os.environ.get("OPENAI_API_KEY") is None, reason="OPENAI_API_KEY is not set in environment or .env")
+@pytest.mark.skipif(
+    not os.environ.get("OPENAI_API_KEY")
+    or os.environ.get("CHATSNACK_RUN_LIVE_TESTS", "").lower() not in {"1", "true", "yes"},
+    reason="Live OpenAI tests require OPENAI_API_KEY and CHATSNACK_RUN_LIVE_TESTS=1",
+)
 def test_chaining_methods_execution(populated_prompt):
     new_prompt = populated_prompt().user("How's the weather?")
     assert new_prompt.last == "How's the weather?"

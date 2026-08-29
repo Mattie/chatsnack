@@ -1,4 +1,5 @@
 import asyncio
+import copy
 import json
 import uuid
 import warnings
@@ -11,7 +12,7 @@ from loguru import logger
 from ..assets import capture_asset
 from ..asynchelpers import aformatter
 from ..fillings import active_filling_stash, filling_machine
-from ..runtime import ApplyPatchCall, EVENT_SCHEMA_VERSION
+from ..runtime import ApplyPatchCall, EVENT_SCHEMA_VERSION, ResponsesWebSocketAdapter
 from ..runtime.attachment_inputs import normalize_attachment_inputs
 
 from .mixin_messages import ChatMessagesMixin
@@ -612,17 +613,41 @@ class ChatQueryMixin(ChatMessagesMixin, ChatParamsMixin):
         self,
         track_continuation: bool = False,
         _call_usage_ledger=None,
+        _submitted_runtime_out=None,
         **additional_vars,
     ):
         """ Executes the query as-is and returns a tuple of the final prompt and the response"""
+        assert_binding = getattr(self, "_assert_bound_configuration", None)
+        if assert_binding is not None:
+            assert_binding()
+        self._provider_binding_locked = True
         prompter = self
         # if the user in additional_vars, we're going to instead deepcopy this prompt into a new prompt and add the .user() to it
         if "__user" in additional_vars:
-            new_chatprompt = self.copy()
+            new_chatprompt = self.copy(_share_ai_client=True)
             new_chatprompt.user(additional_vars["__user"])
             prompter = new_chatprompt
             # remove __user from additional_vars
             del additional_vars["__user"]
+        if (
+            track_continuation
+            and prompter is not self
+            and isinstance(getattr(self, "runtime", None), ResponsesWebSocketAdapter)
+            and isinstance(getattr(prompter, "runtime", None), ResponsesWebSocketAdapter)
+            and prompter.runtime.session is not self.runtime.session
+        ):
+            # An internal first-turn copy gets its own request session. Carry
+            # only provider lineage into it so session="new" can continue.
+            for attribute in (
+                "last_response_id",
+                "last_model",
+                "last_store_value",
+            ):
+                setattr(
+                    prompter.runtime.session,
+                    attribute,
+                    getattr(self.runtime.session, attribute, None),
+                )
         prompt = await prompter._build_final_prompt(additional_vars)
         
         kwargs = self._build_completion_request_kwargs()
@@ -634,12 +659,26 @@ class ChatQueryMixin(ChatMessagesMixin, ChatParamsMixin):
         else:
             # Route completion through the prompter instance so continuation metadata
             # is written to the chat instance that actually owns this submitted prompt.
-            return prompt, await prompter._cleaned_chat_completion(
-                prompt,
-                track_continuation=track_continuation,
-                _call_usage_ledger=_call_usage_ledger,
-                **kwargs,
+            temporary_websocket_runtime = (
+                prompter is not self
+                and isinstance(getattr(prompter, "runtime", None), ResponsesWebSocketAdapter)
             )
+            try:
+                response = await prompter._cleaned_chat_completion(
+                    prompt,
+                    track_continuation=track_continuation,
+                    _call_usage_ledger=_call_usage_ledger,
+                    **kwargs,
+                )
+            except BaseException:
+                if temporary_websocket_runtime:
+                    await prompter.runtime.close_session_a()
+                raise
+            if _submitted_runtime_out is not None:
+                _submitted_runtime_out.append(getattr(prompter, "runtime", None))
+            if temporary_websocket_runtime and not track_continuation:
+                await prompter.runtime.close_session_a()
+            return prompt, response
 
     def _runtime_supports_continuation(self) -> bool:
         runtime = getattr(self, "runtime", None)
@@ -974,6 +1013,19 @@ class ChatQueryMixin(ChatMessagesMixin, ChatParamsMixin):
             response.event_schema = event_schema
             await response.start_a()
         return response
+
+    def _inherit_authored_runtime_override(self, child) -> None:
+        """Preserve runtime intent without promoting an internal adapter to authoring."""
+        source_overrides = getattr(
+            self,
+            "_chatsnack_constructor_overrides",
+            {},
+        )
+        if "runtime" in source_overrides:
+            child._chatsnack_constructor_overrides["runtime"] = child.runtime
+        else:
+            child._chatsnack_constructor_overrides.pop("runtime", None)
+
     def chat(self, usermsg=None, files=None, images=None, **additional_vars) -> object:
         """ 
         Executes the query as-is and returns a new Chat for continuation 
@@ -1014,19 +1066,37 @@ class ChatQueryMixin(ChatMessagesMixin, ChatParamsMixin):
         if self.stream:
             raise Exception("Cannot use chat() with a stream")
         
+        submitted_runtime = []
         prompt, response = await self._submit_for_response_and_prompt(
             track_continuation=True,
             _call_usage_ledger=_call_usage_ledger,
+            _submitted_runtime_out=submitted_runtime,
             **additional_vars,
+        )
+        response_runtime = (
+            submitted_runtime[0]
+            if submitted_runtime
+            else getattr(self, "runtime", None)
         )
         
         # create a new chatprompt with the new name, copy it from this one
         new_chatprompt = self.__class__(
-            params=getattr(self, "params", None),
-            runtime=getattr(self, "runtime", None),
+            params=copy.copy(getattr(self, "params", None)),
+            runtime=response_runtime,
+            _ai_client=getattr(self, "ai", None),
             tool_search_handler=getattr(self, "tool_search_handler", None),
             _runtime_bindings=getattr(self, "_runtime_bindings", None),
         )
+        self._inherit_authored_runtime_override(new_chatprompt)
+        if (
+            isinstance(response_runtime, ResponsesWebSocketAdapter)
+            and response_runtime.session.mode == "new"
+            and isinstance(new_chatprompt.runtime, ResponsesWebSocketAdapter)
+            and new_chatprompt.runtime.session is not response_runtime.session
+        ):
+            # session="new" intentionally gives the returned Chat a fresh
+            # connection. The temporary request session is no longer owned.
+            await response_runtime.close_session_a()
 
         logger.trace("Expanded prompt: " + prompt)
         new_chatprompt.add_messages_json(prompt)
@@ -1111,7 +1181,7 @@ class ChatQueryMixin(ChatMessagesMixin, ChatParamsMixin):
                     if max_auto_feed_cycles > 0:
                         # Use _submit_for_response_and_prompt for the follow-up call
                         # Since we want to use the current conversation as context, we create a temporary chat object
-                        temp_chat = current_chat.copy()
+                        temp_chat = current_chat.copy(_share_ai_client=True)
                         current_chat._clone_runtime_metadata_to(temp_chat)
                         new_prompt = json.dumps(temp_chat.get_messages()) 
                         logger.trace(f"Temp chat messagesx: {temp_chat.get_messages()}")
@@ -1176,9 +1246,16 @@ class ChatQueryMixin(ChatMessagesMixin, ChatParamsMixin):
             return new_chatprompt
 
     # clone function to create a new chatprompt with the same name and data
-    def copy(self, name: str = None, system = None, expand_includes: bool = False, expand_fillings: bool = False, **additional_vars) -> object:
+    def copy(
+        self,
+        name: str = None,
+        system=None,
+        expand_includes: bool = False,
+        expand_fillings: bool = False,
+        _share_ai_client: bool = False,
+        **additional_vars,
+    ) -> object:
         """ Returns a new ChatPrompt object that is a copy of this one, optionally with a new name ⭐"""
-        import copy
         copied_params = copy.copy(self.params)
         copied_runtime = getattr(self, "runtime", None)
         copied_runtime_selector = None
@@ -1209,6 +1286,7 @@ class ChatQueryMixin(ChatMessagesMixin, ChatParamsMixin):
                 name=name,
                 params=copied_params,
                 runtime=copied_runtime,
+                _ai_client=self._ai_client_for_copy(share=_share_ai_client),
                 runtime_selector=copied_runtime_selector,
                 session=copied_session,
                 tool_search_handler=getattr(self, "tool_search_handler", None),
@@ -1228,11 +1306,14 @@ class ChatQueryMixin(ChatMessagesMixin, ChatParamsMixin):
                 name=name + f"_{datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}-{uuid.uuid4()}",
                 params=copied_params,
                 runtime=copied_runtime,
+                _ai_client=self._ai_client_for_copy(share=_share_ai_client),
                 runtime_selector=copied_runtime_selector,
                 session=copied_session,
                 tool_search_handler=getattr(self, "tool_search_handler", None),
                 _runtime_bindings=getattr(self, "_runtime_bindings", None),
             )
+
+        self._inherit_authored_runtime_override(new_chat)
 
         # Keep the established local-utensil copy behavior. Caller-executed
         # services retain identity through the separate runtime binding map.

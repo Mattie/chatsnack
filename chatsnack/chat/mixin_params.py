@@ -442,11 +442,9 @@ class ChatParams:
     auto_execute: Optional[bool] = None  
     auto_feed: bool | int | None = True  # True keeps the legacy five-cycle tool-result feed limit
 
-    # Azure-specific parameters
-    deployment: Optional[str] = None
-    api_type: Optional[str] = None
-    api_base: Optional[str] = None
-    api_version: Optional[str] = None
+    # Authored client configuration. The environment-variable name is saved;
+    # its secret value is resolved only when a Chat binds its client.
+    base_url: Optional[str] = None
     api_key_env: Optional[str] = None
 
     response_pattern: Optional[str] = None  # internal usage, not passed to the API
@@ -491,15 +489,10 @@ class ChatParams:
         """Returns True if current model supports system messages."""
         return not ("o1" in self.model or "o1-preview" in self.model or "o1-mini" in self.model)
 
-    def _supports_temperature(self) -> bool:
-        """Returns True if current model supports temperature."""
-        return "gpt-4o" in self.model or "gpt-4-turbo" in self.model
-
     def _get_non_none_params(self) -> dict:
         """
         Returns a dictionary of non-None parameters to send to the ChatCompletion API.
-        Converts old usage (engine, max_tokens) to new fields (model, max_completion_tokens)
-        automatically for reasoning models, so clients don't have to change code.
+        Provider adapters translate cross-family fields after the runtime is known.
         """
         # Gather all fields of the dataclass
         fields = [field.name for field in self.__dataclass_fields__.values()]
@@ -515,20 +508,6 @@ class ChatParams:
         # engine is deprecated; remove it from the final dict
         if "engine" in out:
             del out["engine"]
-
-        # max_tokens is deprecated
-        if "max_tokens" in out:
-            out["max_completion_tokens"] = out["max_tokens"]
-            del out["max_tokens"]
-
-        # If model supports temperatures, remove it to avoid breakage
-        if not self._supports_temperature():
-            if "temperature" in out:
-                out["temperature"] = None
-                del out["temperature"]
-        else:
-            # For older GPT-3.5 or GPT-4, we keep max_tokens as-is 
-            pass
 
         # Remove tools and tool_choice as they are handled by the utensil_params
         if "tools" in out:
@@ -551,6 +530,10 @@ class ChatParams:
             del out["session"]
         if "responses" in out:
             del out["responses"]
+        if "base_url" in out:
+            del out["base_url"]
+        if "api_key_env" in out:
+            del out["api_key_env"]
 
         # Convert tool definitions to API format
         if "tools" in out and out["tools"]:
