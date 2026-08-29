@@ -446,6 +446,29 @@ def test_in_place_transport_change_fails_before_submit(monkeypatch, change):
         chat.ask("Do not submit this request.")
 
 
+@pytest.mark.parametrize("change", ("runtime", "session"))
+def test_copied_chat_transport_change_fails_before_submit(monkeypatch, change):
+    monkeypatch.setenv("COPIED_TRANSPORT_KEY", "provider-sentinel")
+    root = Chat(
+        base_url="https://copied-transport.example/v1",
+        api_key_env="COPIED_TRANSPORT_KEY",
+    )
+    copied = root.copy()
+
+    async def fail_if_submitted(*args, **kwargs):
+        pytest.fail("transport changes must fail before the provider request")
+
+    monkeypatch.setattr(ResponsesAdapter, "create_completion_a", fail_if_submitted)
+
+    if change == "runtime":
+        copied.params.runtime = "chat_completions"
+    else:
+        copied.session = "inherit"
+
+    with pytest.raises(ValueError, match="Provider and transport settings.*new Chat"):
+        copied.ask("Do not submit this request.")
+
+
 @pytest.mark.asyncio
 @pytest.mark.parametrize("change", ("runtime", "session"))
 async def test_continued_chat_transport_change_fails_before_submit(
@@ -474,6 +497,8 @@ async def test_continued_chat_transport_change_fails_before_submit(
     try:
         continued = await root.chat_a("Make the first request.")
         assert len(calls) == 1
+        continued.temperature = 0.4
+        assert root.temperature is None
 
         if change == "runtime":
             continued.params.runtime = "chat_completions"

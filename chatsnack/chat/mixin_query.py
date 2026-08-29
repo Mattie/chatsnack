@@ -1,4 +1,5 @@
 import asyncio
+import copy
 import json
 import uuid
 import warnings
@@ -1012,6 +1013,21 @@ class ChatQueryMixin(ChatMessagesMixin, ChatParamsMixin):
             response.event_schema = event_schema
             await response.start_a()
         return response
+
+    def _inherit_authored_runtime_override(self, child) -> None:
+        """Preserve runtime intent without promoting an internal adapter to authoring."""
+        source_overrides = getattr(
+            self,
+            "_chatsnack_constructor_overrides",
+            {},
+        )
+        if "runtime" in source_overrides:
+            child._chatsnack_constructor_overrides["runtime"] = (
+                source_overrides["runtime"]
+            )
+        else:
+            child._chatsnack_constructor_overrides.pop("runtime", None)
+
     def chat(self, usermsg=None, files=None, images=None, **additional_vars) -> object:
         """ 
         Executes the query as-is and returns a new Chat for continuation 
@@ -1067,25 +1083,13 @@ class ChatQueryMixin(ChatMessagesMixin, ChatParamsMixin):
         
         # create a new chatprompt with the new name, copy it from this one
         new_chatprompt = self.__class__(
-            params=getattr(self, "params", None),
+            params=copy.copy(getattr(self, "params", None)),
             runtime=response_runtime,
             _ai_client=getattr(self, "ai", None),
             tool_search_handler=getattr(self, "tool_search_handler", None),
             _runtime_bindings=getattr(self, "_runtime_bindings", None),
         )
-        source_runtime_overrides = getattr(
-            self,
-            "_chatsnack_constructor_overrides",
-            {},
-        )
-        if "runtime" in source_runtime_overrides:
-            new_chatprompt._chatsnack_constructor_overrides["runtime"] = (
-                source_runtime_overrides["runtime"]
-            )
-        else:
-            # The runtime that submitted this turn preserves request ownership;
-            # it is not a new caller-authored transport override on the child.
-            new_chatprompt._chatsnack_constructor_overrides.pop("runtime", None)
+        self._inherit_authored_runtime_override(new_chatprompt)
         if (
             isinstance(response_runtime, ResponsesWebSocketAdapter)
             and response_runtime.session.mode == "new"
@@ -1254,7 +1258,6 @@ class ChatQueryMixin(ChatMessagesMixin, ChatParamsMixin):
         **additional_vars,
     ) -> object:
         """ Returns a new ChatPrompt object that is a copy of this one, optionally with a new name ⭐"""
-        import copy
         copied_params = copy.copy(self.params)
         copied_runtime = getattr(self, "runtime", None)
         copied_runtime_selector = None
@@ -1311,6 +1314,8 @@ class ChatQueryMixin(ChatMessagesMixin, ChatParamsMixin):
                 tool_search_handler=getattr(self, "tool_search_handler", None),
                 _runtime_bindings=getattr(self, "_runtime_bindings", None),
             )
+
+        self._inherit_authored_runtime_override(new_chat)
 
         # Keep the established local-utensil copy behavior. Caller-executed
         # services retain identity through the separate runtime binding map.
