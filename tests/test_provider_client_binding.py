@@ -446,6 +446,53 @@ def test_in_place_transport_change_fails_before_submit(monkeypatch, change):
         chat.ask("Do not submit this request.")
 
 
+@pytest.mark.asyncio
+@pytest.mark.parametrize("change", ("runtime", "session"))
+async def test_continued_chat_transport_change_fails_before_submit(
+    monkeypatch,
+    change,
+):
+    monkeypatch.setenv("CONTINUED_TRANSPORT_KEY", "provider-sentinel")
+    calls = []
+
+    async def fake_create_completion(runtime, messages, **kwargs):
+        calls.append((runtime, messages, kwargs))
+        return SimpleNamespace(
+            message=SimpleNamespace(content="first reply", tool_calls=[]),
+        )
+
+    monkeypatch.setattr(
+        ResponsesAdapter,
+        "create_completion_a",
+        fake_create_completion,
+    )
+    root = Chat(
+        base_url="https://continued-transport.example/v1",
+        api_key_env="CONTINUED_TRANSPORT_KEY",
+    )
+    continued = None
+    try:
+        continued = await root.chat_a("Make the first request.")
+        assert len(calls) == 1
+
+        if change == "runtime":
+            continued.params.runtime = "chat_completions"
+        else:
+            continued.session = "inherit"
+
+        with pytest.raises(
+            ValueError,
+            match="Provider and transport settings.*new Chat",
+        ):
+            await continued.ask_a("Do not submit this request.")
+
+        assert len(calls) == 1
+    finally:
+        if continued is not None:
+            await continued.close_a()
+        await root.close_a()
+
+
 def test_explicit_runtime_does_not_mask_later_param_change(monkeypatch):
     chat = Chat(runtime="responses")
 

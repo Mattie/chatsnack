@@ -1073,6 +1073,19 @@ class ChatQueryMixin(ChatMessagesMixin, ChatParamsMixin):
             tool_search_handler=getattr(self, "tool_search_handler", None),
             _runtime_bindings=getattr(self, "_runtime_bindings", None),
         )
+        source_runtime_overrides = getattr(
+            self,
+            "_chatsnack_constructor_overrides",
+            {},
+        )
+        if "runtime" in source_runtime_overrides:
+            new_chatprompt._chatsnack_constructor_overrides["runtime"] = (
+                source_runtime_overrides["runtime"]
+            )
+        else:
+            # The runtime that submitted this turn preserves request ownership;
+            # it is not a new caller-authored transport override on the child.
+            new_chatprompt._chatsnack_constructor_overrides.pop("runtime", None)
         if (
             isinstance(response_runtime, ResponsesWebSocketAdapter)
             and response_runtime.session.mode == "new"
