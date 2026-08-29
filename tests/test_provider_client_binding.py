@@ -615,25 +615,31 @@ def test_copy_clones_the_resolved_binding_without_rereading_the_environment(monk
 
 
 @pytest.mark.parametrize("opened_client", ("client", "aclient"))
-def test_copy_keeps_the_ambient_key_resolved_by_an_opened_sdk_client(
+def test_copy_keeps_ambient_settings_resolved_by_an_opened_sdk_client(
     monkeypatch,
     opened_client,
 ):
     monkeypatch.delenv("OPENAI_API_BASE", raising=False)
     monkeypatch.delenv("OPENAI_AZURE_ENDPOINT", raising=False)
     monkeypatch.setenv("OPENAI_API_KEY", "source-sentinel")
+    monkeypatch.setenv("OPENAI_BASE_URL", "https://source.example/v1")
     root = Chat(runtime="chat_completions")
     child = None
 
     try:
-        assert getattr(root.ai, opened_client).api_key == "source-sentinel"
+        source_client = getattr(root.ai, opened_client)
+        assert source_client.api_key == "source-sentinel"
+        assert str(source_client.base_url) == "https://source.example/v1/"
         monkeypatch.setenv("OPENAI_API_KEY", "rotated-sentinel")
+        monkeypatch.setenv("OPENAI_BASE_URL", "https://rotated.example/v1")
 
         child = root.copy()
 
         assert child.ai is not root.ai
+        assert child.params.base_url is None
         assert child.ai.api_key == "source-sentinel"
         assert child.ai.client.api_key == "source-sentinel"
+        assert str(child.ai.client.base_url) == "https://source.example/v1/"
     finally:
         if child is not None:
             child.close()

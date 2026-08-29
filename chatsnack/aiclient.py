@@ -30,12 +30,18 @@ class AiClient:
         self._api_key = api_key
         self.base_url = base_url
         self.api_key_env = api_key_env
+        self._resolved_base_url: Optional[str] = None
         self._client: Any = None
         self._aclient: Any = None
 
     def _client_kwargs(self, client_class) -> dict:
-        """Build ordinary SDK options without ambient OpenAI tenant headers."""
-        if self.base_url is None:
+        """Build SDK options while isolating authored custom endpoints."""
+        effective_base_url = (
+            self.base_url
+            if self.base_url is not None
+            else self._resolved_base_url
+        )
+        if effective_base_url is None:
             legacy_endpoint_vars = [
                 name
                 for name in _LEGACY_ENDPOINT_ENV_VARS
@@ -52,8 +58,9 @@ class AiClient:
         kwargs = {}
         if self._api_key is not None:
             kwargs["api_key"] = self._api_key
+        if effective_base_url is not None:
+            kwargs["base_url"] = effective_base_url
         if self.base_url is not None:
-            kwargs["base_url"] = self.base_url
             supported = inspect.signature(client_class).parameters
             for name in ("organization", "project"):
                 if name in supported:
@@ -102,7 +109,7 @@ class AiClient:
         return self._client is not None or self._aclient is not None
 
     def _clone_binding(self) -> "AiClient":
-        """Create an independent lazy owner with this binding's resolved key."""
+        """Clone resolved settings without changing the Chat's authored config."""
         api_key = self._api_key
         if api_key is None:
             for opened_client in (self._client, self._aclient):
@@ -110,11 +117,20 @@ class AiClient:
                 if isinstance(resolved_key, str) and resolved_key:
                     api_key = resolved_key
                     break
-        return AiClient(
+        resolved_base_url = self._resolved_base_url
+        if resolved_base_url is None and self.base_url is None:
+            for opened_client in (self._client, self._aclient):
+                opened_base_url = getattr(opened_client, "base_url", None)
+                if opened_base_url is not None:
+                    resolved_base_url = str(opened_base_url)
+                    break
+        cloned = AiClient(
             api_key=api_key,
             base_url=self.base_url,
             api_key_env=self.api_key_env,
         )
+        cloned._resolved_base_url = resolved_base_url
+        return cloned
 
     @property
     def api_key(self) -> Optional[str]:
