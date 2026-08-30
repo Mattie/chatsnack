@@ -56,7 +56,7 @@ def filling_machine(additional: Optional[Dict] = None) -> dict:
 
 
 _STATIC_FILLING_REFERENCE = re.compile(
-    r"^(?P<vendor>text|chat)\.(?P<name>[A-Za-z_][A-Za-z0-9_]*)$"
+    r"^(?P<vendor>text|chat)\.(?P<name>[A-Za-z_][A-Za-z0-9_-]*)$"
 )
 
 
@@ -160,7 +160,15 @@ class ChatsnackFillingSource:
         prompt = self._objects(Chat).get_or_none(name)
         if prompt is None:
             return None
-        response = await prompt.ask_a(**dict(variables))
+        # Resolver override namespaces would replace the saved chat's built-in
+        # filling machines if forwarded as query variables. Ordinary template
+        # variables still belong to the nested chat call.
+        query_variables = {
+            key: value
+            for key, value in variables.items()
+            if key not in {"text", "chat"}
+        }
+        response = await prompt.ask_a(**query_variables)
         if not isinstance(response, str):
             raise TypeError("chat filling response must be a string")
         return response

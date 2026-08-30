@@ -82,6 +82,33 @@ def test_missing_catalog_names_stay_absent():
     assert result.missing_references == ("text.Missing",)
 
 
+def test_hyphenated_text_and_chat_asset_names_are_valid_references():
+    source = FakeFillingSource(
+        texts={"snack-style": "playful"},
+        chats={"snack-picker": "popcorn"},
+    )
+
+    result = resolve_fillings(
+        ["text.snack-style", "chat.snack-picker"],
+        allow_chat=True,
+        source=source,
+    )
+
+    assert result.context == {
+        "text": {"snack-style": "playful"},
+        "chat": {"snack-picker": "popcorn"},
+    }
+
+
+@pytest.mark.parametrize(
+    "reference",
+    ["text../secret", "text.Snack/Secret", "text.Snack.Secret"],
+)
+def test_asset_references_reject_traversal_characters(reference):
+    with pytest.raises(ValueError, match="static text.Name or chat.Name"):
+        resolve_fillings([reference], source=FakeFillingSource())
+
+
 def test_recursive_text_is_expanded_but_inserted_results_are_opaque():
     source = FakeFillingSource(
         texts={
@@ -257,3 +284,38 @@ def test_default_source_resolves_a_persisted_text_through_public_storage(tmp_pat
     )
 
     assert result.context["text"]["Voice"] == "clear"
+
+
+def test_default_chat_source_keeps_reserved_namespaces_out_of_query_variables(
+    monkeypatch,
+):
+    captured = {}
+
+    class FakePrompt:
+        async def ask_a(self, **variables):
+            captured.update(variables)
+            return "popcorn"
+
+    class FakeObjects:
+        def get_or_none(self, name):
+            assert name == "SnackPicker"
+            return FakePrompt()
+
+    source = ChatsnackFillingSource()
+    monkeypatch.setattr(source, "_objects", lambda model: FakeObjects())
+
+    result = asyncio.run(
+        resolve_fillings_a(
+            ["chat.SnackPicker"],
+            variables={
+                "topic": "movie night",
+                "text": {"Voice": "playful"},
+                "chat": {"Other": "pretzels"},
+            },
+            allow_chat=True,
+            source=source,
+        )
+    )
+
+    assert result.context["chat"]["SnackPicker"] == "popcorn"
+    assert captured == {"topic": "movie night"}
