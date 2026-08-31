@@ -4,6 +4,7 @@ import json
 import uuid
 import warnings
 from collections.abc import Mapping
+from contextvars import ContextVar
 from datetime import datetime
 from typing import Dict, List, Optional
 
@@ -20,6 +21,12 @@ from .mixin_params import (
     ChatParamsMixin,
     DEFAULT_MODEL_FALLBACK,
     _resolve_auto_feed_limit,
+)
+
+
+_active_template_vars = ContextVar(
+    "chatsnack_active_query_template_vars",
+    default=None,
 )
 
 
@@ -978,14 +985,37 @@ class ChatQueryMixin(ChatMessagesMixin, ChatParamsMixin):
         return self._run_sync(self.ask_a(**additional_vars), "ask")
     async def ask_a(self, usermsg=None, files=None, images=None, **additional_vars) -> str:
         """Async form of `ask()`."""
+        active_template_vars = _active_template_vars.get()
+        if active_template_vars is None or active_template_vars[0] is not self:
+            template_vars = self._prepare_query_vars(
+                usermsg,
+                files=files,
+                images=images,
+                **additional_vars,
+            )
+        else:
+            template_vars = dict(active_template_vars[1])
+
         self._validate_caller_executed_tools("ask")
         if self.stream:
             raise Exception("Cannot use ask() with a stream")
-        additional_vars = self._prepare_query_vars(usermsg, files=files, images=images, **additional_vars)
-        _, response = await self._submit_for_response_and_prompt(**additional_vars)
+        _, response = await self._submit_for_response_and_prompt(**template_vars)
         # filter the response if we have a pattern
         response = self.filter_by_pattern(response)
         return response
+
+    async def _ask_a_with_template_vars(self, template_vars) -> str:
+        """Dispatch through ``ask_a`` while preserving formatter variable names.
+
+        Filling adapters use this path so names that overlap query controls,
+        such as ``usermsg`` or ``files``, remain data without bypassing an
+        overridden ``ask_a`` implementation.
+        """
+        token = _active_template_vars.set((self, dict(template_vars)))
+        try:
+            return await self.ask_a(**dict(template_vars))
+        finally:
+            _active_template_vars.reset(token)
     def listen(self, usermsg=None, events=False, event_schema="legacy", files=None, images=None, **additional_vars) -> ChatStreamListener:
         """
         Executes the internal chat query as-is and returns a listener object that can be iterated on for the text.

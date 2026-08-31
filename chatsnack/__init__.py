@@ -151,7 +151,7 @@ async def _chat_name_query_expansion(prompt_name: str, additional: Optional[dict
         chatprompt = objects.get_or_none(prompt_name)
         if chatprompt is None:
             raise _missing_filling(reference)
-        return await chatprompt.ask_a(**additional)
+        return await chatprompt._ask_a_with_template_vars(additional)
 
     return await expand()
 

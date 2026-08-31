@@ -105,6 +105,66 @@ def test_goal_authorized_chat_can_use_nested_text_and_chat_fillings(
     assert calls == ["Parent", "Child"]
 
 
+@pytest.mark.parametrize("variable_name", ["usermsg", "files", "images"])
+def test_chat_resolution_keeps_query_control_names_as_template_variables(
+    tmp_path,
+    monkeypatch,
+    variable_name,
+):
+    save_chat(tmp_path, "Reserved", f"reserved {{{variable_name}}}")
+    prompts = []
+
+    async def capture_prompt(self, prompt, **kwargs):
+        prompts.append(prompt)
+        return "resolved"
+
+    monkeypatch.setattr(Chat, "_cleaned_chat_completion", capture_prompt)
+
+    with use_filling_stash(tmp_path):
+        result = asyncio.run(
+            resolve_fillings_a(
+                ["chat.Reserved"],
+                variables={variable_name: "kept"},
+                allow_chat=True,
+            )
+        )
+
+    assert result == {"chat": {"Reserved": "resolved"}}
+    assert len(prompts) == 1
+    assert "reserved kept" in prompts[0]
+
+
+def test_chat_resolution_forwards_query_control_names_to_ask_override(
+    tmp_path,
+    monkeypatch,
+):
+    save_chat(tmp_path, "Reserved", "reserved {usermsg} {files} {images}")
+    calls = []
+
+    async def build_without_provider(self, **variables):
+        calls.append(variables)
+        return await self._build_final_prompt(variables)
+
+    monkeypatch.setattr(Chat, "ask_a", build_without_provider)
+    variables = {
+        "usermsg": "hello",
+        "files": "notes",
+        "images": "cover",
+    }
+
+    with use_filling_stash(tmp_path):
+        result = asyncio.run(
+            resolve_fillings_a(
+                ["chat.Reserved"],
+                variables=variables,
+                allow_chat=True,
+            )
+        )
+
+    assert "reserved hello notes cover" in result["chat"]["Reserved"]
+    assert calls == [variables]
+
+
 def test_explicit_values_win_without_loading_assets_or_chat_authority(monkeypatch):
     async def unexpected_call(name, additional):
         raise AssertionError(f"catalog called for {name}")
