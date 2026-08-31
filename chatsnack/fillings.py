@@ -165,13 +165,13 @@ class ChatsnackFillingSource:
         if prompt is None:
             return None
         parent_reference = f"chat.{name}"
-        nested_reference = _first_static_reference_in_chat(
+        nested_vendor = _first_legacy_filling_vendor_in_chat(
             prompt,
             parent_reference,
         )
-        if nested_reference is not None:
+        if nested_vendor is not None:
             raise FillingResolutionError(
-                f"nested filling {nested_reference} in {parent_reference} "
+                f"nested {nested_vendor} filling in {parent_reference} "
                 "is outside the bounded resolver graph"
             )
         # Resolver override namespaces would replace the saved chat's built-in
@@ -225,8 +225,22 @@ def _parse_fields(template: str, reference: str) -> list[str]:
         raise FillingResolutionError(f"could not resolve {reference}") from None
 
 
-def _first_static_reference_in_chat(prompt, parent_reference: str) -> Optional[str]:
-    """Find a nested saved-asset filling that would bypass resolver limits."""
+def _legacy_filling_vendor(field_name: str) -> Optional[str]:
+    """Return the built-in vendor a legacy formatter field would dispatch."""
+
+    for vendor in ("text", "chat"):
+        if field_name.startswith(f"{vendor}.") or field_name.startswith(
+            f"{vendor}["
+        ):
+            return vendor
+    return None
+
+
+def _first_legacy_filling_vendor_in_chat(
+    prompt,
+    parent_reference: str,
+) -> Optional[str]:
+    """Find a nested legacy filling vendor that would bypass resolver limits."""
 
     try:
         messages = prompt.get_messages()
@@ -242,9 +256,9 @@ def _first_static_reference_in_chat(prompt, parent_reference: str) -> Optional[s
             if not isinstance(value, str):
                 continue
             for field_name in _parse_fields(value, parent_reference):
-                reference = _static_reference(field_name)
-                if reference is not None:
-                    return reference
+                vendor = _legacy_filling_vendor(field_name)
+                if vendor is not None:
+                    return vendor
     return None
 
 
@@ -267,6 +281,8 @@ async def resolve_fillings_a(
     variables = variables or {}
     if not isinstance(variables, Mapping):
         raise TypeError("variables must be a mapping")
+    if not isinstance(allow_chat, bool):
+        raise TypeError("allow_chat must be a bool")
     limits = limits or FillingLimits()
     source = source or ChatsnackFillingSource()
 

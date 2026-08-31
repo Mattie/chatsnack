@@ -82,7 +82,8 @@ Direct resolution follows these rules:
 - Saved text can refer to other text or chat fillings. Text cycles and excessive
   nesting fail with a bounded resolver error.
 - Saved chat references require `allow_chat=True` before `chatsnack` makes a model
-  call. This also applies when saved text contains a chat reference.
+  call. This must be a boolean, and also applies when saved text contains a chat
+  reference.
 - Saved chats resolved by the default source must be self-contained. Nested
   `text.*` or `chat.*` fillings are rejected before provider I/O so legacy
   expansion cannot bypass the resolver's invocation limits.

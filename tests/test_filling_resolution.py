@@ -145,6 +145,20 @@ def test_transitive_chat_reference_is_denied_before_calling_source():
     assert source.chat_started == []
 
 
+@pytest.mark.parametrize("allow_chat", ["false", 1, None])
+def test_chat_authority_requires_a_boolean(allow_chat):
+    source = FakeFillingSource(chats={"Costly": "paid answer"})
+
+    with pytest.raises(TypeError, match="allow_chat must be a bool"):
+        resolve_fillings(
+            ["chat.Costly"],
+            allow_chat=allow_chat,
+            source=source,
+        )
+
+    assert source.chat_started == []
+
+
 def test_allowed_chats_fan_out_with_stable_scheduling_and_bounded_concurrency():
     source = FakeFillingSource(
         chats={"First": "one", "Second": "two", "Third": "three"},
@@ -337,10 +351,21 @@ def test_default_chat_source_keeps_reserved_namespaces_out_of_query_variables(
     assert captured == {"topic": "movie night"}
 
 
-@pytest.mark.parametrize("nested_reference", ["text.Child", "chat.Child"])
+@pytest.mark.parametrize(
+    ("nested_field", "vendor"),
+    [
+        ("text.Child", "text"),
+        ("chat.Child", "chat"),
+        ("chat.123", "chat"),
+        ("chat.Child.foo", "chat"),
+        ("chat[Child]", "chat"),
+        ("text[Child]", "text"),
+    ],
+)
 def test_default_chat_source_rejects_nested_fillings_before_provider_io(
     monkeypatch,
-    nested_reference,
+    nested_field,
+    vendor,
 ):
     provider_calls = []
 
@@ -349,7 +374,7 @@ def test_default_chat_source_rejects_nested_fillings_before_provider_io(
             return [
                 {
                     "role": "system",
-                    "content": f"Nested value: {{{nested_reference}}}",
+                    "content": f"Nested value: {{{nested_field}}}",
                 }
             ]
 
@@ -367,7 +392,7 @@ def test_default_chat_source_rejects_nested_fillings_before_provider_io(
 
     with pytest.raises(
         FillingResolutionError,
-        match=rf"nested filling {nested_reference}.*chat.Parent",
+        match=rf"nested {vendor} filling.*chat.Parent",
     ):
         resolve_fillings(
             ["chat.Parent"],
