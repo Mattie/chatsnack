@@ -83,6 +83,9 @@ Direct resolution follows these rules:
   nesting fail with a bounded resolver error.
 - Saved chat references require `allow_chat=True` before `chatsnack` makes a model
   call. This also applies when saved text contains a chat reference.
+- Saved chats resolved by the default source must be self-contained. Nested
+  `text.*` or `chat.*` fillings are rejected before provider I/O so legacy
+  expansion cannot bypass the resolver's invocation limits.
 - Missing requested names appear in `missing_references`. A missing dependency
   inside saved text stops that text from resolving.
 - Inserted values remain plain data. `chatsnack` does not scan them for more

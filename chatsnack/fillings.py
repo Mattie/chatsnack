@@ -132,7 +132,11 @@ class FillingSource(Protocol):
 
 
 class ChatsnackFillingSource:
-    """Resolve persisted ``Text`` and ``Chat`` objects through public APIs."""
+    """Resolve persisted ``Text`` and self-contained ``Chat`` objects.
+
+    Nested saved-asset fillings inside a Chat are rejected before submission so
+    provider calls cannot escape the direct resolver's invocation limits.
+    """
 
     def __init__(self, *, stash=None):
         self.stash = stash
@@ -160,6 +164,16 @@ class ChatsnackFillingSource:
         prompt = self._objects(Chat).get_or_none(name)
         if prompt is None:
             return None
+        parent_reference = f"chat.{name}"
+        nested_reference = _first_static_reference_in_chat(
+            prompt,
+            parent_reference,
+        )
+        if nested_reference is not None:
+            raise FillingResolutionError(
+                f"nested filling {nested_reference} in {parent_reference} "
+                "is outside the bounded resolver graph"
+            )
         # Resolver override namespaces would replace the saved chat's built-in
         # filling machines if forwarded as query variables. Ordinary template
         # variables still belong to the nested chat call.
@@ -209,6 +223,29 @@ def _parse_fields(template: str, reference: str) -> list[str]:
         ]
     except ValueError:
         raise FillingResolutionError(f"could not resolve {reference}") from None
+
+
+def _first_static_reference_in_chat(prompt, parent_reference: str) -> Optional[str]:
+    """Find a nested saved-asset filling that would bypass resolver limits."""
+
+    try:
+        messages = prompt.get_messages()
+    except Exception:
+        raise FillingResolutionError(
+            f"could not resolve {parent_reference}"
+        ) from None
+    for message in messages:
+        if not isinstance(message, Mapping):
+            continue
+        for key in ("role", "content"):
+            value = message.get(key)
+            if not isinstance(value, str):
+                continue
+            for field_name in _parse_fields(value, parent_reference):
+                reference = _static_reference(field_name)
+                if reference is not None:
+                    return reference
+    return None
 
 
 async def resolve_fillings_a(
@@ -328,6 +365,8 @@ async def resolve_fillings_a(
         async with semaphore:
             try:
                 value = await source.resolve_chat(name, variables)
+            except FillingError:
+                raise
             except Exception:
                 raise FillingResolutionError(
                     _with_chain(
@@ -394,11 +433,16 @@ async def resolve_fillings_a(
                 else _lookup_mapping_path(variables, field_name)
             )
             if value is _MISSING:
-                failed_reference = dependency or reference
+                if dependency is not None:
+                    failed_subject = dependency
+                    chain = reference_chains.get(dependency, (reference,))
+                else:
+                    failed_subject = f"variable {field_name}"
+                    chain = reference_chains.get(reference, (reference,))
                 raise FillingResolutionError(
                     _with_chain(
-                        f"could not resolve {failed_reference}",
-                        reference_chains.get(failed_reference, (reference,)),
+                        f"could not resolve {failed_subject}",
+                        chain,
                     )
                 ) from None
             parts.append(str(value))

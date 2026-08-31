@@ -275,6 +275,19 @@ def test_missing_transitive_text_reports_its_dependency_chain():
     assert "text.Outer -> text.Missing" in str(caught.value)
 
 
+def test_missing_variable_reports_its_name_and_text_dependency_chain():
+    source = FakeFillingSource(
+        texts={"Outer": "{text.Inner}", "Inner": "{payload}"}
+    )
+
+    with pytest.raises(FillingResolutionError) as caught:
+        resolve_fillings(["text.Outer"], source=source)
+
+    assert str(caught.value) == (
+        "could not resolve variable payload (via text.Outer -> text.Inner)"
+    )
+
+
 def test_default_source_resolves_a_persisted_text_through_public_storage(tmp_path):
     Text(name="Voice", content="clear").save(tmp_path / "Voice.txt")
 
@@ -292,6 +305,9 @@ def test_default_chat_source_keeps_reserved_namespaces_out_of_query_variables(
     captured = {}
 
     class FakePrompt:
+        def get_messages(self):
+            return []
+
         async def ask_a(self, **variables):
             captured.update(variables)
             return "popcorn"
@@ -319,3 +335,45 @@ def test_default_chat_source_keeps_reserved_namespaces_out_of_query_variables(
 
     assert result.context["chat"]["SnackPicker"] == "popcorn"
     assert captured == {"topic": "movie night"}
+
+
+@pytest.mark.parametrize("nested_reference", ["text.Child", "chat.Child"])
+def test_default_chat_source_rejects_nested_fillings_before_provider_io(
+    monkeypatch,
+    nested_reference,
+):
+    provider_calls = []
+
+    class FakePrompt:
+        def get_messages(self):
+            return [
+                {
+                    "role": "system",
+                    "content": f"Nested value: {{{nested_reference}}}",
+                }
+            ]
+
+        async def ask_a(self, **variables):
+            provider_calls.append(variables)
+            return "should not run"
+
+    class FakeObjects:
+        def get_or_none(self, name):
+            assert name == "Parent"
+            return FakePrompt()
+
+    source = ChatsnackFillingSource()
+    monkeypatch.setattr(source, "_objects", lambda model: FakeObjects())
+
+    with pytest.raises(
+        FillingResolutionError,
+        match=rf"nested filling {nested_reference}.*chat.Parent",
+    ):
+        resolve_fillings(
+            ["chat.Parent"],
+            allow_chat=True,
+            limits=FillingLimits(max_chat_calls=1),
+            source=source,
+        )
+
+    assert provider_calls == []
