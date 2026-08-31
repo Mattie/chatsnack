@@ -69,30 +69,26 @@ External assemblers such as Catsnack sometimes know the finite set of static
 can resolve that set directly:
 
 ```python
-from chatsnack import resolve_fillings
+from chatsnack import resolve_fillings_a
 
-resolved = resolve_fillings(["text.SnackExplosion"])
-print(resolved.context["text"]["SnackExplosion"])
+resolved = await resolve_fillings_a(["text.SnackExplosion"])
+print(resolved["text"]["SnackExplosion"])
 ```
 
 Direct resolution follows these rules:
 
 - Explicit values in `variables["text"]` or `variables["chat"]` take priority
-  without loading a saved asset.
-- Saved text can refer to other text or chat fillings. Text cycles and excessive
-  nesting fail with a bounded resolver error.
+  for the requested names without loading a saved asset.
+- Saved assets expand through the same formatter and filling callbacks used by
+  `Chat.ask_a()`, including nested Text and Chat fillings.
 - Saved chat references require `allow_chat=True` before `chatsnack` makes a model
-  call. This must be a boolean, and also applies when saved text contains a chat
-  reference.
-- Saved chats resolved by the default source must be self-contained. Nested
-  `text.*` or `chat.*` fillings are rejected before provider I/O so legacy
-  expansion cannot bypass the resolver's invocation limits.
-- Missing requested names appear in `missing_references`. A missing dependency
-  inside saved text stops that text from resolving.
+  call. This also applies when saved Text or Chat assets contain a chat filling.
+- Missing requested names are omitted. A missing transitive dependency stops the
+  requested filling from resolving.
 - Inserted values remain plain data. `chatsnack` does not scan them for more
   filling references.
-- `FillingLimits` bounds nesting, resolved nodes, chat calls, and concurrent
-  chat calls.
+- Fixed resolver-only bounds cap recursive depth, filling expansions, and model
+  calls. They do not change ordinary Chat expansion.
 
-See the [Fillings API reference](../reference/api/fillings.md) for signatures,
-result metadata, limits, sources, and errors.
+See the [Fillings API reference](../reference/api/fillings.md) for the signature
+and errors.

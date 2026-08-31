@@ -5,33 +5,9 @@ know the finite set of saved text and chat references they need. The
 [Fillings and Composition guide](../../guides/fillings.md) explains when to use
 it and how resolution behaves.
 
-## Resolve synchronously
-
-::: chatsnack.resolve_fillings
-
-## Resolve asynchronously
+## Resolve known references
 
 ::: chatsnack.resolve_fillings_a
-
-## Limits and results
-
-### `FillingLimits`
-
-::: chatsnack.FillingLimits
-
-### `FillingResolution`
-
-::: chatsnack.FillingResolution
-
-## Filling sources
-
-### `FillingSource`
-
-::: chatsnack.FillingSource
-
-### `ChatsnackFillingSource`
-
-::: chatsnack.ChatsnackFillingSource
 
 ## Errors
 
@@ -48,11 +24,3 @@ All direct resolver errors inherit from `FillingError`.
 ### `FillingLimitError`
 
 ::: chatsnack.FillingLimitError
-
-### `FillingCycleError`
-
-::: chatsnack.FillingCycleError
-
-### `FillingResolutionError`
-
-::: chatsnack.FillingResolutionError

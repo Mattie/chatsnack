@@ -98,18 +98,14 @@ from .utensil import utensil, get_all_utensils, get_openai_tools, UtensilGroup, 
 from .runtime import ApplyPatchCall, CallUsage, ResponseUsage, UsageCounts
 
 from .fillings import (
-    ChatsnackFillingSource,
     FillingAuthorityError,
-    FillingCycleError,
     FillingError,
     FillingLimitError,
-    FillingLimits,
-    FillingResolution,
-    FillingResolutionError,
-    FillingSource,
     active_filling_stash,
+    bounded_filling_expansion,
     filling_machine,
-    resolve_fillings,
+    filling_resolution_active,
+    missing_filling,
     resolve_fillings_a,
     snack_catalog,
 )
@@ -117,18 +113,48 @@ from .fillings import (
 
 async def _text_name_expansion(text_name: str, additional: Optional[dict] = None) -> str:
     stash = active_filling_stash.get()
-    prompt = Text.objects(stash).get(text_name) if stash is not None else Text.objects.get(text_name)
-    result = await aformatter.async_format(prompt.content, **filling_machine(additional))
-    return result
+    objects = Text.objects(stash) if stash is not None else Text.objects
+
+    if not filling_resolution_active():
+        prompt = objects.get(text_name)
+        return await aformatter.async_format(
+            prompt.content,
+            **filling_machine(additional),
+        )
+
+    reference = f"text.{text_name}"
+
+    async def expand() -> str:
+        prompt = objects.get_or_none(text_name)
+        if prompt is None:
+            raise missing_filling(reference)
+        return await aformatter.async_format(
+            prompt.content,
+            **filling_machine(additional),
+        )
+
+    return await bounded_filling_expansion(reference, expand)
 
 # accepts a petition name as a string and calls petition_completion2, returning only the completion text
 async def _chat_name_query_expansion(prompt_name: str, additional: Optional[dict] = None) -> str:
     stash = active_filling_stash.get()
-    chatprompt = Chat.objects(stash).get_or_none(prompt_name) if stash is not None else Chat.objects.get_or_none(prompt_name)
-    if chatprompt is None:
-        raise Exception(f"Prompt {prompt_name} not found")
-    text = await chatprompt.ask_a(**additional)
-    return text
+    objects = Chat.objects(stash) if stash is not None else Chat.objects
+
+    if not filling_resolution_active():
+        chatprompt = objects.get_or_none(prompt_name)
+        if chatprompt is None:
+            raise Exception(f"Prompt {prompt_name} not found")
+        return await chatprompt.ask_a(**additional)
+
+    reference = f"chat.{prompt_name}"
+
+    async def expand() -> str:
+        chatprompt = objects.get_or_none(prompt_name)
+        if chatprompt is None:
+            raise missing_filling(reference)
+        return await chatprompt.ask_a(**additional)
+
+    return await bounded_filling_expansion(reference, expand, is_chat=True)
 
 
 # default snack vendors
