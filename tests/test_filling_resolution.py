@@ -4,6 +4,7 @@ from contextlib import contextmanager
 import pytest
 from snapclass import Stash
 
+import chatsnack
 from chatsnack import Chat, Text
 from chatsnack.fillings import (
     FillingAuthorityError,
@@ -128,6 +129,26 @@ def test_explicit_values_win_without_loading_assets_or_chat_authority(monkeypatc
     }
 
 
+def test_replacement_chat_callback_obeys_resolver_authority(monkeypatch):
+    calls = []
+
+    async def replacement(name, additional):
+        calls.append(name)
+        return "generated"
+
+    monkeypatch.setitem(snack_catalog.vendors, "chat", replacement)
+
+    with pytest.raises(FillingAuthorityError):
+        asyncio.run(resolve_fillings_a(["chat.Dynamic"]))
+    assert calls == []
+
+    result = asyncio.run(
+        resolve_fillings_a(["chat.Dynamic"], allow_chat=True)
+    )
+    assert result == {"chat": {"Dynamic": "generated"}}
+    assert calls == ["Dynamic"]
+
+
 def test_namespace_overrides_only_apply_to_explicitly_requested_references(tmp_path):
     save_text(tmp_path, "Outer", "saved {text.Inner}")
     save_text(tmp_path, "Inner", "inner asset")
@@ -249,6 +270,27 @@ def test_fixed_chat_limit_stops_before_the_seventeenth_model_call(
     assert calls == [f"C{index}" for index in range(16)]
 
 
+def test_missing_chats_do_not_consume_the_model_call_budget(tmp_path, monkeypatch):
+    references = [f"chat.Missing{index}" for index in range(16)]
+    references.append("chat.Valid")
+    save_chat(tmp_path, "Valid", "valid")
+    calls = []
+
+    async def fake_provider(self, **variables):
+        calls.append(self.name)
+        return "resolved"
+
+    monkeypatch.setattr(Chat, "ask_a", fake_provider)
+
+    with use_filling_stash(tmp_path):
+        result = asyncio.run(
+            resolve_fillings_a(references, allow_chat=True)
+        )
+
+    assert result["chat"] == {"Valid": "resolved"}
+    assert calls == ["Valid"]
+
+
 def test_provider_failure_is_content_free(tmp_path, monkeypatch):
     save_chat(tmp_path, "Broken", "private prompt")
 
@@ -309,3 +351,30 @@ def test_normal_chat_prompt_expansion_keeps_its_existing_path(tmp_path):
     prompt = asyncio.run(chat._build_final_prompt({}))
 
     assert "Use clear instructions." in prompt
+
+
+def test_normal_chat_fillings_have_no_resolver_authority_or_call_cap(
+    tmp_path,
+    monkeypatch,
+):
+    save_chat(tmp_path, "Child", "child")
+    save_chat(tmp_path, "Parent", " ".join(["{chat.Child}"] * 17))
+    parent = Chat.objects(Stash(tmp_path)).get("Parent")
+    calls = []
+
+    async def fake_provider(self, **variables):
+        calls.append(self.name)
+        return "resolved"
+
+    monkeypatch.setattr(Chat, "ask_a", fake_provider)
+
+    prompt = asyncio.run(parent._build_final_prompt({}))
+
+    assert prompt.count("resolved") == 17
+    assert calls == ["Child"] * 17
+
+
+def test_resolver_policy_helpers_are_not_public_top_level_names():
+    assert not hasattr(chatsnack, "bounded_filling_expansion")
+    assert not hasattr(chatsnack, "filling_resolution_active")
+    assert not hasattr(chatsnack, "missing_filling")

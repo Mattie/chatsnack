@@ -102,10 +102,9 @@ from .fillings import (
     FillingError,
     FillingLimitError,
     active_filling_stash,
-    bounded_filling_expansion,
+    _filling_resolution_active,
+    _missing_filling,
     filling_machine,
-    filling_resolution_active,
-    missing_filling,
     resolve_fillings_a,
     snack_catalog,
 )
@@ -115,7 +114,7 @@ async def _text_name_expansion(text_name: str, additional: Optional[dict] = None
     stash = active_filling_stash.get()
     objects = Text.objects(stash) if stash is not None else Text.objects
 
-    if not filling_resolution_active():
+    if not _filling_resolution_active():
         prompt = objects.get(text_name)
         return await aformatter.async_format(
             prompt.content,
@@ -127,20 +126,20 @@ async def _text_name_expansion(text_name: str, additional: Optional[dict] = None
     async def expand() -> str:
         prompt = objects.get_or_none(text_name)
         if prompt is None:
-            raise missing_filling(reference)
+            raise _missing_filling(reference)
         return await aformatter.async_format(
             prompt.content,
             **filling_machine(additional),
         )
 
-    return await bounded_filling_expansion(reference, expand)
+    return await expand()
 
 # accepts a petition name as a string and calls petition_completion2, returning only the completion text
 async def _chat_name_query_expansion(prompt_name: str, additional: Optional[dict] = None) -> str:
     stash = active_filling_stash.get()
     objects = Chat.objects(stash) if stash is not None else Chat.objects
 
-    if not filling_resolution_active():
+    if not _filling_resolution_active():
         chatprompt = objects.get_or_none(prompt_name)
         if chatprompt is None:
             raise Exception(f"Prompt {prompt_name} not found")
@@ -151,10 +150,10 @@ async def _chat_name_query_expansion(prompt_name: str, additional: Optional[dict
     async def expand() -> str:
         chatprompt = objects.get_or_none(prompt_name)
         if chatprompt is None:
-            raise missing_filling(reference)
+            raise _missing_filling(reference)
         return await chatprompt.ask_a(**additional)
 
-    return await bounded_filling_expansion(reference, expand, is_chat=True)
+    return await expand()
 
 
 # default snack vendors

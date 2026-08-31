@@ -22,13 +22,23 @@ active_filling_stash = ContextVar("chatsnack_active_filling_stash", default=None
 class _AsyncFillingMachine:
     """Expose one async catalog callback through formatter field access."""
 
-    def __init__(self, src, addl=None):
+    def __init__(self, vendor, src, addl=None):
+        self.vendor = vendor
         self.src = src
         self.addl = addl
 
     def __getitem__(self, key):
         async def completer_coro():
-            value = await self.src(key, self.addl)
+            reference = f"{self.vendor}.{key}"
+
+            async def expand():
+                return await self.src(key, self.addl)
+
+            value = await _bounded_filling_expansion(
+                reference,
+                expand,
+                is_chat=self.vendor == "chat",
+            )
             logger.trace(
                 "Filling machine: {key} filled with:\n{value}",
                 key=key,
@@ -60,7 +70,7 @@ def filling_machine(additional: Optional[Dict] = None) -> dict:
     fillings_dict = additional.copy() if additional is not None else {}
     for key, callback in snack_catalog.vendors.items():
         if key not in fillings_dict:
-            fillings_dict[key] = _AsyncFillingMachine(callback, additional)
+            fillings_dict[key] = _AsyncFillingMachine(key, callback, additional)
     return fillings_dict
 
 
@@ -102,13 +112,13 @@ _active_resolver = ContextVar("chatsnack_active_filling_resolver", default=None)
 _active_chain = ContextVar("chatsnack_active_filling_chain", default=())
 
 
-def filling_resolution_active() -> bool:
+def _filling_resolution_active() -> bool:
     """Return whether a public resolver currently owns filling expansion."""
 
     return _active_resolver.get() is not None
 
 
-async def bounded_filling_expansion(
+async def _bounded_filling_expansion(
     reference: str,
     expand: Callable[[], Awaitable[str]],
     *,
@@ -167,7 +177,11 @@ async def bounded_filling_expansion(
     token = _active_chain.set(current_chain)
     try:
         return await expand()
-    except (_MissingFilling, FillingError):
+    except _MissingFilling:
+        if is_chat:
+            state.chat_calls -= 1
+        raise
+    except FillingError:
         raise
     except Exception:
         raise FillingError(
@@ -177,7 +191,7 @@ async def bounded_filling_expansion(
         _active_chain.reset(token)
 
 
-def missing_filling(reference: str) -> Exception:
+def _missing_filling(reference: str) -> Exception:
     """Create the internal missing-asset signal for a resolver callback."""
 
     return _MissingFilling(reference, _active_chain.get())
@@ -194,8 +208,9 @@ async def resolve_fillings_a(
     ``references`` must contain static ``text.Name`` or ``chat.Name`` values.
     Explicit values in the matching ``variables`` namespace are returned as
     opaque data. Saved assets expand through the same callbacks used by
-    :meth:`Chat.ask_a`. Missing requested assets are omitted. Chat fillings,
-    including transitive ones, require explicit authority for this invocation.
+    :meth:`Chat.ask_a`. Missing requested assets are omitted after any required
+    Chat authority check. Chat fillings, including transitive ones, require
+    explicit authority for this invocation.
     """
 
     if variables is None:

@@ -83,12 +83,14 @@ Direct resolution follows these rules:
   `Chat.ask_a()`, including nested Text and Chat fillings.
 - Saved chat references require `allow_chat=True` before `chatsnack` makes a model
   call. This also applies when saved Text or Chat assets contain a chat filling.
-- Missing requested names are omitted. A missing transitive dependency stops the
-  requested filling from resolving.
+- Missing requested Text names are omitted. Chat authority is checked before
+  Chatsnack looks up a requested Chat; once authorized, a missing Chat is also
+  omitted. A missing transitive dependency stops the requested filling from
+  resolving.
 - Inserted values remain plain data. `chatsnack` does not scan them for more
   filling references.
-- Fixed resolver-only bounds cap recursive depth, filling expansions, and model
-  calls. They do not change ordinary Chat expansion.
+- Fixed resolver-only bounds cap recursive depth, filling expansions, and Chat
+  filling invocations. They do not change ordinary Chat expansion.
 
 See the [Fillings API reference](../reference/api/fillings.md) for the signature
 and errors.
