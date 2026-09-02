@@ -6,6 +6,7 @@ from snapclass import Stash
 
 import chatsnack
 from chatsnack import Chat, Text
+from chatsnack.asynchelpers import aformatter
 from chatsnack.fillings import (
     FillingAuthorityError,
     FillingError,
@@ -234,6 +235,56 @@ def test_resolver_cancels_sibling_expansions_before_returning_an_error(
                 )
 
         assert slow_cancelled.is_set()
+
+    asyncio.run(exercise())
+
+
+@pytest.mark.parametrize("formatting_scope", ["fields", "messages"])
+def test_normal_formatting_failure_does_not_cancel_siblings(formatting_scope):
+    async def exercise():
+        started = asyncio.Event()
+        release = asyncio.Event()
+        cancelled = asyncio.Event()
+        finished = asyncio.Event()
+
+        async def fail():
+            await started.wait()
+            raise RuntimeError("formatting failed")
+
+        async def wait():
+            started.set()
+            try:
+                await release.wait()
+                return "finished"
+            except asyncio.CancelledError:
+                cancelled.set()
+                raise
+            finally:
+                finished.set()
+
+        class Field:
+            def __init__(self, value):
+                self.value = value
+
+        variables = {
+            "failing": Field(fail),
+            "slow": Field(wait),
+        }
+        if formatting_scope == "fields":
+            formatting = aformatter.async_format(
+                "{failing.value} {slow.value}",
+                **variables,
+            )
+        else:
+            chat = Chat().system("{failing.value}").user("{slow.value}")
+            formatting = chat._build_final_prompt(variables)
+
+        with pytest.raises(RuntimeError, match="^formatting failed$"):
+            await formatting
+
+        release.set()
+        await asyncio.wait_for(finished.wait(), timeout=1)
+        assert not cancelled.is_set()
 
     asyncio.run(exercise())
 

@@ -41,10 +41,31 @@ class _AsyncFormatter(string.Formatter):
         return value
 
     async def async_format(self, format_string, *args, **kwargs):
-        return await self.async_format_mapping(format_string, kwargs, args)
+        return await self._async_format_fields(
+            format_string,
+            kwargs,
+            args,
+            asyncio.gather,
+        )
 
     async def async_format_mapping(self, format_string, variables, args=()):
         """Format with variables passed as data instead of method keywords."""
+
+        return await self._async_format_fields(
+            format_string,
+            variables,
+            args,
+            _gather_cancel_on_error,
+        )
+
+    async def _async_format_fields(
+        self,
+        format_string,
+        variables,
+        args,
+        gather_fields,
+    ):
+        """Format fields with the sibling-failure policy chosen by the caller."""
 
         coros = []
         parsed_format = list(self.parse(format_string))
@@ -54,7 +75,7 @@ class _AsyncFormatter(string.Formatter):
                 coro = self.async_expand_field(field_name, args, variables)
                 coros.append(coro)
 
-        expanded_fields = await _gather_cancel_on_error(*coros)
+        expanded_fields = await gather_fields(*coros)
         expanded_iter = iter(expanded_fields)
 
         return ''.join([

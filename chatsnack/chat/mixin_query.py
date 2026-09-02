@@ -453,10 +453,28 @@ class ChatQueryMixin(ChatMessagesMixin, ChatParamsMixin):
         async def format_mapping(value, variables):
             return await format_coro(value, **variables)
 
-        return await self._gather_format_mapping(format_mapping, kwargs)
+        return await self._gather_formatted_messages(
+            format_mapping,
+            kwargs,
+            asyncio.gather,
+        )
 
     async def _gather_format_mapping(self, format_coro, format_vars) -> str:
         """Format every message while keeping variables in a positional map."""
+
+        return await self._gather_formatted_messages(
+            format_coro,
+            format_vars,
+            _gather_cancel_on_error,
+        )
+
+    async def _gather_formatted_messages(
+        self,
+        format_coro,
+        format_vars,
+        gather_messages,
+    ) -> str:
+        """Format messages with the sibling-failure policy chosen by the caller."""
 
         new_messages = self.get_messages()
         # TODO: Allow format messages in the tool calls
@@ -490,7 +508,7 @@ class ChatQueryMixin(ChatMessagesMixin, ChatParamsMixin):
             coros.append(format_key(message))
             coros.append(format_message(message))
         # gather the results
-        await _gather_cancel_on_error(*coros)
+        await gather_messages(*coros)
         logger.trace(new_messages)
         
         # if the current model is a reasoning model, we need the role of "system" to become "developer" in the json dump messages
