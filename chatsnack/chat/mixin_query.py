@@ -12,7 +12,7 @@ from loguru import logger
 
 from ..assets import capture_asset
 from ..asynchelpers import _gather_cancel_on_error, aformatter
-from ..fillings import active_filling_stash, filling_machine
+from ..fillings import FillingError, active_filling_stash, filling_machine
 from ..runtime import ApplyPatchCall, EVENT_SCHEMA_VERSION, ResponsesWebSocketAdapter
 from ..runtime.attachment_inputs import normalize_attachment_inputs
 
@@ -467,6 +467,8 @@ class ChatQueryMixin(ChatMessagesMixin, ChatParamsMixin):
                 if isinstance(message["content"], str):
                     try:
                         message["content"] = await format_coro(message["content"], **kwargs)
+                    except FillingError:
+                        raise
                     except Exception:
                         if message.get("role") != "assistant":
                             raise

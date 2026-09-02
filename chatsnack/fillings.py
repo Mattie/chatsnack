@@ -38,6 +38,13 @@ class _AsyncFillingMachine:
                 reference,
                 expand,
                 is_chat=self.vendor == "chat",
+                defer_chat_limit=bool(
+                    getattr(
+                        self.src,
+                        "_chatsnack_reserves_chat_after_lookup",
+                        False,
+                    )
+                ),
             )
             logger.trace(
                 "Filling machine: {key} filled with:\n{value}",
@@ -102,7 +109,7 @@ class _ResolverState:
     chat_calls: int = 0
 
 
-class _MissingFilling(Exception):
+class _MissingFilling(FillingError):
     def __init__(self, reference: str, chain: tuple[str, ...]):
         self.reference = reference
         self.chain = chain
@@ -118,11 +125,29 @@ def _filling_resolution_active() -> bool:
     return _active_resolver.get() is not None
 
 
+def _reserve_chat_filling_call(reference: str) -> None:
+    """Reserve one resolver-authorized model call before provider dispatch."""
+
+    state = _active_resolver.get()
+    if state is None:
+        return
+    state.chat_calls += 1
+    if state.chat_calls > _MAX_CHAT_CALLS:
+        state.chat_calls -= 1
+        raise FillingLimitError(
+            _with_chain(
+                f"chat filling call limit exceeded while resolving {reference}",
+                _active_chain.get(),
+            )
+        )
+
+
 async def _bounded_filling_expansion(
     reference: str,
     expand: Callable[[], Awaitable[str]],
     *,
     is_chat: bool = False,
+    defer_chat_limit: bool = False,
 ) -> str:
     """Apply resolver-only authority and recursion bounds to one callback.
 
@@ -157,6 +182,7 @@ async def _bounded_filling_expansion(
             )
         )
 
+    chat_call_reserved = False
     if is_chat:
         if not state.allow_chat:
             raise FillingAuthorityError(
@@ -165,20 +191,15 @@ async def _bounded_filling_expansion(
                     current_chain,
                 )
             )
-        state.chat_calls += 1
-        if state.chat_calls > _MAX_CHAT_CALLS:
-            raise FillingLimitError(
-                _with_chain(
-                    f"chat filling call limit exceeded while resolving {reference}",
-                    current_chain,
-                )
-            )
+        if not defer_chat_limit:
+            _reserve_chat_filling_call(reference)
+            chat_call_reserved = True
 
     token = _active_chain.set(current_chain)
     try:
         return await expand()
     except _MissingFilling:
-        if is_chat:
+        if chat_call_reserved:
             state.chat_calls -= 1
         raise
     except FillingError:

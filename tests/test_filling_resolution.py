@@ -228,6 +228,62 @@ def test_resolver_cancels_sibling_expansions_before_returning_an_error(
     asyncio.run(exercise())
 
 
+def test_resolver_propagates_missing_fillings_from_assistant_messages(
+    tmp_path,
+    monkeypatch,
+):
+    Chat(name="AssistantHistory").assistant("{text.Missing}").save(
+        tmp_path / "AssistantHistory.yml"
+    )
+    provider_calls = []
+
+    async def unexpected_provider(self, prompt, **kwargs):
+        provider_calls.append(prompt)
+        return "unexpected"
+
+    monkeypatch.setattr(Chat, "_cleaned_chat_completion", unexpected_provider)
+
+    with use_filling_stash(tmp_path):
+        with pytest.raises(FillingError) as caught:
+            asyncio.run(
+                resolve_fillings_a(
+                    ["chat.AssistantHistory"],
+                    allow_chat=True,
+                )
+            )
+
+    assert "chat.AssistantHistory -> text.Missing" in str(caught.value)
+    assert provider_calls == []
+
+
+def test_resolver_still_tolerates_malformed_assistant_braces(
+    tmp_path,
+    monkeypatch,
+):
+    Chat(name="AssistantHistory").assistant("unfinished {").save(
+        tmp_path / "AssistantHistory.yml"
+    )
+    prompts = []
+
+    async def capture_prompt(self, prompt, **kwargs):
+        prompts.append(prompt)
+        return "resolved"
+
+    monkeypatch.setattr(Chat, "_cleaned_chat_completion", capture_prompt)
+
+    with use_filling_stash(tmp_path):
+        result = asyncio.run(
+            resolve_fillings_a(
+                ["chat.AssistantHistory"],
+                allow_chat=True,
+            )
+        )
+
+    assert result == {"chat": {"AssistantHistory": "resolved"}}
+    assert len(prompts) == 1
+    assert "unfinished {" in prompts[0]
+
+
 def test_explicit_values_win_without_loading_assets_or_chat_authority(monkeypatch):
     async def unexpected_call(name, additional):
         raise AssertionError(f"catalog called for {name}")
@@ -412,6 +468,35 @@ def test_missing_chats_do_not_consume_the_model_call_budget(tmp_path, monkeypatc
 
     assert result["chat"] == {"Valid": "resolved"}
     assert calls == ["Valid"]
+
+
+def test_missing_chat_after_full_model_call_budget_is_still_omitted(
+    tmp_path,
+    monkeypatch,
+):
+    references = []
+    for index in range(16):
+        name = f"Valid{index}"
+        references.append(f"chat.{name}")
+        save_chat(tmp_path, name, name)
+    references.append("chat.Missing")
+    calls = []
+
+    async def fake_provider(self, **variables):
+        calls.append(self.name)
+        return self.name
+
+    monkeypatch.setattr(Chat, "ask_a", fake_provider)
+
+    with use_filling_stash(tmp_path):
+        result = asyncio.run(
+            resolve_fillings_a(references, allow_chat=True)
+        )
+
+    assert result["chat"] == {
+        f"Valid{index}": f"Valid{index}" for index in range(16)
+    }
+    assert calls == [f"Valid{index}" for index in range(16)]
 
 
 def test_provider_failure_is_content_free(tmp_path, monkeypatch):

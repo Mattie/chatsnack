@@ -104,6 +104,7 @@ from .fillings import (
     active_filling_stash,
     _filling_resolution_active,
     _missing_filling,
+    _reserve_chat_filling_call,
     filling_machine,
     resolve_fillings_a,
     snack_catalog,
@@ -151,9 +152,15 @@ async def _chat_name_query_expansion(prompt_name: str, additional: Optional[dict
         chatprompt = objects.get_or_none(prompt_name)
         if chatprompt is None:
             raise _missing_filling(reference)
+        _reserve_chat_filling_call(reference)
         return await chatprompt._ask_a_with_template_vars(additional)
 
     return await expand()
+
+
+# The built-in Chat callback can check existence before reserving model work.
+# Replacement callbacks remain bounded before dispatch at the catalog boundary.
+_chat_name_query_expansion._chatsnack_reserves_chat_after_lookup = True
 
 
 # default snack vendors
