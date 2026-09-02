@@ -24,6 +24,13 @@ class _AsyncFormatter(string.Formatter):
             obj, method = field.split(".", 1)
             if obj in kwargs:
                 obj_instance = kwargs[obj]
+                field_resolver = getattr(
+                    type(obj_instance),
+                    "_chatsnack_expand_field",
+                    None,
+                )
+                if field_resolver is not None:
+                    return await field_resolver(obj_instance, method)
                 if hasattr(obj_instance, method):
                     method_instance = getattr(obj_instance, method)
                     if asyncio.iscoroutinefunction(method_instance):

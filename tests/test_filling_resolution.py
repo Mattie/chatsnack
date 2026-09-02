@@ -542,6 +542,17 @@ def test_hyphenated_names_are_valid(tmp_path):
     assert result == {"text": {"snack-style": "playful"}}
 
 
+def test_adapter_attribute_names_still_route_through_catalog_policy(tmp_path):
+    save_text(tmp_path, "vendor", "saved value")
+
+    with use_filling_stash(tmp_path):
+        result = asyncio.run(resolve_fillings_a(["text.vendor"]))
+        with pytest.raises(FillingAuthorityError):
+            asyncio.run(resolve_fillings_a(["chat.vendor"]))
+
+    assert result == {"text": {"vendor": "saved value"}}
+
+
 @pytest.mark.parametrize(
     "reference",
     ["text../secret", "text.Snack/Secret", "text.Snack.Secret", "other.Name"],

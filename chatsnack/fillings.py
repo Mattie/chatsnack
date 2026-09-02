@@ -55,6 +55,11 @@ class _AsyncFillingMachine:
 
         return completer_coro
 
+    async def _chatsnack_expand_field(self, key):
+        """Force formatter fields through catalog dispatch, not attributes."""
+
+        return await self[key]()
+
     __getattr__ = __getitem__
 
 
