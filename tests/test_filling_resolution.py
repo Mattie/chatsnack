@@ -54,7 +54,11 @@ def test_goal_known_reference_uses_the_shared_formatter_catalog(monkeypatch):
 
 
 def test_goal_recursive_text_uses_main_expansion_and_keeps_values_opaque(tmp_path):
-    save_text(tmp_path, "Outer", "before {text.Inner} {topic} after")
+    save_text(
+        tmp_path,
+        "Outer",
+        "before {text.Inner} {topic} {self} {format_string} after",
+    )
     save_text(tmp_path, "Inner", "literal {payload}")
     save_text(tmp_path, "NotRescanned", "wrong")
 
@@ -65,13 +69,17 @@ def test_goal_recursive_text_uses_main_expansion_and_keeps_values_opaque(tmp_pat
                 variables={
                     "topic": "snacks",
                     "payload": "{text.NotRescanned}",
+                    "self": "reader",
+                    "format_string": "layout",
                 },
             )
         )
 
     assert result == {
         "text": {
-            "Outer": "before literal {text.NotRescanned} snacks after",
+            "Outer": (
+                "before literal {text.NotRescanned} snacks reader layout after"
+            ),
         }
     }
 
@@ -115,6 +123,8 @@ def test_goal_authorized_chat_can_use_nested_text_and_chat_fillings(
         "track_continuation",
         "_call_usage_ledger",
         "_submitted_runtime_out",
+        "self",
+        "format_string",
     ],
 )
 def test_chat_resolution_keeps_query_control_names_as_template_variables(

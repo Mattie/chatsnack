@@ -128,9 +128,9 @@ async def _text_name_expansion(text_name: str, additional: Optional[dict] = None
         prompt = objects.get_or_none(text_name)
         if prompt is None:
             raise _missing_filling(reference)
-        return await aformatter.async_format(
+        return await aformatter.async_format_mapping(
             prompt.content,
-            **filling_machine(additional),
+            filling_machine(additional),
         )
 
     return await expand()

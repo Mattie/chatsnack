@@ -41,12 +41,17 @@ class _AsyncFormatter(string.Formatter):
         return value
 
     async def async_format(self, format_string, *args, **kwargs):
+        return await self.async_format_mapping(format_string, kwargs, args)
+
+    async def async_format_mapping(self, format_string, variables, args=()):
+        """Format with variables passed as data instead of method keywords."""
+
         coros = []
         parsed_format = list(self.parse(format_string))
 
         for literal_text, field_name, format_spec, conversion in parsed_format:
             if field_name:
-                coro = self.async_expand_field(field_name, args, kwargs)
+                coro = self.async_expand_field(field_name, args, variables)
                 coros.append(coro)
 
         expanded_fields = await _gather_cancel_on_error(*coros)

@@ -450,6 +450,14 @@ class ChatQueryMixin(ChatMessagesMixin, ChatParamsMixin):
 
     # async method that gathers will execute an async format method on every message in the chat prompt and gather the results into a final json string
     async def _gather_format(self, format_coro, **kwargs) -> str:
+        async def format_mapping(value, variables):
+            return await format_coro(value, **variables)
+
+        return await self._gather_format_mapping(format_mapping, kwargs)
+
+    async def _gather_format_mapping(self, format_coro, format_vars) -> str:
+        """Format every message while keeping variables in a positional map."""
+
         new_messages = self.get_messages()
         # TODO: Allow format messages in the tool calls
         # we now apply the format_coro to the content of each message in each dictionary in the list
@@ -458,7 +466,10 @@ class ChatQueryMixin(ChatMessagesMixin, ChatParamsMixin):
             async def format_key(message):
                 logger.trace("formatting key: {role}", role=message['role'])
                 if isinstance(message["role"], str):
-                    message["role"] = await format_coro(message["role"], **kwargs)
+                    message["role"] = await format_coro(
+                        message["role"],
+                        format_vars,
+                    )
                 return
             async def format_message(message):
                 logger.trace("formatting content: {content}", content=message['content'])
@@ -466,7 +477,10 @@ class ChatQueryMixin(ChatMessagesMixin, ChatParamsMixin):
                     return
                 if isinstance(message["content"], str):
                     try:
-                        message["content"] = await format_coro(message["content"], **kwargs)
+                        message["content"] = await format_coro(
+                            message["content"],
+                            format_vars,
+                        )
                     except FillingError:
                         raise
                     except Exception:
@@ -498,7 +512,17 @@ class ChatQueryMixin(ChatMessagesMixin, ChatParamsMixin):
         token = active_filling_stash.set(self.snapshot_lookup_stash if hasattr(self, "snapshot_lookup_stash") else None)
         try:
             # format the prompt text with the passed-in variables as well as doing internal expansion
-            prompt = await self._gather_format(aformatter.async_format, **filling_machine(promptvars))
+            active_template_vars = _active_template_vars.get()
+            if active_template_vars is not None and active_template_vars[0] is self:
+                prompt = await self._gather_format_mapping(
+                    aformatter.async_format_mapping,
+                    filling_machine(promptvars),
+                )
+            else:
+                prompt = await self._gather_format(
+                    aformatter.async_format,
+                    **filling_machine(promptvars),
+                )
             return prompt
         finally:
             active_filling_stash.reset(token)
@@ -1024,11 +1048,17 @@ class ChatQueryMixin(ChatMessagesMixin, ChatParamsMixin):
 
         Filling adapters use this path so names that overlap query controls,
         such as ``usermsg`` or ``files``, remain data without bypassing an
-        overridden ``ask_a`` implementation.
+        overridden ``ask_a`` implementation. ``self`` stays context-only
+        because Python bound methods cannot receive it again as a keyword.
         """
         token = _active_template_vars.set((self, dict(template_vars)))
         try:
-            return await self.ask_a(**dict(template_vars))
+            forwarded_vars = {
+                name: value
+                for name, value in template_vars.items()
+                if name != "self"
+            }
+            return await self.ask_a(**forwarded_vars)
         finally:
             _active_template_vars.reset(token)
     def listen(self, usermsg=None, events=False, event_schema="legacy", files=None, images=None, **additional_vars) -> ChatStreamListener:

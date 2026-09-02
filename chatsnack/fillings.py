@@ -275,9 +275,9 @@ async def resolve_fillings_a(
                 continue
 
             try:
-                namespace[name] = await aformatter.async_format(
+                namespace[name] = await aformatter.async_format_mapping(
                     "{" + reference + "}",
-                    **filling_machine(ordinary_variables),
+                    filling_machine(ordinary_variables),
                 )
             except _MissingFilling as error:
                 if error.reference == reference and len(error.chain) == 1:
