@@ -11,7 +11,8 @@ it and how resolution behaves.
 
 ## Errors
 
-All direct resolver errors inherit from `FillingError`.
+Resolution-time failures inherit from `FillingError`. Invalid arguments use
+the usual `TypeError` or `ValueError` validation exceptions.
 
 ### `FillingError`
 

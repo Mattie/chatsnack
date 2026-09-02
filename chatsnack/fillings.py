@@ -302,6 +302,8 @@ async def resolve_fillings_a(
 def _explicit_filling(
     variables: Mapping[str, Any], vendor: str, name: str
 ) -> Any:
+    """Return an opaque override only from the vendor's mapping namespace."""
+
     namespace = variables.get(vendor, _MISSING)
     if not isinstance(namespace, Mapping):
         return _MISSING
@@ -309,6 +311,8 @@ def _explicit_filling(
 
 
 def _with_chain(message: str, chain: tuple[str, ...]) -> str:
+    """Add transitive context while keeping direct-reference errors concise."""
+
     if len(chain) <= 1:
         return message
     return f"{message} (via {' -> '.join(chain)})"
