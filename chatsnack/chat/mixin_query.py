@@ -11,7 +11,7 @@ from typing import Dict, List, Optional
 from loguru import logger
 
 from ..assets import capture_asset
-from ..asynchelpers import aformatter
+from ..asynchelpers import _gather_cancel_on_error, aformatter
 from ..fillings import active_filling_stash, filling_machine
 from ..runtime import ApplyPatchCall, EVENT_SCHEMA_VERSION, ResponsesWebSocketAdapter
 from ..runtime.attachment_inputs import normalize_attachment_inputs
@@ -474,7 +474,7 @@ class ChatQueryMixin(ChatMessagesMixin, ChatParamsMixin):
             coros.append(format_key(message))
             coros.append(format_message(message))
         # gather the results
-        await asyncio.gather(*coros)
+        await _gather_cancel_on_error(*coros)
         logger.trace(new_messages)
         
         # if the current model is a reasoning model, we need the role of "system" to become "developer" in the json dump messages
@@ -624,13 +624,23 @@ class ChatQueryMixin(ChatMessagesMixin, ChatParamsMixin):
         **additional_vars,
     ):
         """ Executes the query as-is and returns a tuple of the final prompt and the response"""
+        active_template_vars = _active_template_vars.get()
+        resolver_template_dispatch = (
+            active_template_vars is not None and active_template_vars[0] is self
+        )
+        if resolver_template_dispatch:
+            track_continuation = False
+            _call_usage_ledger = None
+            _submitted_runtime_out = None
+            additional_vars = dict(active_template_vars[1])
+
         assert_binding = getattr(self, "_assert_bound_configuration", None)
         if assert_binding is not None:
             assert_binding()
         self._provider_binding_locked = True
         prompter = self
         # if the user in additional_vars, we're going to instead deepcopy this prompt into a new prompt and add the .user() to it
-        if "__user" in additional_vars:
+        if "__user" in additional_vars and not resolver_template_dispatch:
             new_chatprompt = self.copy(_share_ai_client=True)
             new_chatprompt.user(additional_vars["__user"])
             prompter = new_chatprompt
@@ -999,7 +1009,10 @@ class ChatQueryMixin(ChatMessagesMixin, ChatParamsMixin):
         self._validate_caller_executed_tools("ask")
         if self.stream:
             raise Exception("Cannot use ask() with a stream")
-        _, response = await self._submit_for_response_and_prompt(**template_vars)
+        if active_template_vars is None or active_template_vars[0] is not self:
+            _, response = await self._submit_for_response_and_prompt(**template_vars)
+        else:
+            _, response = await self._submit_for_response_and_prompt()
         # filter the response if we have a pattern
         response = self.filter_by_pattern(response)
         return response

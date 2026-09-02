@@ -3,6 +3,21 @@ import string
 
 from loguru import logger
 
+
+async def _gather_cancel_on_error(*awaitables):
+    """Gather concurrent work without letting siblings outlive a failure."""
+
+    tasks = [asyncio.ensure_future(awaitable) for awaitable in awaitables]
+    try:
+        return await asyncio.gather(*tasks)
+    except BaseException:
+        for task in tasks:
+            if not task.done():
+                task.cancel()
+        await asyncio.gather(*tasks, return_exceptions=True)
+        raise
+
+
 class _AsyncFormatter(string.Formatter):
     async def async_expand_field(self, field, args, kwargs):
         if "." in field:
@@ -27,7 +42,7 @@ class _AsyncFormatter(string.Formatter):
                 coro = self.async_expand_field(field_name, args, kwargs)
                 coros.append(coro)
 
-        expanded_fields = await asyncio.gather(*coros)
+        expanded_fields = await _gather_cancel_on_error(*coros)
         expanded_iter = iter(expanded_fields)
 
         return ''.join([

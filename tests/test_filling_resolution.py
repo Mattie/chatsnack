@@ -105,7 +105,18 @@ def test_goal_authorized_chat_can_use_nested_text_and_chat_fillings(
     assert calls == ["Parent", "Child"]
 
 
-@pytest.mark.parametrize("variable_name", ["usermsg", "files", "images"])
+@pytest.mark.parametrize(
+    "variable_name",
+    [
+        "usermsg",
+        "files",
+        "images",
+        "__user",
+        "track_continuation",
+        "_call_usage_ledger",
+        "_submitted_runtime_out",
+    ],
+)
 def test_chat_resolution_keeps_query_control_names_as_template_variables(
     tmp_path,
     monkeypatch,
@@ -163,6 +174,58 @@ def test_chat_resolution_forwards_query_control_names_to_ask_override(
 
     assert "reserved hello notes cover" in result["chat"]["Reserved"]
     assert calls == [variables]
+
+
+@pytest.mark.parametrize("asset_shape", ["text_fields", "chat_messages"])
+def test_resolver_cancels_sibling_expansions_before_returning_an_error(
+    tmp_path,
+    monkeypatch,
+    asset_shape,
+):
+    if asset_shape == "text_fields":
+        save_text(tmp_path, "Parallel", "{chat.Failing} {chat.Slow}")
+        reference = "text.Parallel"
+    else:
+        Chat(name="Parallel").system("{chat.Failing}").user(
+            "{chat.Slow}"
+        ).save(tmp_path / "Parallel.yml")
+        reference = "chat.Parallel"
+    save_chat(tmp_path, "Failing", "unused")
+    save_chat(tmp_path, "Slow", "unused")
+    normal_ask_a = Chat.ask_a
+
+    async def exercise():
+        slow_started = asyncio.Event()
+        slow_cancelled = asyncio.Event()
+
+        async def controlled_ask(self, **variables):
+            if self.name == "Slow":
+                slow_started.set()
+                try:
+                    await asyncio.Future()
+                except asyncio.CancelledError:
+                    slow_cancelled.set()
+                    raise
+            if self.name == "Failing":
+                await slow_started.wait()
+                raise RuntimeError("failed")
+            return await normal_ask_a(self, **variables)
+
+        monkeypatch.setattr(Chat, "ask_a", controlled_ask)
+
+        with use_filling_stash(tmp_path):
+            with pytest.raises(FillingError):
+                await asyncio.wait_for(
+                    resolve_fillings_a(
+                        [reference],
+                        allow_chat=True,
+                    ),
+                    timeout=2,
+                )
+
+        assert slow_cancelled.is_set()
+
+    asyncio.run(exercise())
 
 
 def test_explicit_values_win_without_loading_assets_or_chat_authority(monkeypatch):
