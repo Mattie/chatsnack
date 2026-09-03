@@ -12,7 +12,12 @@ from loguru import logger
 
 from ..assets import capture_asset
 from ..asynchelpers import _gather_cancel_on_error, aformatter
-from ..fillings import FillingError, active_filling_stash, filling_machine
+from ..fillings import (
+    FillingError,
+    _filling_resolution_active,
+    active_filling_stash,
+    filling_machine,
+)
 from ..runtime import ApplyPatchCall, EVENT_SCHEMA_VERSION, ResponsesWebSocketAdapter
 from ..runtime.attachment_inputs import normalize_attachment_inputs
 
@@ -500,7 +505,11 @@ class ChatQueryMixin(ChatMessagesMixin, ChatParamsMixin):
                             format_vars,
                         )
                     except FillingError:
-                        raise
+                        if (
+                            _filling_resolution_active()
+                            or message.get("role") != "assistant"
+                        ):
+                            raise
                     except Exception:
                         if message.get("role") != "assistant":
                             raise
@@ -532,6 +541,7 @@ class ChatQueryMixin(ChatMessagesMixin, ChatParamsMixin):
             # format the prompt text with the passed-in variables as well as doing internal expansion
             active_template_vars = _active_template_vars.get()
             if active_template_vars is not None and active_template_vars[0] is self:
+                promptvars = dict(active_template_vars[1])
                 prompt = await self._gather_format_mapping(
                     aformatter.async_format_mapping,
                     filling_machine(promptvars),

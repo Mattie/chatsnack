@@ -8,10 +8,10 @@ work and keep recursive expansion finite.
 
 from contextvars import ContextVar
 from dataclasses import dataclass
-import re
 from typing import Any, Awaitable, Callable, Dict, Iterable, Mapping, Optional
 
 from loguru import logger
+from snapclass.paths import safe_path_placeholder
 
 from .asynchelpers import aformatter
 
@@ -86,9 +86,6 @@ def filling_machine(additional: Optional[Dict] = None) -> dict:
     return fillings_dict
 
 
-_STATIC_FILLING_REFERENCE = re.compile(
-    r"^(?P<vendor>text|chat)\.(?P<name>[A-Za-z0-9_][A-Za-z0-9_-]*)$"
-)
 _MAX_DEPTH = 16
 _MAX_EXPANSIONS = 256
 _MAX_CHAT_CALLS = 16
@@ -225,6 +222,22 @@ def _missing_filling(reference: str) -> Exception:
     return _MissingFilling(reference, _active_chain.get())
 
 
+def _is_static_filling_reference(reference: Any) -> bool:
+    """Check for one formatter-addressable reference to a safely persisted asset."""
+
+    if not isinstance(reference, str) or "." not in reference:
+        return False
+    vendor, name = reference.split(".", 1)
+    if vendor not in {"text", "chat"} or not name:
+        return False
+    try:
+        safe_path_placeholder("name", name)
+        parsed = list(aformatter.parse("{" + reference + "}"))
+    except ValueError:
+        return False
+    return parsed == [("", reference, "", None)]
+
+
 async def resolve_fillings_a(
     references: Iterable[str],
     *,
@@ -251,9 +264,7 @@ async def resolve_fillings_a(
     requested: list[str] = []
     seen: set[str] = set()
     for reference in references:
-        if not isinstance(reference, str) or not _STATIC_FILLING_REFERENCE.fullmatch(
-            reference
-        ):
+        if not _is_static_filling_reference(reference):
             raise ValueError(
                 "filling references must be static text.Name or chat.Name values"
             )

@@ -160,7 +160,11 @@ def test_chat_resolution_forwards_query_control_names_to_ask_override(
     tmp_path,
     monkeypatch,
 ):
-    save_chat(tmp_path, "Reserved", "reserved {usermsg} {files} {images}")
+    save_chat(
+        tmp_path,
+        "Reserved",
+        "reserved {usermsg} {files} {images} {self}",
+    )
     calls = []
 
     async def build_without_provider(self, **variables):
@@ -172,6 +176,7 @@ def test_chat_resolution_forwards_query_control_names_to_ask_override(
         "usermsg": "hello",
         "files": "notes",
         "images": "cover",
+        "self": "reader",
     }
 
     with use_filling_stash(tmp_path):
@@ -183,8 +188,10 @@ def test_chat_resolution_forwards_query_control_names_to_ask_override(
             )
         )
 
-    assert "reserved hello notes cover" in result["chat"]["Reserved"]
-    assert calls == [variables]
+    assert "reserved hello notes cover reader" in result["chat"]["Reserved"]
+    assert calls == [
+        {key: value for key, value in variables.items() if key != "self"}
+    ]
 
 
 @pytest.mark.parametrize("asset_shape", ["text_fields", "chat_messages"])
@@ -343,6 +350,18 @@ def test_resolver_still_tolerates_malformed_assistant_braces(
     assert result == {"chat": {"AssistantHistory": "resolved"}}
     assert len(prompts) == 1
     assert "unfinished {" in prompts[0]
+
+
+def test_normal_assistant_history_still_tolerates_filling_errors(monkeypatch):
+    async def fail(name, additional):
+        raise FillingError("custom filling failed")
+
+    monkeypatch.setitem(snack_catalog.vendors, "custom", fail)
+    chat = Chat().assistant("kept {custom.Value}")
+
+    prompt = asyncio.run(chat._build_final_prompt({}))
+
+    assert "kept {custom.Value}" in prompt
 
 
 def test_explicit_values_win_without_loading_assets_or_chat_authority(monkeypatch):
@@ -619,7 +638,19 @@ def test_cancellation_propagates(tmp_path, monkeypatch):
             )
 
 
-@pytest.mark.parametrize("name", ["snack-style", "123"])
+@pytest.mark.parametrize(
+    "name",
+    [
+        "SnackStyle",
+        "snack-style",
+        "123",
+        "-snack",
+        "café",
+        "snack style",
+        ".hidden",
+        "snack.style",
+    ],
+)
 def test_supported_asset_names_are_valid(tmp_path, name):
     save_text(tmp_path, name, "playful")
 
@@ -642,7 +673,17 @@ def test_adapter_attribute_names_still_route_through_catalog_policy(tmp_path):
 
 @pytest.mark.parametrize(
     "reference",
-    ["text../secret", "text.Snack/Secret", "text.Snack.Secret", "other.Name"],
+    [
+        "text.",
+        "text..",
+        "text...",
+        "text../secret",
+        "text.Snack/Secret",
+        r"text.Snack\Secret",
+        "text.Snack:raw",
+        "text.Snack!r",
+        "other.Name",
+    ],
 )
 def test_references_reject_non_static_or_traversal_shapes(reference):
     with pytest.raises(ValueError, match="static text.Name or chat.Name"):
