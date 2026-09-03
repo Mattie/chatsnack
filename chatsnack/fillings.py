@@ -188,20 +188,20 @@ async def _bounded_filling_expansion(
         )
 
     chat_call_reserved = False
-    if is_chat:
-        if not state.allow_chat:
-            raise FillingAuthorityError(
-                _with_chain(
-                    f"chat filling authority is required for {reference}",
-                    current_chain,
-                )
-            )
-        if not defer_chat_limit:
-            _reserve_chat_filling_call(reference)
-            chat_call_reserved = True
-
     token = _active_chain.set(current_chain)
     try:
+        if is_chat:
+            if not state.allow_chat:
+                raise FillingAuthorityError(
+                    _with_chain(
+                        f"chat filling authority is required for {reference}",
+                        current_chain,
+                    )
+                )
+            if not defer_chat_limit:
+                _reserve_chat_filling_call(reference)
+                chat_call_reserved = True
+
         return await expand()
     except _MissingFilling:
         if chat_call_reserved:

@@ -510,6 +510,31 @@ def test_fixed_chat_limit_stops_before_the_seventeenth_model_call(
     assert calls == [f"C{index}" for index in range(16)]
 
 
+def test_replacement_chat_limit_reports_the_complete_transitive_chain(
+    tmp_path,
+    monkeypatch,
+):
+    save_text(tmp_path, "Root", "{chat.Overflow}")
+    calls = []
+
+    async def replacement(name, additional):
+        calls.append(name)
+        return name
+
+    monkeypatch.setitem(snack_catalog.vendors, "chat", replacement)
+    references = [f"chat.C{index}" for index in range(16)] + ["text.Root"]
+
+    with use_filling_stash(tmp_path):
+        with pytest.raises(FillingLimitError) as caught:
+            asyncio.run(resolve_fillings_a(references, allow_chat=True))
+
+    assert str(caught.value) == (
+        "chat filling call limit exceeded while resolving chat.Overflow "
+        "(via text.Root -> chat.Overflow)"
+    )
+    assert calls == [f"C{index}" for index in range(16)]
+
+
 def test_missing_chats_do_not_consume_the_model_call_budget(tmp_path, monkeypatch):
     references = [f"chat.Missing{index}" for index in range(16)]
     references.append("chat.Valid")
