@@ -4,14 +4,20 @@ import json
 import uuid
 import warnings
 from collections.abc import Mapping
+from contextvars import ContextVar
 from datetime import datetime
 from typing import Dict, List, Optional
 
 from loguru import logger
 
 from ..assets import capture_asset
-from ..asynchelpers import aformatter
-from ..fillings import active_filling_stash, filling_machine
+from ..asynchelpers import _gather_cancel_on_error, aformatter
+from ..fillings import (
+    FillingError,
+    _filling_resolution_active,
+    active_filling_stash,
+    filling_machine,
+)
 from ..runtime import ApplyPatchCall, EVENT_SCHEMA_VERSION, ResponsesWebSocketAdapter
 from ..runtime.attachment_inputs import normalize_attachment_inputs
 
@@ -20,6 +26,12 @@ from .mixin_params import (
     ChatParamsMixin,
     DEFAULT_MODEL_FALLBACK,
     _resolve_auto_feed_limit,
+)
+
+
+_active_template_vars = ContextVar(
+    "chatsnack_active_query_template_vars",
+    default=None,
 )
 
 
@@ -443,6 +455,32 @@ class ChatQueryMixin(ChatMessagesMixin, ChatParamsMixin):
 
     # async method that gathers will execute an async format method on every message in the chat prompt and gather the results into a final json string
     async def _gather_format(self, format_coro, **kwargs) -> str:
+        async def format_mapping(value, variables):
+            return await format_coro(value, **variables)
+
+        return await self._gather_formatted_messages(
+            format_mapping,
+            kwargs,
+            asyncio.gather,
+        )
+
+    async def _gather_format_mapping(self, format_coro, format_vars) -> str:
+        """Format every message while keeping variables in a positional map."""
+
+        return await self._gather_formatted_messages(
+            format_coro,
+            format_vars,
+            _gather_cancel_on_error,
+        )
+
+    async def _gather_formatted_messages(
+        self,
+        format_coro,
+        format_vars,
+        gather_messages,
+    ) -> str:
+        """Format messages with the sibling-failure policy chosen by the caller."""
+
         new_messages = self.get_messages()
         # TODO: Allow format messages in the tool calls
         # we now apply the format_coro to the content of each message in each dictionary in the list
@@ -451,7 +489,10 @@ class ChatQueryMixin(ChatMessagesMixin, ChatParamsMixin):
             async def format_key(message):
                 logger.trace("formatting key: {role}", role=message['role'])
                 if isinstance(message["role"], str):
-                    message["role"] = await format_coro(message["role"], **kwargs)
+                    message["role"] = await format_coro(
+                        message["role"],
+                        format_vars,
+                    )
                 return
             async def format_message(message):
                 logger.trace("formatting content: {content}", content=message['content'])
@@ -459,7 +500,16 @@ class ChatQueryMixin(ChatMessagesMixin, ChatParamsMixin):
                     return
                 if isinstance(message["content"], str):
                     try:
-                        message["content"] = await format_coro(message["content"], **kwargs)
+                        message["content"] = await format_coro(
+                            message["content"],
+                            format_vars,
+                        )
+                    except FillingError:
+                        if (
+                            _filling_resolution_active()
+                            or message.get("role") != "assistant"
+                        ):
+                            raise
                     except Exception:
                         if message.get("role") != "assistant":
                             raise
@@ -467,7 +517,7 @@ class ChatQueryMixin(ChatMessagesMixin, ChatParamsMixin):
             coros.append(format_key(message))
             coros.append(format_message(message))
         # gather the results
-        await asyncio.gather(*coros)
+        await gather_messages(*coros)
         logger.trace(new_messages)
         
         # if the current model is a reasoning model, we need the role of "system" to become "developer" in the json dump messages
@@ -489,7 +539,18 @@ class ChatQueryMixin(ChatMessagesMixin, ChatParamsMixin):
         token = active_filling_stash.set(self.snapshot_lookup_stash if hasattr(self, "snapshot_lookup_stash") else None)
         try:
             # format the prompt text with the passed-in variables as well as doing internal expansion
-            prompt = await self._gather_format(aformatter.async_format, **filling_machine(promptvars))
+            active_template_vars = _active_template_vars.get()
+            if active_template_vars is not None and active_template_vars[0] is self:
+                promptvars = dict(active_template_vars[1])
+                prompt = await self._gather_format_mapping(
+                    aformatter.async_format_mapping,
+                    filling_machine(promptvars),
+                )
+            else:
+                prompt = await self._gather_format(
+                    aformatter.async_format,
+                    **filling_machine(promptvars),
+                )
             return prompt
         finally:
             active_filling_stash.reset(token)
@@ -617,13 +678,23 @@ class ChatQueryMixin(ChatMessagesMixin, ChatParamsMixin):
         **additional_vars,
     ):
         """ Executes the query as-is and returns a tuple of the final prompt and the response"""
+        active_template_vars = _active_template_vars.get()
+        resolver_template_dispatch = (
+            active_template_vars is not None and active_template_vars[0] is self
+        )
+        if resolver_template_dispatch:
+            track_continuation = False
+            _call_usage_ledger = None
+            _submitted_runtime_out = None
+            additional_vars = dict(active_template_vars[1])
+
         assert_binding = getattr(self, "_assert_bound_configuration", None)
         if assert_binding is not None:
             assert_binding()
         self._provider_binding_locked = True
         prompter = self
         # if the user in additional_vars, we're going to instead deepcopy this prompt into a new prompt and add the .user() to it
-        if "__user" in additional_vars:
+        if "__user" in additional_vars and not resolver_template_dispatch:
             new_chatprompt = self.copy(_share_ai_client=True)
             new_chatprompt.user(additional_vars["__user"])
             prompter = new_chatprompt
@@ -978,14 +1049,46 @@ class ChatQueryMixin(ChatMessagesMixin, ChatParamsMixin):
         return self._run_sync(self.ask_a(**additional_vars), "ask")
     async def ask_a(self, usermsg=None, files=None, images=None, **additional_vars) -> str:
         """Async form of `ask()`."""
+        active_template_vars = _active_template_vars.get()
+        if active_template_vars is None or active_template_vars[0] is not self:
+            template_vars = self._prepare_query_vars(
+                usermsg,
+                files=files,
+                images=images,
+                **additional_vars,
+            )
+        else:
+            template_vars = dict(active_template_vars[1])
+
         self._validate_caller_executed_tools("ask")
         if self.stream:
             raise Exception("Cannot use ask() with a stream")
-        additional_vars = self._prepare_query_vars(usermsg, files=files, images=images, **additional_vars)
-        _, response = await self._submit_for_response_and_prompt(**additional_vars)
+        if active_template_vars is None or active_template_vars[0] is not self:
+            _, response = await self._submit_for_response_and_prompt(**template_vars)
+        else:
+            _, response = await self._submit_for_response_and_prompt()
         # filter the response if we have a pattern
         response = self.filter_by_pattern(response)
         return response
+
+    async def _ask_a_with_template_vars(self, template_vars) -> str:
+        """Dispatch through ``ask_a`` while preserving formatter variable names.
+
+        Filling adapters use this path so names that overlap query controls,
+        such as ``usermsg`` or ``files``, remain data without bypassing an
+        overridden ``ask_a`` implementation. ``self`` stays context-only
+        because Python bound methods cannot receive it again as a keyword.
+        """
+        token = _active_template_vars.set((self, dict(template_vars)))
+        try:
+            forwarded_vars = {
+                name: value
+                for name, value in template_vars.items()
+                if name != "self"
+            }
+            return await self.ask_a(**forwarded_vars)
+        finally:
+            _active_template_vars.reset(token)
     def listen(self, usermsg=None, events=False, event_schema="legacy", files=None, images=None, **additional_vars) -> ChatStreamListener:
         """
         Executes the internal chat query as-is and returns a listener object that can be iterated on for the text.

@@ -338,7 +338,8 @@ explosions.ask("What is your name?")
 
 If you have a prompt that requires expanding multiple fillings, `chatsnack` will resolve them in parallel as it expands the prompt. This comes in handy with `{chat.__}` and `{vectorsearch.__}` (TODO) snack fillings.
 
-TODO: See the notebooks for more details on this.
+See the [Fillings and Composition guide](docs/guides/fillings.md) for reusable
+text, saved chats, and direct filling resolution.
 
 ## License
 

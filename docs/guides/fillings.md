@@ -61,3 +61,36 @@ print(snackfull.chat().yaml)
 ```
 
 This keeps the authoring surface small while still enabling multi-step prompt preparation.
+
+## Resolve fillings directly
+
+External assemblers such as Catsnack sometimes know the finite set of static
+`text.Name` and `chat.Name` references they need before building a prompt. They
+can resolve that set directly:
+
+```python
+from chatsnack import resolve_fillings_a
+
+resolved = await resolve_fillings_a(["text.SnackExplosion"])
+print(resolved["text"]["SnackExplosion"])
+```
+
+Direct resolution follows these rules:
+
+- Explicit values in `variables["text"]` or `variables["chat"]` take priority
+  for the requested names without loading a saved asset.
+- Saved assets expand through the same formatter and filling callbacks used by
+  `Chat.ask_a()`, including nested Text and Chat fillings.
+- Saved chat references require `allow_chat=True` before `chatsnack` makes a model
+  call. This also applies when saved Text or Chat assets contain a chat filling.
+- Missing requested Text names are omitted. Chat authority is checked before
+  Chatsnack looks up a requested Chat; once authorized, a missing Chat is also
+  omitted. A missing transitive dependency stops the requested filling from
+  resolving.
+- Inserted values remain plain data. `chatsnack` does not scan them for more
+  filling references.
+- Fixed resolver-only bounds cap recursive depth, filling expansions, and Chat
+  filling invocations. They do not change ordinary Chat expansion.
+
+See the [Fillings API reference](../reference/api/fillings.md) for the signature
+and errors.

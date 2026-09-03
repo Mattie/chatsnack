@@ -97,23 +97,70 @@ from . import packs
 from .utensil import utensil, get_all_utensils, get_openai_tools, UtensilGroup, HostedUtensil
 from .runtime import ApplyPatchCall, CallUsage, ResponseUsage, UsageCounts
 
-from .fillings import active_filling_stash, snack_catalog, filling_machine
+from .fillings import (
+    FillingAuthorityError,
+    FillingError,
+    FillingLimitError,
+    active_filling_stash,
+    _filling_resolution_active,
+    _missing_filling,
+    _reserve_chat_filling_call,
+    filling_machine,
+    resolve_fillings_a,
+    snack_catalog,
+)
 
 
 async def _text_name_expansion(text_name: str, additional: Optional[dict] = None) -> str:
     stash = active_filling_stash.get()
-    prompt = Text.objects(stash).get(text_name) if stash is not None else Text.objects.get(text_name)
-    result = await aformatter.async_format(prompt.content, **filling_machine(additional))
-    return result
+    objects = Text.objects(stash) if stash is not None else Text.objects
+
+    if not _filling_resolution_active():
+        prompt = objects.get(text_name)
+        return await aformatter.async_format(
+            prompt.content,
+            **filling_machine(additional),
+        )
+
+    reference = f"text.{text_name}"
+
+    async def expand() -> str:
+        prompt = objects.get_or_none(text_name)
+        if prompt is None:
+            raise _missing_filling(reference)
+        return await aformatter.async_format_mapping(
+            prompt.content,
+            filling_machine(additional),
+        )
+
+    return await expand()
 
 # accepts a petition name as a string and calls petition_completion2, returning only the completion text
 async def _chat_name_query_expansion(prompt_name: str, additional: Optional[dict] = None) -> str:
     stash = active_filling_stash.get()
-    chatprompt = Chat.objects(stash).get_or_none(prompt_name) if stash is not None else Chat.objects.get_or_none(prompt_name)
-    if chatprompt is None:
-        raise Exception(f"Prompt {prompt_name} not found")
-    text = await chatprompt.ask_a(**additional)
-    return text
+    objects = Chat.objects(stash) if stash is not None else Chat.objects
+
+    if not _filling_resolution_active():
+        chatprompt = objects.get_or_none(prompt_name)
+        if chatprompt is None:
+            raise Exception(f"Prompt {prompt_name} not found")
+        return await chatprompt.ask_a(**additional)
+
+    reference = f"chat.{prompt_name}"
+
+    async def expand() -> str:
+        chatprompt = objects.get_or_none(prompt_name)
+        if chatprompt is None:
+            raise _missing_filling(reference)
+        _reserve_chat_filling_call(reference)
+        return await chatprompt._ask_a_with_template_vars(additional)
+
+    return await expand()
+
+
+# The built-in Chat callback can check existence before reserving model work.
+# Replacement callbacks remain bounded before dispatch at the catalog boundary.
+_chat_name_query_expansion._chatsnack_reserves_chat_after_lookup = True
 
 
 # default snack vendors

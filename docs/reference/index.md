@@ -6,6 +6,7 @@ The generated reference in this section stays focused on the stable public path 
 
 - [Chat](api/chat.md)
 - [Text](api/text.md)
+- [Fillings](api/fillings.md)
 - [Utensils](api/utensils.md)
 - [Packs](api/packs.md)
 
