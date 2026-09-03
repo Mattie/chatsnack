@@ -87,7 +87,7 @@ def filling_machine(additional: Optional[Dict] = None) -> dict:
 
 
 _STATIC_FILLING_REFERENCE = re.compile(
-    r"^(?P<vendor>text|chat)\.(?P<name>[A-Za-z_][A-Za-z0-9_-]*)$"
+    r"^(?P<vendor>text|chat)\.(?P<name>[A-Za-z0-9_][A-Za-z0-9_-]*)$"
 )
 _MAX_DEPTH = 16
 _MAX_EXPANSIONS = 256
@@ -115,6 +115,8 @@ class _ResolverState:
 
 
 class _MissingFilling(FillingError):
+    """Carry a missing reference chain without exposing asset content."""
+
     def __init__(self, reference: str, chain: tuple[str, ...]):
         self.reference = reference
         self.chain = chain
