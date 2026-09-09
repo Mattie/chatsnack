@@ -36,13 +36,14 @@ def _resolve_auto_feed_limit(value: bool | int | None) -> int:
 class _ReasoningModel:
     """Pair verified capabilities with an explicit model-name matching policy.
 
-    Legacy profiles retain suffix and provider-alias matching. Exact profiles
-    apply only to the listed ID until additional variants have been verified.
+    ``family_and_aliases`` includes suffix and provider-alias matching.
+    ``exact_naming`` applies only to the listed ID until additional variants
+    have been verified.
     """
 
     pattern: str
     capabilities: Dict[str, frozenset]
-    match: Literal["exact", "legacy"] = "legacy"
+    match: Literal["exact_naming", "family_and_aliases"] = "family_and_aliases"
 
 
 _REASONING_SUMMARY_OPTIONS = frozenset({"auto", "concise", "detailed"})
@@ -60,7 +61,7 @@ _KNOWN_REASONING_MODELS: Tuple[_ReasoningModel, ...] = (
     _ReasoningModel(
         "gpt-6-astra",
         _GPT6_REASONING_CAPABILITIES,
-        match="exact",
+        match="exact_naming",
     ),
     # Verified 2026-08-06. GPT-5.6 family effort values:
     # https://developers.openai.com/api/docs/guides/deployment-checklist#set-up-reasoningeffort
@@ -595,11 +596,11 @@ class ChatParams:
         for profile in _KNOWN_REASONING_MODELS:
             if model == profile.pattern:
                 return profile.capabilities
-            if profile.match == "legacy" and model.startswith(f"{profile.pattern}-"):
+            if profile.match == "family_and_aliases" and model.startswith(f"{profile.pattern}-"):
                 return profile.capabilities
 
         for profile in _KNOWN_REASONING_MODELS:
-            if profile.match == "legacy" and profile.pattern in model:
+            if profile.match == "family_and_aliases" and profile.pattern in model:
                 return profile.capabilities
 
         return None

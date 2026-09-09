@@ -210,7 +210,7 @@ def test_reasoning_matching_policy_is_declared_in_profile_data(model, known, mon
 
     capabilities = {"effort": frozenset({"low"}), "summary": frozenset({"auto"})}
     monkeypatch.setattr(mixin_params, "_KNOWN_REASONING_MODELS", (
-        mixin_params._ReasoningModel("fixture-exact", capabilities, match="exact"),
+        mixin_params._ReasoningModel("fixture-exact", capabilities, match="exact_naming"),
         mixin_params._ReasoningModel("fixture-family", capabilities),
     ))
     params = ChatParams(model=model, responses={"reasoning": {"effort": "low"}})
