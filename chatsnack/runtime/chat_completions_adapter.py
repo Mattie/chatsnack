@@ -1,6 +1,6 @@
 from typing import Any, Dict, List, Optional
 
-from .model_advisories import warn_astra_options
+from .model_advisories import warn_model_options
 from .types import (
     NormalizedAssistantMessage,
     NormalizedCompletionResult,
@@ -44,7 +44,7 @@ class ChatCompletionsAdapter:
     def _get_chat_completions_create(self, request_kwargs, *, async_mode=False):
         """Resolve the submitting client before issuing endpoint-specific advisories."""
         client = self.ai_client.aclient if async_mode else self.ai_client.client
-        warn_astra_options(request_kwargs, client, self.runtime_family)
+        warn_model_options(request_kwargs, client, self.runtime_family)
         return client.chat.completions.create
 
     @classmethod

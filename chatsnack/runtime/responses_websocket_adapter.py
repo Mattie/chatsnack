@@ -9,7 +9,7 @@ from loguru import logger
 
 from .attachment_resolver import AttachmentResolver
 from .responses_common import ResponsesNormalizationMixin
-from .model_advisories import warn_astra_options
+from .model_advisories import warn_model_options
 from .types import RuntimeErrorPayload, RuntimeStreamEvent, RuntimeTerminalMetadata
 
 # Minimum SDK version string for clear error messages.
@@ -721,7 +721,7 @@ class ResponsesWebSocketAdapter(ResponsesNormalizationMixin):
             raise self._transport_error_with_request_summary(exc, request_kwargs) from exc
         self._debug_responses_payload("Responses WS response.create payload", create_kw)
 
-        warn_astra_options(create_kw, getattr(self.ai_client, "client", None), self.runtime_family)
+        warn_model_options(create_kw, getattr(self.ai_client, "client", None), self.runtime_family)
         try:
             connection.response.create(**create_kw)
         except Exception as exc:
@@ -865,7 +865,7 @@ class ResponsesWebSocketAdapter(ResponsesNormalizationMixin):
             raise self._transport_error_with_request_summary(exc, request_kwargs) from exc
         self._debug_responses_payload("Responses WS response.create payload", create_kw)
 
-        warn_astra_options(create_kw, getattr(self.ai_client, "aclient", None), self.runtime_family)
+        warn_model_options(create_kw, getattr(self.ai_client, "aclient", None), self.runtime_family)
         try:
             await connection.response.create(**create_kw)
         except Exception as exc:

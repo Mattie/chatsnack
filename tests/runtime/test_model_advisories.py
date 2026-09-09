@@ -1,4 +1,4 @@
-"""Steers: Astra diagnostics use the submitting SDK endpoint and preserve authored options."""
+"""Steers: model diagnostics use the submitting endpoint and preserve authored options."""
 
 from types import SimpleNamespace
 from copy import deepcopy
@@ -11,12 +11,13 @@ import pytest
 
 from chatsnack.aiclient import AiClient
 from chatsnack.runtime import ChatCompletionsAdapter, ResponsesAdapter, ResponsesWebSocketAdapter
+from chatsnack.runtime import model_advisories
 
 
 def _fake_adapter(adapter_type, monkeypatch, base_url="https://api.openai.com/v1/"):
     """Fake only the SDK boundary; retain each adapter's request and streaming paths."""
     calls = []
-    response = {"id": "resp_astra", "model": "gpt-6-astra", "status": "completed",
+    response = {"id": "resp_model", "model": "gpt-6-astra", "status": "completed",
                 "output": [], "output_text": "ok"}
     event = SimpleNamespace(type="response.completed",
                             response=SimpleNamespace(model_dump=lambda: response))
@@ -27,7 +28,7 @@ def _fake_adapter(adapter_type, monkeypatch, base_url="https://api.openai.com/v1
         if adapter_type is ChatCompletionsAdapter:
             choice = {"finish_reason": "stop", "delta": {"content": "ok"},
                       "message": {"role": "assistant", "content": "ok"}}
-            result = {"id": "cc_astra", "model": "gpt-6-astra", "choices": [choice]}
+            result = {"id": "cc_model", "model": "gpt-6-astra", "choices": [choice]}
         else:
             result = {"type": "response.completed", "response": response}
         if kwargs.get("stream"):
@@ -76,7 +77,7 @@ def _fake_adapter(adapter_type, monkeypatch, base_url="https://api.openai.com/v1
 @pytest.mark.parametrize("async_mode", (False, True))
 @pytest.mark.parametrize("stream", (False, True))
 @pytest.mark.asyncio
-async def test_astra_sampling_warns_unchanged_on_every_transport_path(adapter_type, async_mode, stream, monkeypatch):
+async def test_sampling_warns_unchanged_on_every_transport_path(adapter_type, async_mode, stream, monkeypatch):
     adapter, calls = _fake_adapter(adapter_type, monkeypatch)
     adapter.ai_client.base_url = "https://provider.example/v1/"
     monkeypatch.setenv("OPENAI_BASE_URL", "https://provider.example/v1/")
@@ -117,7 +118,7 @@ def test_sampling_diagnostics_require_verified_model_and_resolved_endpoint(model
 
 
 @pytest.mark.parametrize("adapter_type", (ResponsesAdapter, ChatCompletionsAdapter))
-def test_astra_advisories_preserve_all_authored_options(adapter_type, monkeypatch):
+def test_model_advisories_preserve_all_authored_options(adapter_type, monkeypatch):
     adapter, calls = _fake_adapter(adapter_type, monkeypatch)
     options = {"model": "gpt-6-astra", "temperature": 0, "top_p": 0.8, "top_logprobs": 2}
     if adapter_type is ChatCompletionsAdapter:
@@ -171,3 +172,33 @@ def test_http_advisories_follow_the_prepared_sdk_body(options, expected_warning)
         assert not caught
         if "top_logprobs" in options:
             assert bodies[0]["top_logprobs"] is None
+
+
+@pytest.mark.parametrize("adapter_type", (ResponsesAdapter, ChatCompletionsAdapter, ResponsesWebSocketAdapter))
+def test_new_model_uses_registered_request_limits_without_adapter_changes(adapter_type, monkeypatch):
+    """A model added only to the data gets its own diagnostics and unchanged requests."""
+    model = "fixture-model"
+    monkeypatch.setitem(model_advisories._MODEL_REQUEST_LIMITS, model, {
+        "unsupported_options": ("seed",),
+        "chat_completions": {"tools_require_responses": True},
+        "responses": {"unsupported_include": ("fixture.trace",)},
+    })
+    adapter, calls = _fake_adapter(adapter_type, monkeypatch)
+    options = {"model": model, "seed": 7, "temperature": 0.3}
+    if adapter_type is ChatCompletionsAdapter:
+        options["tools"] = [{"type": "function", "function": {"name": "stock"}}]
+    else:
+        options["include"] = ["fixture.trace"]
+
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        adapter.create_completion([], **options)
+
+    messages = " ".join(str(w.message) for w in caught)
+    assert model in messages and "seed" in messages
+    assert "temperature" not in messages
+    if adapter_type is ChatCompletionsAdapter:
+        assert "tools require Responses" in messages
+    else:
+        assert "fixture.trace" in messages
+    assert {key: calls[0][key] for key in options} == options

@@ -8,6 +8,8 @@ GPT-6 Astra has a documented API model ID, `gpt-6-astra`. Offline tests now esta
 
 Keep ordinary Astra use on `.ask()` and `.chat()`/`.chat_a()`, with named Chat/Text assets, compact YAML, utensils, and continued-Chat file ownership. The examples follow [PHILOSOPHY.md](../../PHILOSOPHY.md), [GettingStartedWithChatsnack.ipynb](../../notebooks/GettingStartedWithChatsnack.ipynb), and the [Phase 3 YAML](../rfcs/phase-3-responses-yaml-rfc.md) and [Phase 4A utensil](../rfcs/phase-4a-hosted-tools-utensils-rfc.md) boundaries.
 
+Model names select capability data; execution paths use behavior-based rules. BASELINE now groups reusable GPT-6 reasoning and request-limit values, with exact/legacy matching declared in the reasoning profiles. Adapters call generic model advisories. Additional verified models can reuse or override the data without new adapter branches. Apply the same approach to the later protocol work; the model discussed in this research should not become an execution abstraction.
+
 The ponytail review narrows three commitments: implement provider async support for existing function utensils first; settle the steering surface through one adapter prototype before adding public lifecycle methods; reuse the existing composition examples instead of adding another tutorial. Custom-tool execution, a library wait utensil, and resumable background jobs are outside the first ASYNC delivery.
 
 Retain ordered provider replay and the proposed reasoning-history control. Those support concrete continuation and effort-update behavior; dropping them would lose information. All new syntax below remains proposed, and advanced feature deliveries are separate from BASELINE.
@@ -96,11 +98,11 @@ Both WebSocket reader paths stop at `response.completed`, ignore `response.creat
 
 Implemented on `feat/gpt-6-astra-baseline`:
 
-- [x] Exact Astra profile for `low|medium|high|xhigh|max`, with dated official references. Unverified variants and snapshots remain unknown; only summary `auto` is verified. Other authored values warn and pass through.
-- [x] Submission-time sampling and Chat Completions tool advisories, scoped to the actual SDK client's direct OpenAI endpoint and exact model ID. HTTP, WebSocket, sync/async, and streaming paths preserve authored options and runtime selection.
-- [x] Saved-Chat Goal test exercises the real SDK with a fake HTTP transport, callable rebinding, stock execution, and continued history. Added the opt-in notebook example and [migration guidance](../guides/providers.md#gpt-6-astra).
+- [x] Reusable GPT-6 capabilities for `low|medium|high|xhigh|max`, registered for the verified `gpt-6-astra` ID with dated official references and an explicit exact-matching policy. Unverified variants and snapshots remain unknown; only summary `auto` is verified. Other authored values warn and pass through. The obsolete comment-only parameter matrix was removed.
+- [x] Generic submission-time model advisories apply registered request limits, scoped to the actual SDK client's direct OpenAI endpoint and exact model ID. HTTP, WebSocket, sync/async, and streaming paths preserve authored options and runtime selection; another model needs only a data entry to reuse these limits.
+- [x] Saved-Chat Goal test exercises the real SDK with a fake HTTP transport, callable rebinding, stock execution, and continued history. Added the opt-in notebook example and [migration guidance](../guides/providers.md#gpt-6).
 - [x] Evaluated SDK 3.5.0 and 3.8.0 offline: five efforts and ordinary function-call serialization/parsing passed across sync/async HTTP and WebSocket; the existing adapter/normalization suite passed 110 tests on each version before implementation. Retain `openai>=3.5.0,<4.0.0`; BASELINE needs no newer protocol fields.
-- [x] Final implementation checks: 339 passed and 12 skipped on each SDK version; five additional provider-configuration checks passed on 3.5.0. All six notebook code cells parsed and executed with live calls disabled. Independent implementation review completed; the Goal now also verifies resolved Text and task fillings in the submitted request.
+- [x] Final implementation checks: 348 passed and 12 skipped on each SDK version, including synthetic model profiles that prove matching and request advisories are data-driven. Five additional provider-configuration checks passed on 3.5.0. All six notebook code cells parsed and executed with live calls disabled. Independent implementation review completed; the Goal also verifies resolved Text and task fillings in the submitted request.
 - [x] Live Astra acceptance on 2026-09-09 with SDK 3.5.0: all five efforts returned text through Responses HTTP; `medium|high|xhigh|max` also used summary `auto`. Responses WebSocket and Chat Completions text probes passed at `low`. The saved notebook helper loaded its Text asset and utensil, returned 12 units, and retained that quantity in the follow-up. The initial standalone smoke returned successfully but stalled during shutdown and was stopped; the subsequent full probe batch exited cleanly. Advanced protocols and exhaustive streaming combinations remain untested live.
 
 The two pre-existing default-model paths remain unchanged. Construct a new Chat to change a bound transport, and use explicit Responses for utensil probes so an environment override cannot select Chat Completions.
@@ -126,7 +128,7 @@ def stock(sku: str):
     """Read demo stock for a product."""
     return {"sku": sku, "available": 12}
 
-stock_chat = Chat(name="AstraStock", model="gpt-6-astra",
+stock_chat = Chat(name="StockHelper", model="gpt-6-astra",
                   runtime="responses", utensils=[stock])
 stock_chat.system("{text.StockStyle}").user("Check stock for {sku}.")
 stock_chat.reasoning.effort = "low"

@@ -33,7 +33,7 @@ For explicit WebSocket support outside chatsnack's packaged dependencies, instal
 Using OpenRouter, Azure v1, or another OpenAI-compatible endpoint? See the
 [OpenAI-compatible providers guide](docs/guides/providers.md).
 
-Using GPT-6 Astra? See the [Astra compatibility notes](docs/guides/providers.md#gpt-6-astra)
+Using GPT-6? See the [model compatibility notes](docs/guides/providers.md#gpt-6)
 for supported reasoning efforts, Responses tool calling, and migration warnings.
 
 ## Usage

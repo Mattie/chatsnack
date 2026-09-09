@@ -78,17 +78,18 @@ copied Chats keep that binding, and `reset()` does not re-read the credential
 environment variable. Create a new Chat to use a different endpoint, credential,
 or transport.
 
-## GPT-6 Astra
+## GPT-6
 
-Select `gpt-6-astra` explicitly. Its documented API efforts are `low`, `medium`,
+The verified GPT-6 profile currently covers `gpt-6-astra`. Select that model
+explicitly. Its documented API efforts are `low`, `medium`,
 `high`, `xhigh`, and `max`; `auto` is the verified summary setting. The advisory
 table recognizes the exact model ID. Additional snapshots and variants need
 their own verification.
 
 ```python
-astra = Chat("Respond tersely.", model="gpt-6-astra", runtime="responses")
-astra.reasoning.effort = "low"
-print(astra.ask("Name one movie snack."))
+chat = Chat("Respond tersely.", model="gpt-6-astra", runtime="responses")
+chat.reasoning.effort = "low"
+print(chat.ask("Name one movie snack."))
 ```
 
 The corresponding saved configuration stays compact:
@@ -104,13 +105,13 @@ messages:
   - system: Respond tersely.
 ```
 
-Astra tools require Responses. When migrating an existing Chat, construct a new
+For this model, tools require Responses. When migrating an existing Chat, construct a new
 one with the desired runtime and pass its Python capabilities in `utensils=[...]`.
 See the saved stock-helper example in
 [ReasoningModelValidation.ipynb](https://github.com/Mattie/chatsnack/blob/master/notebooks/ReasoningModelValidation.ipynb).
 Live notebook calls require `CHATSNACK_RUN_LIVE_TESTS=1` and an API key.
 
-For direct OpenAI Astra requests, remove `temperature`, `top_p`, and `top_logprobs`;
+For this model on direct OpenAI requests, remove `temperature`, `top_p`, and `top_logprobs`;
 also remove Chat Completions `logprobs` and Responses
 `include: message.output_text.logprobs`. Chatsnack warns at submission and forwards
 the authored options unchanged. Sampling and endpoint advisories use the submitting

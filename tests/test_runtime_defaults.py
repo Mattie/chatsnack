@@ -196,6 +196,33 @@ def test_unverified_astra_ids_remain_unknown(model):
     assert options["reasoning"] == {"effort": "low"}
 
 
+@pytest.mark.parametrize("model,known", (
+    ("fixture-exact", True),
+    ("fixture-exact-snapshot", False),
+    ("vendor/fixture-exact", False),
+    ("fixture-family", True),
+    ("fixture-family-snapshot", True),
+    ("vendor/fixture-family", True),
+))
+def test_reasoning_matching_policy_is_declared_in_profile_data(model, known, monkeypatch):
+    """New profiles opt into matching behavior without model-specific lookup branches."""
+    from chatsnack.chat import mixin_params
+
+    capabilities = {"effort": frozenset({"low"}), "summary": frozenset({"auto"})}
+    monkeypatch.setattr(mixin_params, "_KNOWN_REASONING_MODELS", (
+        mixin_params._ReasoningModel("fixture-exact", capabilities, match="exact"),
+        mixin_params._ReasoningModel("fixture-family", capabilities),
+    ))
+    params = ChatParams(model=model, responses={"reasoning": {"effort": "low"}})
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        options = params._get_responses_api_options()
+    assert options["reasoning"] == {"effort": "low"}
+    assert bool(caught) is not known
+    if caught:
+        assert "may not support reasoning options" in str(caught[0].message)
+
+
 def test_reasoning_known_model_warns_for_known_unsupported_summary():
     params = ChatParams(model="o3-mini", runtime="responses", responses={"reasoning": {"summary": "verbose"}})
     with warnings.catch_warnings(record=True) as caught:

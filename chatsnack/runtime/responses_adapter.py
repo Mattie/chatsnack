@@ -2,7 +2,7 @@ import inspect
 from typing import Any, Dict, List
 
 from .attachment_resolver import AttachmentResolver
-from .model_advisories import warn_astra_options
+from .model_advisories import warn_model_options
 from .responses_common import ResponsesNormalizationMixin
 from .types import RuntimeErrorPayload, RuntimeStreamEvent, RuntimeTerminalMetadata
 
@@ -58,7 +58,7 @@ class ResponsesAdapter(ResponsesNormalizationMixin):
         self._debug_responses_payload("Responses HTTP create payload", request_kwargs)
         create = self._get_responses_create(async_mode=False)
         prepared = self._prepare_sdk_create_kwargs(create, request_kwargs)
-        warn_astra_options(prepared, self.ai_client.client, self.runtime_family)
+        warn_model_options(prepared, self.ai_client.client, self.runtime_family)
         response = create(**prepared)
         return self.normalize_completion(response, request_kwargs)
 
@@ -68,7 +68,7 @@ class ResponsesAdapter(ResponsesNormalizationMixin):
         self._debug_responses_payload("Responses HTTP create payload", request_kwargs)
         create = self._get_responses_create(async_mode=True)
         prepared = self._prepare_sdk_create_kwargs(create, request_kwargs)
-        warn_astra_options(prepared, self.ai_client.aclient, self.runtime_family)
+        warn_model_options(prepared, self.ai_client.aclient, self.runtime_family)
         response = await create(**prepared)
         return self.normalize_completion(response, request_kwargs)
 
@@ -268,7 +268,7 @@ class ResponsesAdapter(ResponsesNormalizationMixin):
         try:
             create = self._get_responses_create(async_mode=False)
             prepared = self._prepare_sdk_create_kwargs(create, request_kwargs)
-            warn_astra_options(prepared, self.ai_client.client, self.runtime_family)
+            warn_model_options(prepared, self.ai_client.client, self.runtime_family)
             stream = create(**prepared)
             for sdk_event in stream:
                 if terminal_seen:
@@ -309,7 +309,7 @@ class ResponsesAdapter(ResponsesNormalizationMixin):
         try:
             create = self._get_responses_create(async_mode=True)
             prepared = self._prepare_sdk_create_kwargs(create, request_kwargs)
-            warn_astra_options(prepared, self.ai_client.aclient, self.runtime_family)
+            warn_model_options(prepared, self.ai_client.aclient, self.runtime_family)
             stream = await create(**prepared)
             stream_iterator = stream.__aiter__()
             async for sdk_event in stream_iterator:
