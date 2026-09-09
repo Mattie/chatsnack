@@ -107,7 +107,7 @@ messages:
 Astra tools require Responses. When migrating an existing Chat, construct a new
 one with the desired runtime and pass its Python capabilities in `utensils=[...]`.
 See the saved stock-helper example in
-[ReasoningModelValidation.ipynb](../../notebooks/ReasoningModelValidation.ipynb).
+[ReasoningModelValidation.ipynb](https://github.com/Mattie/chatsnack/blob/master/notebooks/ReasoningModelValidation.ipynb).
 Live notebook calls require `CHATSNACK_RUN_LIVE_TESTS=1` and an API key.
 
 For direct OpenAI Astra requests, remove `temperature`, `top_p`, and `top_logprobs`;
