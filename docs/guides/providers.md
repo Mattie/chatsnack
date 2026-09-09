@@ -1,13 +1,14 @@
 # OpenAI-compatible Providers
 
-A saved `Chat` can name its OpenAI-compatible endpoint and the environment
-variable that holds its key. The saved YAML contains only the environment
-variable name, so the key value stays out of the file.
+Use the same `Chat` API with OpenRouter, Azure v1, or another OpenAI-compatible
+provider. Set the provider's endpoint and tell the Chat which environment
+variable holds its API key. You can save those settings with the prompt; the
+key itself stays out of the YAML.
 
 ## Use OpenRouter with a saved Chat
 
-Save this as `datafiles/chatsnack/OpenRouterSnack.yml`, or place it under the
-directory named by `CHATSNACK_BASE_DIR`:
+Save this as `datafiles/chatsnack/OpenRouterSnack.yml`. If you've set
+`CHATSNACK_BASE_DIR`, save it in that directory instead:
 
 ```yaml
 params:
@@ -18,7 +19,7 @@ messages:
   - system: Answer tersely and recommend excellent snacks.
 ```
 
-Load it and use it like any other named Chat:
+Then load the Chat by name:
 
 ```python
 from chatsnack import Chat
@@ -31,12 +32,13 @@ thread = thread.chat("What drink pairs with it?")
 print(thread.last)
 ```
 
-`base_url` and `api_key_env` belong together. `api_key_env` names a nonblank
-environment variable; its value is never written to the Chat YAML.
+Supply `base_url` and `api_key_env` together. Before loading this example, set
+`OPENROUTER_API_KEY` to your key. The variable must have a nonblank value;
+chatsnack reads it when the Chat loads.
 
-## Configure a dynamic Chat
+## Create the Chat in Python
 
-Applications that construct Chats dynamically can use the same fields directly:
+You can pass the same settings to `Chat()`:
 
 ```python
 from chatsnack import Chat
@@ -51,8 +53,8 @@ openrouter = Chat(
 
 ## Use Azure v1
 
-Azure v1 uses the same saved-Chat shape. Give it the complete `/openai/v1/`
-base URL and put the Azure deployment name in `model`:
+For Azure v1, use the full URL ending in `/openai/v1/` and put your deployment
+name in `model`:
 
 ```yaml
 params:
@@ -63,28 +65,24 @@ messages:
   - system: Answer tersely.
 ```
 
-This path uses a static API key. Microsoft Entra authentication is outside the
-current built-in provider configuration.
+This setup uses a static API key. The built-in provider settings don't support
+Microsoft Entra authentication yet.
 
-## Understand transport and client binding
+## Choosing a connection
 
-Custom endpoints use Responses HTTP, including SSE streaming, unless a runtime
-is selected explicitly. Chats without `base_url` and `api_key_env` keep the
-standard `OPENAI_API_KEY` / `OPENAI_BASE_URL` SDK behavior and Chatsnack's
-Responses WebSocket default.
+Custom endpoints use Responses HTTP, with SSE for streaming. Set `runtime`
+explicitly if you need a different transport. If you leave out `base_url` and
+`api_key_env`, the OpenAI SDK uses `OPENAI_API_KEY` and `OPENAI_BASE_URL` as usual,
+and chatsnack defaults to Responses WebSocket.
 
-Client settings are bound when a Chat is created or first loaded. Continued and
-copied Chats keep that binding, and `reset()` does not re-read the credential
-environment variable. Create a new Chat to use a different endpoint, credential,
-or transport.
+A Chat reads its connection settings when it's created or first loaded.
+Continuing or copying the Chat keeps those settings, and `reset()` doesn't read
+a fresh key from the environment. To change the endpoint, key, or transport,
+create a new Chat.
 
 ## GPT-6
 
-The verified GPT-6 profile currently covers `gpt-6-astra`. Select that model
-explicitly. Its documented API efforts are `low`, `medium`,
-`high`, `xhigh`, and `max`; `auto` is the verified summary setting. The advisory
-table recognizes the exact model ID. Additional snapshots and variants need
-their own verification.
+Set `model="gpt-6-astra"` to use GPT-6. Here's a small request using Responses:
 
 ```python
 chat = Chat("Respond tersely.", model="gpt-6-astra", runtime="responses")
@@ -92,7 +90,7 @@ chat.reasoning.effort = "low"
 print(chat.ask("Name one movie snack."))
 ```
 
-The corresponding saved configuration stays compact:
+The same Chat in YAML:
 
 ```yaml
 params:
@@ -105,36 +103,48 @@ messages:
   - system: Respond tersely.
 ```
 
-For this model, tools require Responses. When migrating an existing Chat, construct a new
-one with the desired runtime and pass its Python capabilities in `utensils=[...]`.
-See the saved stock-helper example in
+Choose a reasoning effort from `low`, `medium`, `high`, `xhigh`, or `max`. For a
+reasoning summary, use `chat.reasoning.summary = "auto"`; that's the setting
+we've verified. Chatsnack's GPT-6 checks currently recognize the exact
+`gpt-6-astra` name. Other variants and dated snapshots still need verification.
+
+Tool calls require Responses. Pass your Python functions in `utensils=[...]`.
+If you're moving an existing Chat from Chat Completions, create a new one with
+`runtime="responses"`. There's a complete example that saves a stock helper and
+continues the conversation in
 [ReasoningModelValidation.ipynb](https://github.com/Mattie/chatsnack/blob/master/notebooks/ReasoningModelValidation.ipynb).
-Live notebook calls require `CHATSNACK_RUN_LIVE_TESTS=1` and an API key.
+To run its live calls, set `CHATSNACK_RUN_LIVE_TESTS=1` and provide an API key.
 
-For this model on direct OpenAI requests, remove `temperature`, `top_p`, and `top_logprobs`;
-also remove Chat Completions `logprobs` and Responses
-`include: message.output_text.logprobs`. Chatsnack warns at submission and forwards
-the authored options unchanged. Sampling and endpoint advisories use the submitting
-SDK client's resolved `https://api.openai.com/v1` URL; custom or unidentified
-endpoints and unverified model aliases keep their existing behavior. Reasoning
-values outside the verified table also warn and pass through.
-[Official migration guidance](https://developers.openai.com/api/docs/guides/latest-model#update-api-and-model-parameters).
+When sending this model directly to OpenAI, remove these unsupported options:
 
-This baseline covers ordinary Responses text and synchronous function utensils.
-SDK 3.5.0 and 3.8.0 passed offline serialization and adapter checks; the existing
-`openai>=3.5.0,<4.0.0` requirement remains. Provider async tools, mid-turn steering,
-and ordered reasoning updates are separate planned work.
+- `temperature`, `top_p`, and `top_logprobs` on either API.
+- `logprobs` on Chat Completions.
+- `message.output_text.logprobs` from `include` on Responses.
+
+Chatsnack warns about these options and sends the request as you wrote it. The
+checks use the sending SDK client's URL and apply only to
+`https://api.openai.com/v1`. Custom or unidentified endpoints and unrecognized
+model names won't receive these request warnings. You'll also get a warning for
+reasoning values outside the verified table, and those values still pass through.
+See OpenAI's [migration guidance](https://developers.openai.com/api/docs/guides/latest-model#update-api-and-model-parameters)
+for the provider's requirements.
+
+You can use Responses text calls and synchronous Python utensils today. Support
+for OpenAI's async tool-calling protocol, mid-turn steering, and ordered reasoning
+updates is planned. The SDK requirement remains
+`openai>=3.5.0,<4.0.0`; offline serialization and adapter checks passed on 3.5.0
+and 3.8.0.
 
 ## Migrate legacy Azure configuration
 
-Legacy Azure fields (`api_base`, `api_type`, `api_version`, and `deployment`) are
-no longer accepted. Replace them with:
+If your Chat still uses `api_base`, `api_type`, `api_version`, or `deployment`,
+replace those fields. Chatsnack no longer accepts them. Use:
 
 - `base_url` for the complete Azure v1 endpoint
 - `api_key_env` for the name of the credential environment variable
 - `model` for the Azure deployment name
 
-The legacy endpoint variables `OPENAI_AZURE_ENDPOINT` and `OPENAI_API_BASE`
-raise a migration error when no new endpoint is authored. Use per-Chat
-`base_url` and `api_key_env`, or use the SDK-standard `OPENAI_BASE_URL` for
-ordinary environment-wide configuration.
+The old `OPENAI_AZURE_ENDPOINT` and `OPENAI_API_BASE` environment variables also
+raise a migration error unless you've supplied a new endpoint. Set `base_url`
+and `api_key_env` on each Chat, or use `OPENAI_BASE_URL` to set the endpoint
+through the environment.
