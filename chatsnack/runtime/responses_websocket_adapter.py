@@ -1081,6 +1081,9 @@ class ResponsesWebSocketAdapter(ResponsesNormalizationMixin):
                 max_transport_retries=self.max_transport_retries,
             ):
                 yield event
+        except Warning:
+            # Respect the caller's warnings-as-errors policy.
+            raise
         except Exception as exc:
             payload = self._error_payload_from_exception(exc)
             yield RuntimeStreamEvent(type="error", index=0, data={"error": payload.__dict__})
@@ -1101,6 +1104,9 @@ class ResponsesWebSocketAdapter(ResponsesNormalizationMixin):
                 max_transport_retries=self.max_transport_retries,
             ):
                 yield event
+        except Warning:
+            # Respect the caller's warnings-as-errors policy.
+            raise
         except Exception as exc:
             payload = self._error_payload_from_exception(exc)
             yield RuntimeStreamEvent(type="error", index=0, data={"error": payload.__dict__})
@@ -1255,6 +1261,9 @@ class ResponsesWebSocketAdapter(ResponsesNormalizationMixin):
                         continue
                     self._raise_from_stream_error(stream_error)
                 return self._completion_from_state(state, kwargs)
+        except Warning:
+            # Respect the caller's warnings-as-errors policy.
+            raise
         except Exception as exc:
             payload = self._error_payload_from_exception(exc)
             self._raise_from_stream_error(payload.__dict__)
@@ -1291,6 +1300,9 @@ class ResponsesWebSocketAdapter(ResponsesNormalizationMixin):
                         continue
                     self._raise_from_stream_error(stream_error)
                 return self._completion_from_state(state, kwargs)
+        except Warning:
+            # Respect the caller's warnings-as-errors policy.
+            raise
         except Exception as exc:
             payload = self._error_payload_from_exception(exc)
             self._raise_from_stream_error(payload.__dict__)

@@ -287,6 +287,9 @@ class ResponsesAdapter(ResponsesNormalizationMixin):
             if not terminal_seen:
                 payload = RuntimeErrorPayload(message="Responses stream ended before a terminal event.")
                 yield RuntimeStreamEvent(type="error", index=index, data={"error": payload.__dict__})
+        except Warning:
+            # Respect the caller's warnings-as-errors policy.
+            raise
         except Exception as exc:
             payload = RuntimeErrorPayload(message=str(exc))
             yield RuntimeStreamEvent(type="error", index=index, data={"error": payload.__dict__})
@@ -330,6 +333,9 @@ class ResponsesAdapter(ResponsesNormalizationMixin):
             if not terminal_seen:
                 payload = RuntimeErrorPayload(message="Responses stream ended before a terminal event.")
                 yield RuntimeStreamEvent(type="error", index=index, data={"error": payload.__dict__})
+        except Warning:
+            # Respect the caller's warnings-as-errors policy.
+            raise
         except Exception as exc:
             payload = RuntimeErrorPayload(message=str(exc))
             yield RuntimeStreamEvent(type="error", index=index, data={"error": payload.__dict__})

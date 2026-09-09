@@ -96,6 +96,40 @@ async def test_sampling_warns_unchanged_on_every_transport_path(adapter_type, as
     assert calls[0]["temperature"] == 0.25
 
 
+@pytest.mark.parametrize("adapter_type", (ResponsesAdapter, ChatCompletionsAdapter, ResponsesWebSocketAdapter))
+@pytest.mark.parametrize("async_mode", (False, True))
+@pytest.mark.parametrize("stream", (False, True))
+@pytest.mark.asyncio
+async def test_warning_filters_raise_before_submission_and_allow_reuse(adapter_type, async_mode, stream, monkeypatch):
+    """A promoted advisory stays a Python warning exception, with no request or stuck session."""
+    adapter, calls = _fake_adapter(adapter_type, monkeypatch)
+    method = "stream_completion" if stream else "create_completion"
+    if async_mode:
+        method += "_a"
+
+    async def submit(**options):
+        """Consume the public adapter path so generator exceptions reach the caller."""
+        result = getattr(adapter, method)([], model="gpt-6-astra", **options)
+        if stream:
+            return [event async for event in result] if async_mode else list(result)
+        return await result if async_mode else result
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", UserWarning)
+        with pytest.raises(UserWarning, match="gpt-6-astra.*temperature"):
+            await submit(temperature=0.25)
+        assert calls == []
+        if adapter_type is ResponsesWebSocketAdapter:
+            assert not adapter.session.in_flight
+        result = await submit()
+
+    assert len(calls) == 1
+    if stream:
+        assert result[-1].type == "completed"
+    else:
+        assert result.message.content == "ok"
+
+
 @pytest.mark.parametrize("model,base_url", (
     ("gpt-5.4", "https://api.openai.com/v1/"),
     ("gpt-6-astra-pro", "https://api.openai.com/v1/"),
