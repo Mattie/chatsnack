@@ -469,30 +469,6 @@ class ChatParams:
         _resolve_auto_feed_limit(self.auto_feed)
 
 
-    """
-    Historical parameter comparison for older model families; not a current capability table.
-    Use the dated reasoning profiles above and provider documentation for newer models.
-    | Parameter                  | o3-mini | o1  | o1-preview | o1-mini | gpt-4o/mini | gpt-4-turbo | gpt-4o-audio | chatgpt-4o |
-    |---------------------------|---------|-----|------------|---------|-------------|-------------|--------------|------------|
-    | messages/system *         | Yes     | Yes | No         | No      | Yes         | Yes         | Yes          | Yes        |
-    | messages/developer *      | Yes     | Yes | No         | No      | Yes         | Yes         | Yes          | Yes        |
-    | messages/user-images      | No      | Yes | No         | No      | Yes         | Yes         | No           | Yes        |
-    | `tools` (as functions)    | Yes     | Yes | No         | No      | Yes         | Yes         | Yes          | No         |
-    | `functions` (legacy)      | Yes     | Yes | No         | No      | Yes         | Yes         | Yes          | No         |
-    | `response_format`-object  | Yes     | Yes | No         | No      | Yes         | Yes         | No           | Yes        |
-    | `response_format`-schema  | Yes     | Yes | No         | No      | Yes         | No          | No           | No         |
-    | `reasoning_effort`        | Yes     | Yes | No         | No      | No          | No          | No           | No         |
-    | `max_tokens`              | No      | No  | No         | No      | Yes         | Yes         | Yes          | Yes        |
-    | `max_completion_tokens`*  | Yes     | Yes | Yes        | Yes     | Yes         | Yes         | Yes          | Yes        |
-    | `temperature` & `top_p`   | No      | No  | No         | No      | Yes         | Yes         | Yes          | Yes        |
-    | `logprobs`                | No      | No  | No         | No      | Yes         | Yes         | No           | Yes        |
-    | `xxx_penalty`             | No      | No  | No         | No      | Yes         | Yes         | Yes          | Yes        |
-    | `logit_bias` (broken!)    | No      | No  | No         | No      | Yes         | Yes         | ?            | Yes        |
-    | `prediction`              | No      | No  | No         | No      | Yes         | No          | No           | No         |
-    | `streaming:True`          | Yes     | No  | Yes        | Yes     | Yes         | Yes         | Yes          | Yes        |
-    | Cache discount            | Yes     | Yes | Yes        | Yes     | Yes         | No          | No           | No         |
-    |---------------------------|---------|-----|------------|---------|-------------|-------------|--------------|------------|
-    """
     def _supports_developer_messages(self) -> bool:
         """Returns True if current model supports developer messages."""
         return not ("o1-preview" in self.model or "o1-mini" in self.model)
