@@ -35,6 +35,17 @@ def _resolve_auto_feed_limit(value: bool | int | None) -> int:
 _REASONING_SUMMARY_OPTIONS = frozenset({"auto", "concise", "detailed"})
 # Keep a verification date and official reference URL(s) beside each table update.
 _KNOWN_REASONING_MODELS: Tuple[Tuple[str, Dict[str, frozenset]], ...] = (
+    # Verified 2026-09-08; only this exact model ID is documented (no dated variants).
+    # https://developers.openai.com/api/docs/models/gpt-6-astra
+    # https://developers.openai.com/api/docs/guides/reasoning#reasoning-summaries
+    # Only summary="auto" is verified; other summaries remain advisory pass-through.
+    (
+        "gpt-6-astra",
+        {
+            "effort": frozenset({"low", "medium", "high", "xhigh", "max"}),
+            "summary": frozenset({"auto"}),
+        },
+    ),
     # Verified 2026-08-06. GPT-5.6 family effort values:
     # https://developers.openai.com/api/docs/guides/deployment-checklist#set-up-reasoningeffort
     # gpt-5.6-sol xhigh support:
@@ -459,7 +470,8 @@ class ChatParams:
 
 
     """
-    Here is a comparison of the parameters supported by different models: (Bless your heart, OpenAI)
+    Historical parameter comparison for older model families; not a current capability table.
+    Use the dated reasoning profiles above and provider documentation for newer models.
     | Parameter                  | o3-mini | o1  | o1-preview | o1-mini | gpt-4o/mini | gpt-4-turbo | gpt-4o-audio | chatgpt-4o |
     |---------------------------|---------|-----|------------|---------|-------------|-------------|--------------|------------|
     | messages/system *         | Yes     | Yes | No         | No      | Yes         | Yes         | Yes          | Yes        |
@@ -589,11 +601,15 @@ class ChatParams:
             return None
 
         for pattern, capabilities in _KNOWN_REASONING_MODELS:
-            if model == pattern or model.startswith(f"{pattern}-"):
+            if model == pattern:
+                return capabilities
+            # Astra has no verified snapshots or variants yet. Keep legacy
+            # prefix/alias matching for the older profiles without inventing IDs.
+            if pattern != "gpt-6-astra" and model.startswith(f"{pattern}-"):
                 return capabilities
 
         for pattern, capabilities in _KNOWN_REASONING_MODELS:
-            if pattern in model:
+            if pattern != "gpt-6-astra" and pattern in model:
                 return capabilities
 
         return None

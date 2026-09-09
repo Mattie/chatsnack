@@ -1,5 +1,6 @@
 from typing import Any, Dict, List, Optional
 
+from .model_advisories import warn_astra_options
 from .types import (
     NormalizedAssistantMessage,
     NormalizedCompletionResult,
@@ -39,6 +40,12 @@ class ChatCompletionsAdapter:
 
     def __init__(self, ai_client):
         self.ai_client = ai_client
+
+    def _get_chat_completions_create(self, request_kwargs, *, async_mode=False):
+        """Resolve the submitting client before issuing endpoint-specific advisories."""
+        client = self.ai_client.aclient if async_mode else self.ai_client.client
+        warn_astra_options(request_kwargs, client, self.runtime_family)
+        return client.chat.completions.create
 
     @classmethod
     def _strip_responses_keys(cls, kwargs: Dict[str, Any]) -> Dict[str, Any]:
@@ -120,13 +127,15 @@ class ChatCompletionsAdapter:
     def create_completion(self, messages: List[Dict[str, Any]], **kwargs: Any) -> NormalizedCompletionResult:
         kwargs.pop("profile", None)
         kwargs = self._strip_responses_keys(kwargs)
-        response = self.ai_client.client.chat.completions.create(messages=messages, **kwargs)
+        create = self._get_chat_completions_create(kwargs)
+        response = create(messages=messages, **kwargs)
         return self._normalize_completion(response)
 
     async def create_completion_a(self, messages: List[Dict[str, Any]], **kwargs: Any) -> NormalizedCompletionResult:
         kwargs.pop("profile", None)
         kwargs = self._strip_responses_keys(kwargs)
-        response = await self.ai_client.aclient.chat.completions.create(messages=messages, **kwargs)
+        create = self._get_chat_completions_create(kwargs, async_mode=True)
+        response = await create(messages=messages, **kwargs)
         return self._normalize_completion(response)
 
     def _build_completed_event(self, index: int, text: str, finish_reason: Optional[str], model: Optional[str], usage: Optional[Dict[str, Any]]):
@@ -165,7 +174,8 @@ class ChatCompletionsAdapter:
         kwargs.pop("profile", None)
         kwargs = self._strip_responses_keys(kwargs)
         kwargs["stream"] = True
-        response_gen = self.ai_client.client.chat.completions.create(messages=messages, **kwargs)
+        create = self._get_chat_completions_create(kwargs)
+        response_gen = create(messages=messages, **kwargs)
 
         index = 0
         full_text = ""
@@ -194,7 +204,8 @@ class ChatCompletionsAdapter:
         kwargs.pop("profile", None)
         kwargs = self._strip_responses_keys(kwargs)
         kwargs["stream"] = True
-        response_gen = await self.ai_client.aclient.chat.completions.create(messages=messages, **kwargs)
+        create = self._get_chat_completions_create(kwargs, async_mode=True)
+        response_gen = await create(messages=messages, **kwargs)
 
         index = 0
         full_text = ""

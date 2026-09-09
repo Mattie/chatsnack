@@ -78,6 +78,52 @@ copied Chats keep that binding, and `reset()` does not re-read the credential
 environment variable. Create a new Chat to use a different endpoint, credential,
 or transport.
 
+## GPT-6 Astra
+
+Select `gpt-6-astra` explicitly. Its documented API efforts are `low`, `medium`,
+`high`, `xhigh`, and `max`; `auto` is the verified summary setting. The advisory
+table recognizes the exact model ID. Additional snapshots and variants need
+their own verification.
+
+```python
+astra = Chat("Respond tersely.", model="gpt-6-astra", runtime="responses")
+astra.reasoning.effort = "low"
+print(astra.ask("Name one movie snack."))
+```
+
+The corresponding saved configuration stays compact:
+
+```yaml
+params:
+  model: gpt-6-astra
+  runtime: responses
+  responses:
+    reasoning:
+      effort: low
+messages:
+  - system: Respond tersely.
+```
+
+Astra tools require Responses. When migrating an existing Chat, construct a new
+one with the desired runtime and pass its Python capabilities in `utensils=[...]`.
+See the saved stock-helper example in
+[ReasoningModelValidation.ipynb](../../notebooks/ReasoningModelValidation.ipynb).
+Live notebook calls require `CHATSNACK_RUN_LIVE_TESTS=1` and an API key.
+
+For direct OpenAI Astra requests, remove `temperature`, `top_p`, and `top_logprobs`;
+also remove Chat Completions `logprobs` and Responses
+`include: message.output_text.logprobs`. Chatsnack warns at submission and forwards
+the authored options unchanged. Sampling and endpoint advisories use the submitting
+SDK client's resolved `https://api.openai.com/v1` URL; custom or unidentified
+endpoints and unverified model aliases keep their existing behavior. Reasoning
+values outside the verified table also warn and pass through.
+[Official migration guidance](https://developers.openai.com/api/docs/guides/latest-model#update-api-and-model-parameters).
+
+This baseline covers ordinary Responses text and synchronous function utensils.
+SDK 3.5.0 and 3.8.0 passed offline serialization and adapter checks; the existing
+`openai>=3.5.0,<4.0.0` requirement remains. Provider async tools, mid-turn steering,
+and ordered reasoning updates are separate planned work.
+
 ## Migrate legacy Azure configuration
 
 Legacy Azure fields (`api_base`, `api_type`, `api_version`, and `deployment`) are
