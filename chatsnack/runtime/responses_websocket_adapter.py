@@ -9,6 +9,7 @@ from loguru import logger
 
 from .attachment_resolver import AttachmentResolver
 from .responses_common import ResponsesNormalizationMixin
+from .model_advisories import warn_model_options
 from .types import RuntimeErrorPayload, RuntimeStreamEvent, RuntimeTerminalMetadata
 
 # Minimum SDK version string for clear error messages.
@@ -720,6 +721,7 @@ class ResponsesWebSocketAdapter(ResponsesNormalizationMixin):
             raise self._transport_error_with_request_summary(exc, request_kwargs) from exc
         self._debug_responses_payload("Responses WS response.create payload", create_kw)
 
+        warn_model_options(create_kw, getattr(self.ai_client, "client", None), self.runtime_family)
         try:
             connection.response.create(**create_kw)
         except Exception as exc:
@@ -863,6 +865,7 @@ class ResponsesWebSocketAdapter(ResponsesNormalizationMixin):
             raise self._transport_error_with_request_summary(exc, request_kwargs) from exc
         self._debug_responses_payload("Responses WS response.create payload", create_kw)
 
+        warn_model_options(create_kw, getattr(self.ai_client, "aclient", None), self.runtime_family)
         try:
             await connection.response.create(**create_kw)
         except Exception as exc:
@@ -1078,6 +1081,9 @@ class ResponsesWebSocketAdapter(ResponsesNormalizationMixin):
                 max_transport_retries=self.max_transport_retries,
             ):
                 yield event
+        except Warning:
+            # Respect the caller's warnings-as-errors policy.
+            raise
         except Exception as exc:
             payload = self._error_payload_from_exception(exc)
             yield RuntimeStreamEvent(type="error", index=0, data={"error": payload.__dict__})
@@ -1098,6 +1104,9 @@ class ResponsesWebSocketAdapter(ResponsesNormalizationMixin):
                 max_transport_retries=self.max_transport_retries,
             ):
                 yield event
+        except Warning:
+            # Respect the caller's warnings-as-errors policy.
+            raise
         except Exception as exc:
             payload = self._error_payload_from_exception(exc)
             yield RuntimeStreamEvent(type="error", index=0, data={"error": payload.__dict__})
@@ -1252,6 +1261,9 @@ class ResponsesWebSocketAdapter(ResponsesNormalizationMixin):
                         continue
                     self._raise_from_stream_error(stream_error)
                 return self._completion_from_state(state, kwargs)
+        except Warning:
+            # Respect the caller's warnings-as-errors policy.
+            raise
         except Exception as exc:
             payload = self._error_payload_from_exception(exc)
             self._raise_from_stream_error(payload.__dict__)
@@ -1288,6 +1300,9 @@ class ResponsesWebSocketAdapter(ResponsesNormalizationMixin):
                         continue
                     self._raise_from_stream_error(stream_error)
                 return self._completion_from_state(state, kwargs)
+        except Warning:
+            # Respect the caller's warnings-as-errors policy.
+            raise
         except Exception as exc:
             payload = self._error_payload_from_exception(exc)
             self._raise_from_stream_error(payload.__dict__)

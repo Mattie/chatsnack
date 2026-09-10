@@ -94,6 +94,11 @@ def test_reasoning_known_model_warns_for_known_unsupported_effort():
         ("gpt-5.4", "xhigh"),
         ("gpt-5.4-2026-03-05", "none"),
         ("gpt-5.4-pro", "xhigh"),
+        ("gpt-6-astra", "low"),
+        ("gpt-6-astra", "medium"),
+        ("gpt-6-astra", "high"),
+        ("gpt-6-astra", "xhigh"),
+        ("gpt-6-astra", "max"),
     ),
 )
 def test_current_gpt_models_pass_supported_effort_without_warning(model, effort):
@@ -160,6 +165,62 @@ def test_generic_gpt_5_still_warns_for_xhigh():
     assert len(caught) == 1
     assert "known supported set" in str(caught[0].message)
     assert "gpt-5" in str(caught[0].message)
+
+
+@pytest.mark.parametrize("effort", ("none", "minimal", "ultra"))
+def test_astra_unverified_efforts_warn_without_rewriting(effort):
+    params = ChatParams(model="gpt-6-astra", responses={"reasoning": {"effort": effort}})
+    with pytest.warns(UserWarning, match="Unknown reasoning effort|known supported set"):
+        options = params._get_responses_api_options()
+    assert options["reasoning"] == {"effort": effort}
+
+
+@pytest.mark.parametrize("summary", ("auto", "concise", "detailed"))
+def test_astra_only_verified_summary_is_warning_free(summary):
+    params = ChatParams(model="gpt-6-astra", responses={"reasoning": {"summary": summary}})
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        options = params._get_responses_api_options()
+    assert options["reasoning"] == {"summary": summary}
+    assert len(caught) == (0 if summary == "auto" else 1)
+    if caught:
+        assert "known supported set" in str(caught[0].message)
+
+
+@pytest.mark.parametrize("model", ("gpt-6-astra-pro", "gpt-6-astra-2026-09-08", "vendor/gpt-6-astra"))
+def test_unverified_astra_ids_remain_unknown(model):
+    params = ChatParams(model=model, responses={"reasoning": {"effort": "low"}})
+    assert params._get_reasoning_capabilities() is None
+    with pytest.warns(UserWarning, match="may not support reasoning options"):
+        options = params._get_responses_api_options()
+    assert options["reasoning"] == {"effort": "low"}
+
+
+@pytest.mark.parametrize("model,known", (
+    ("fixture-exact", True),
+    ("fixture-exact-snapshot", False),
+    ("vendor/fixture-exact", False),
+    ("fixture-family", True),
+    ("fixture-family-snapshot", True),
+    ("vendor/fixture-family", True),
+))
+def test_reasoning_matching_policy_is_declared_in_profile_data(model, known, monkeypatch):
+    """New profiles opt into matching behavior without model-specific lookup branches."""
+    from chatsnack.chat import mixin_params
+
+    capabilities = {"effort": frozenset({"low"}), "summary": frozenset({"auto"})}
+    monkeypatch.setattr(mixin_params, "_KNOWN_REASONING_MODELS", (
+        mixin_params._ReasoningModel("fixture-exact", capabilities, match="exact_naming"),
+        mixin_params._ReasoningModel("fixture-family", capabilities),
+    ))
+    params = ChatParams(model=model, responses={"reasoning": {"effort": "low"}})
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        options = params._get_responses_api_options()
+    assert options["reasoning"] == {"effort": "low"}
+    assert bool(caught) is not known
+    if caught:
+        assert "may not support reasoning options" in str(caught[0].message)
 
 
 def test_reasoning_known_model_warns_for_known_unsupported_summary():

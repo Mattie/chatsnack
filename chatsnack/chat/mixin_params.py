@@ -32,14 +32,42 @@ def _resolve_auto_feed_limit(value: bool | int | None) -> int:
     )
 
 
+@dataclass(frozen=True)
+class _ReasoningModel:
+    """Pair verified capabilities with an explicit model-name matching policy.
+
+    ``family_and_aliases`` includes suffix and provider-alias matching.
+    ``exact_naming`` applies only to the listed ID until additional variants
+    have been verified.
+    """
+
+    pattern: str
+    capabilities: Dict[str, frozenset]
+    match: Literal["exact_naming", "family_and_aliases"] = "family_and_aliases"
+
+
 _REASONING_SUMMARY_OPTIONS = frozenset({"auto", "concise", "detailed"})
+# Reusable GPT-6 capabilities; assign to additional IDs only after verification.
+_GPT6_REASONING_CAPABILITIES = {
+    "effort": frozenset({"low", "medium", "high", "xhigh", "max"}),
+    "summary": frozenset({"auto"}),
+}
 # Keep a verification date and official reference URL(s) beside each table update.
-_KNOWN_REASONING_MODELS: Tuple[Tuple[str, Dict[str, frozenset]], ...] = (
+_KNOWN_REASONING_MODELS: Tuple[_ReasoningModel, ...] = (
+    # Verified 2026-09-09; only this exact model ID is documented (no dated variants).
+    # https://developers.openai.com/api/docs/models/gpt-6-astra
+    # https://developers.openai.com/api/docs/guides/reasoning#reasoning-summaries
+    # Only summary="auto" is verified; other summaries remain advisory pass-through.
+    _ReasoningModel(
+        "gpt-6-astra",
+        _GPT6_REASONING_CAPABILITIES,
+        match="exact_naming",
+    ),
     # Verified 2026-08-06. GPT-5.6 family effort values:
     # https://developers.openai.com/api/docs/guides/deployment-checklist#set-up-reasoningeffort
     # gpt-5.6-sol xhigh support:
     # https://learn.chatgpt.com/docs/security/cli#choose-a-model-and-reasoning-effort
-    (
+    _ReasoningModel(
         "gpt-5.6",
         {
             "effort": frozenset({"none", "low", "medium", "high", "xhigh", "max"}),
@@ -48,7 +76,7 @@ _KNOWN_REASONING_MODELS: Tuple[Tuple[str, Dict[str, frozenset]], ...] = (
     ),
     # Verified 2026-08-06:
     # https://developers.openai.com/api/docs/models/gpt-5.5-pro
-    (
+    _ReasoningModel(
         "gpt-5.5-pro",
         {
             "effort": frozenset({"medium", "high", "xhigh"}),
@@ -57,7 +85,7 @@ _KNOWN_REASONING_MODELS: Tuple[Tuple[str, Dict[str, frozenset]], ...] = (
     ),
     # Verified 2026-08-06:
     # https://developers.openai.com/api/docs/models/gpt-5.5
-    (
+    _ReasoningModel(
         "gpt-5.5",
         {
             "effort": frozenset({"none", "low", "medium", "high", "xhigh"}),
@@ -66,7 +94,7 @@ _KNOWN_REASONING_MODELS: Tuple[Tuple[str, Dict[str, frozenset]], ...] = (
     ),
     # Verified 2026-08-06:
     # https://developers.openai.com/api/docs/models/gpt-5.4-pro
-    (
+    _ReasoningModel(
         "gpt-5.4-pro",
         {
             "effort": frozenset({"medium", "high", "xhigh"}),
@@ -75,42 +103,42 @@ _KNOWN_REASONING_MODELS: Tuple[Tuple[str, Dict[str, frozenset]], ...] = (
     ),
     # Verified 2026-08-06:
     # https://developers.openai.com/api/docs/models/gpt-5.4
-    (
+    _ReasoningModel(
         "gpt-5.4",
         {
             "effort": frozenset({"none", "low", "medium", "high", "xhigh"}),
             "summary": _REASONING_SUMMARY_OPTIONS,
         },
     ),
-    (
+    _ReasoningModel(
         "gpt-5.1",
         {
             "effort": frozenset({"none", "low", "medium", "high"}),
             "summary": _REASONING_SUMMARY_OPTIONS,
         },
     ),
-    (
+    _ReasoningModel(
         "gpt-5",
         {
             "effort": frozenset({"minimal", "low", "medium", "high"}),
             "summary": _REASONING_SUMMARY_OPTIONS,
         },
     ),
-    (
+    _ReasoningModel(
         "o1",
         {
             "effort": frozenset({"low", "medium", "high"}),
             "summary": _REASONING_SUMMARY_OPTIONS,
         },
     ),
-    (
+    _ReasoningModel(
         "o3",
         {
             "effort": frozenset({"low", "medium", "high"}),
             "summary": _REASONING_SUMMARY_OPTIONS,
         },
     ),
-    (
+    _ReasoningModel(
         "o4",
         {
             "effort": frozenset({"low", "medium", "high"}),
@@ -119,7 +147,7 @@ _KNOWN_REASONING_MODELS: Tuple[Tuple[str, Dict[str, frozenset]], ...] = (
     ),
 )
 _KNOWN_REASONING_EFFORTS = frozenset().union(
-    *(caps["effort"] for _, caps in _KNOWN_REASONING_MODELS)
+    *(profile.capabilities["effort"] for profile in _KNOWN_REASONING_MODELS)
 )
 
 
@@ -458,29 +486,6 @@ class ChatParams:
         _resolve_auto_feed_limit(self.auto_feed)
 
 
-    """
-    Here is a comparison of the parameters supported by different models: (Bless your heart, OpenAI)
-    | Parameter                  | o3-mini | o1  | o1-preview | o1-mini | gpt-4o/mini | gpt-4-turbo | gpt-4o-audio | chatgpt-4o |
-    |---------------------------|---------|-----|------------|---------|-------------|-------------|--------------|------------|
-    | messages/system *         | Yes     | Yes | No         | No      | Yes         | Yes         | Yes          | Yes        |
-    | messages/developer *      | Yes     | Yes | No         | No      | Yes         | Yes         | Yes          | Yes        |
-    | messages/user-images      | No      | Yes | No         | No      | Yes         | Yes         | No           | Yes        |
-    | `tools` (as functions)    | Yes     | Yes | No         | No      | Yes         | Yes         | Yes          | No         |
-    | `functions` (legacy)      | Yes     | Yes | No         | No      | Yes         | Yes         | Yes          | No         |
-    | `response_format`-object  | Yes     | Yes | No         | No      | Yes         | Yes         | No           | Yes        |
-    | `response_format`-schema  | Yes     | Yes | No         | No      | Yes         | No          | No           | No         |
-    | `reasoning_effort`        | Yes     | Yes | No         | No      | No          | No          | No           | No         |
-    | `max_tokens`              | No      | No  | No         | No      | Yes         | Yes         | Yes          | Yes        |
-    | `max_completion_tokens`*  | Yes     | Yes | Yes        | Yes     | Yes         | Yes         | Yes          | Yes        |
-    | `temperature` & `top_p`   | No      | No  | No         | No      | Yes         | Yes         | Yes          | Yes        |
-    | `logprobs`                | No      | No  | No         | No      | Yes         | Yes         | No           | Yes        |
-    | `xxx_penalty`             | No      | No  | No         | No      | Yes         | Yes         | Yes          | Yes        |
-    | `logit_bias` (broken!)    | No      | No  | No         | No      | Yes         | Yes         | ?            | Yes        |
-    | `prediction`              | No      | No  | No         | No      | Yes         | No          | No           | No         |
-    | `streaming:True`          | Yes     | No  | Yes        | Yes     | Yes         | Yes         | Yes          | Yes        |
-    | Cache discount            | Yes     | Yes | Yes        | Yes     | Yes         | No          | No           | No         |
-    |---------------------------|---------|-----|------------|---------|-------------|-------------|--------------|------------|
-    """
     def _supports_developer_messages(self) -> bool:
         """Returns True if current model supports developer messages."""
         return not ("o1-preview" in self.model or "o1-mini" in self.model)
@@ -588,13 +593,15 @@ class ChatParams:
         if "-chat" in model:
             return None
 
-        for pattern, capabilities in _KNOWN_REASONING_MODELS:
-            if model == pattern or model.startswith(f"{pattern}-"):
-                return capabilities
+        for profile in _KNOWN_REASONING_MODELS:
+            if model == profile.pattern:
+                return profile.capabilities
+            if profile.match == "family_and_aliases" and model.startswith(f"{profile.pattern}-"):
+                return profile.capabilities
 
-        for pattern, capabilities in _KNOWN_REASONING_MODELS:
-            if pattern in model:
-                return capabilities
+        for profile in _KNOWN_REASONING_MODELS:
+            if profile.match == "family_and_aliases" and profile.pattern in model:
+                return profile.capabilities
 
         return None
 

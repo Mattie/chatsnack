@@ -2,6 +2,7 @@ import inspect
 from typing import Any, Dict, List
 
 from .attachment_resolver import AttachmentResolver
+from .model_advisories import warn_model_options
 from .responses_common import ResponsesNormalizationMixin
 from .types import RuntimeErrorPayload, RuntimeStreamEvent, RuntimeTerminalMetadata
 
@@ -14,6 +15,7 @@ class ResponsesAdapter(ResponsesNormalizationMixin):
         self.attachment_resolver = AttachmentResolver(ai_client)
 
     def _get_responses_create(self, *, async_mode: bool = False):
+        """Resolve the submitting SDK endpoint and diagnose missing Responses support."""
         client_name = "aclient" if async_mode else "client"
         client = getattr(self.ai_client, client_name, None)
         responses = getattr(client, "responses", None) if client is not None else None
@@ -55,7 +57,9 @@ class ResponsesAdapter(ResponsesNormalizationMixin):
         request_kwargs = self.build_responses_request(resolved, kwargs)
         self._debug_responses_payload("Responses HTTP create payload", request_kwargs)
         create = self._get_responses_create(async_mode=False)
-        response = create(**self._prepare_sdk_create_kwargs(create, request_kwargs))
+        prepared = self._prepare_sdk_create_kwargs(create, request_kwargs)
+        warn_model_options(prepared, self.ai_client.client, self.runtime_family)
+        response = create(**prepared)
         return self.normalize_completion(response, request_kwargs)
 
     async def create_completion_a(self, messages: List[Dict[str, Any]], **kwargs: Any):
@@ -63,7 +67,9 @@ class ResponsesAdapter(ResponsesNormalizationMixin):
         request_kwargs = self.build_responses_request(resolved, kwargs)
         self._debug_responses_payload("Responses HTTP create payload", request_kwargs)
         create = self._get_responses_create(async_mode=True)
-        response = await create(**self._prepare_sdk_create_kwargs(create, request_kwargs))
+        prepared = self._prepare_sdk_create_kwargs(create, request_kwargs)
+        warn_model_options(prepared, self.ai_client.aclient, self.runtime_family)
+        response = await create(**prepared)
         return self.normalize_completion(response, request_kwargs)
 
     @staticmethod
@@ -261,7 +267,9 @@ class ResponsesAdapter(ResponsesNormalizationMixin):
         tool_call_state: Dict[str, Dict[str, Any]] = {}
         try:
             create = self._get_responses_create(async_mode=False)
-            stream = create(**self._prepare_sdk_create_kwargs(create, request_kwargs))
+            prepared = self._prepare_sdk_create_kwargs(create, request_kwargs)
+            warn_model_options(prepared, self.ai_client.client, self.runtime_family)
+            stream = create(**prepared)
             for sdk_event in stream:
                 if terminal_seen:
                     continue
@@ -279,6 +287,9 @@ class ResponsesAdapter(ResponsesNormalizationMixin):
             if not terminal_seen:
                 payload = RuntimeErrorPayload(message="Responses stream ended before a terminal event.")
                 yield RuntimeStreamEvent(type="error", index=index, data={"error": payload.__dict__})
+        except Warning:
+            # Respect the caller's warnings-as-errors policy.
+            raise
         except Exception as exc:
             payload = RuntimeErrorPayload(message=str(exc))
             yield RuntimeStreamEvent(type="error", index=index, data={"error": payload.__dict__})
@@ -300,7 +311,9 @@ class ResponsesAdapter(ResponsesNormalizationMixin):
         tool_call_state: Dict[str, Dict[str, Any]] = {}
         try:
             create = self._get_responses_create(async_mode=True)
-            stream = await create(**self._prepare_sdk_create_kwargs(create, request_kwargs))
+            prepared = self._prepare_sdk_create_kwargs(create, request_kwargs)
+            warn_model_options(prepared, self.ai_client.aclient, self.runtime_family)
+            stream = await create(**prepared)
             stream_iterator = stream.__aiter__()
             async for sdk_event in stream_iterator:
                 if terminal_seen:
@@ -320,6 +333,9 @@ class ResponsesAdapter(ResponsesNormalizationMixin):
             if not terminal_seen:
                 payload = RuntimeErrorPayload(message="Responses stream ended before a terminal event.")
                 yield RuntimeStreamEvent(type="error", index=index, data={"error": payload.__dict__})
+        except Warning:
+            # Respect the caller's warnings-as-errors policy.
+            raise
         except Exception as exc:
             payload = RuntimeErrorPayload(message=str(exc))
             yield RuntimeStreamEvent(type="error", index=index, data={"error": payload.__dict__})
