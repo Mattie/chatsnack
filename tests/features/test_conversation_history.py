@@ -13,6 +13,41 @@ from types import SimpleNamespace
 from ruamel.yaml import YAML
 
 
+@pytest.mark.parametrize("content", [None, "", {"future": "content"}])
+def test_saved_assistant_with_non_list_content_replays_text(tmp_path, content):
+    """Imported content extras stay saved while mapped text owns wire replay."""
+    chat = Chat(messages=[{"assistant": {"text": "Recorded {literal}",
+        "provider_extras": {"content": content, "future": None}}}])
+    original = json.loads(chat.json)
+    path = tmp_path / "imported.yml"
+    chat.save(str(path))
+    restored = Chat()
+    restored.load(str(path))
+    request = ResponsesAdapter(SimpleNamespace()).build_responses_request(restored.get_messages(), {})
+    assert request["input"] == [{"type": "message", "role": "assistant",
+        "status": "completed", "future": None, "content": [
+            {"type": "output_text", "text": "Recorded {literal}", "annotations": []}]}]
+    assert json.loads(chat.json) == original
+    assert restored.messages == chat.messages
+    assert YAML(typ="safe").load(restored.yaml)["messages"][0]["assistant"]["provider_extras"]["content"] == content
+
+
+@pytest.mark.parametrize("role", ["system", "developer"])
+def test_saved_system_metadata_keeps_text_access_and_markdown(tmp_path, role):
+    """System convenience views unwrap text without removing persisted extras."""
+    chat = Chat(messages=[{role: {"text": "Follow the house style.",
+        "provider_extras": {"future": None}}}, {"user": "Hello"}])
+    path = tmp_path / "system.yml"
+    chat.save(str(path))
+    restored = Chat()
+    restored.load(str(path))
+    original = json.loads(restored.json)
+    assert restored.system_message == "Follow the house style."
+    assert "> Follow the house style." in restored.generate_markdown()
+    assert json.loads(restored.json) == original
+    assert restored.messages[0]["system"]["provider_extras"] == {"future": None}
+
+
 @pytest.mark.parametrize("old_defaults", [False, True], ids=["provider-capture", "existing-yaml"])
 def test_saved_history_omits_metadata_defaults_and_keeps_scalar_dialogue(tmp_path, old_defaults):
     """Compact YAML retains replay data and the ordinary scalar authoring form."""

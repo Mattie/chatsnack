@@ -92,6 +92,14 @@ unresolved, so these live runs do not establish a clean process exit.
 The notebook and strict documentation build passed. Contiguous unphased output
 without input boundaries remains one group, as documented in the RFC.
 
+PR #83 review follow-up (2026-09-12): both reported regressions reproduced and
+fixed. Imported assistant `provider_extras.content` values that are not lists
+remain saved, while replay builds an output-text part from the mapped text.
+Expanded system/developer messages expose their text through `system_message`,
+so Markdown export works without discarding metadata. Five new regression cases
+failed before the fixes; the focused history/replay/base/reset/serialization/YAML
+suite then passed **112 tests** with a clean process exit.
+
 Run this feature's live contracts explicitly in PowerShell:
 
 ```powershell

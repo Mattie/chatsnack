@@ -190,6 +190,10 @@ def message_to_item(role, block):
         result["role"] = "assistant"
         result.setdefault("status", "completed")
         parts = result.get("content", [{"type": "output_text"}])
+        if not isinstance(parts, list):
+            # Imported extras can contain null or another non-part value. The
+            # mapped text owns replay; keep the original extra in saved history.
+            parts = [{"type": "output_text"}]
         if len(parts) == 1:
             parts[0].setdefault("type", "output_text")
             parts[0].setdefault("annotations", [])

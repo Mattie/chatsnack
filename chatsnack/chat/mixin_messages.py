@@ -338,13 +338,13 @@ class ChatMessagesMixin:
 
     @property
     def system_message(self) -> str:
-        """ Returns the first system (or developer alias) message, if any """
+        """Return the first system text, leaving expanded metadata in history."""
         for _message in self.messages:
             message = self._msg_dict(_message)
-            if "system" in message:
-                return message["system"]
-            if DEVELOPER_ALIAS in message:
-                return message[DEVELOPER_ALIAS]
+            for role in (CANONICAL_SYSTEM_ROLE, DEVELOPER_ALIAS):
+                if role in message:
+                    value = message[role]
+                    return value.get("text", value.get("content")) if isinstance(value, dict) else value
         return None
     
     @system_message.setter
