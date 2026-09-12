@@ -8,10 +8,12 @@ model (GPT-5.4). Both must reason at high effort and preserve encrypted items.
 import os
 import json
 import secrets
+import asyncio
 from itertools import combinations
 from ruamel.yaml import YAML
 
 import pytest
+import pytest_asyncio
 
 from chatsnack import Chat, ChatParams, utensil
 from chatsnack.runtime.conversation import copy_value
@@ -23,6 +25,24 @@ pytestmark = pytest.mark.skipif(
     or os.getenv("CHATSNACK_RUN_LIVE_TESTS", "").lower() not in {"1", "true", "yes"},
     reason="Requires OPENAI_API_KEY and CHATSNACK_RUN_LIVE_TESTS=1",
 )
+
+
+@pytest_asyncio.fixture(autouse=True)
+async def _drain_live_callbacks():
+    """Let AnyIO stop its HTTP workers before pytest closes the event loop.
+
+    nest_asyncio can leave the finished test task's callbacks queued. A teardown
+    turn lets AnyIO's worker-stop callback run instead of stranding a thread.
+    """
+    yield
+    await asyncio.sleep(0)
+
+
+async def _close_live_chats(chats, timeout=30):
+    """Close all owned clients/sessions, failing if shutdown exceeds its budget."""
+    async with asyncio.timeout(timeout):
+        for chat in reversed(chats):
+            await chat.close_a()
 
 
 def expected_replay(items):
@@ -208,5 +228,4 @@ async def test_live_saved_tool_history_replays_and_retains_reasoning(
                                    and item.get("role") not in {"system", "developer", "user"}]
         assert replayed_provider_items == provider_items
     finally:
-        for chat in reversed(chats):
-            await chat.close_a()
+        await _close_live_chats(chats)

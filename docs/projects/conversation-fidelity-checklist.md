@@ -87,8 +87,8 @@ The remote base matched current `origin/master`. Final verification: SDK 3.8.0
 regression. All **6 live history assertions passed again in 108.14 seconds**,
 but the process lingered after pytest's summary and required interruption.
 The live fixture now closes chats with `Chat.close_a()`; a three-transport rerun
-passed in 54.34 seconds but still lingered at shutdown. The cause remains
-unresolved, so these live runs do not establish a clean process exit.
+passed in 54.34 seconds but still lingered at shutdown. Those runs did not
+establish a clean process exit; the cause and remedy are recorded below.
 The notebook and strict documentation build passed. Contiguous unphased output
 without input boundaries remains one group, as documented in the RFC.
 
@@ -109,6 +109,19 @@ asset bytes through save/load. Reset coverage checks constructed/loaded chats,
 system/developer roles, and repeated restoration after nested edits.
 The focused history/replay/base/reset/serialization/YAML suite passed
 **120 tests** with a clean process exit.
+
+Shutdown resolution (2026-09-12): `nest_asyncio` left AnyIO worker-stop callbacks
+queued after the test task completed, and pytest closed the loop before they
+ran. An offline subprocess reproduced the passing-test/hanging-process failure.
+The live suite now drains callbacks during fixture teardown and bounds owned
+client/session cleanup to 30 seconds. Offline regressions verify clean process
+exit and failure on stalled client cleanup.
+All **6 live cases passed in 120.89 seconds with exit code 0**, using SDK 3.5.0;
+only the main thread remained at both shutdown checkpoints. The diagnostic
+watchdog added no callback draining. The final focused suite passed **202 tests**
+(two existing async-client cleanup warnings in other test doubles).
+Import regressions also cover null assistant text/refusal metadata and legacy
+tool-output extras through save/load and cross-runtime replay.
 
 Run this feature's live contracts explicitly in PowerShell:
 

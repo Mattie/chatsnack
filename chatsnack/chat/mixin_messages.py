@@ -120,7 +120,7 @@ class ChatMessagesMixin:
                 if role == "assistant" and "tool_calls" not in message:
                     block = {key: deepcopy(value) for key, value in message.items()
                              if key not in {"role", "content"}}
-                    if content is not None:
+                    if "content" in message:
                         if (escape and isinstance(content, str) and not message.get("item_id")
                                 and "content" not in (message.get("provider_extras") or {})):
                             content = content.replace("{", "{{").replace("}", "}}")

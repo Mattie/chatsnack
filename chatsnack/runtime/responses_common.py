@@ -113,9 +113,16 @@ class ResponsesNormalizationMixin:
 
         if role == "tool":
             output_type = message.get("output_type")
+            # Legacy CC imports keep extras beside content. Merge them before
+            # canonical fields so authored correlation/output always wins.
+            output = dict(self._to_dict(message.get("provider_extras") or {}))
+            output.update({key: value for key, value in message.items() if key not in {
+                "role", "content", "tool_call_id", "output_type", "provider_extras", "item_id", "status"}})
+            for name, wire_name in (("item_id", "id"), ("status", "status")):
+                if name in message:
+                    output[wire_name] = message[name]
             if output_type == "apply_patch_call_output":
-                item = dict(self._to_dict(message.get("provider_extras") or {}))
-                item.update(
+                output.update(
                     {
                         "type": "apply_patch_call_output",
                         "call_id": message.get("tool_call_id", ""),
@@ -123,24 +130,19 @@ class ResponsesNormalizationMixin:
                         "output": self._coerce_text(content),
                     }
                 )
-                return [item]
+                return [output]
             if output_type == "tool_search_output":
-                return [
-                    {
-                        "type": "tool_search_output",
-                        "tool_call_id": message.get("tool_call_id", ""),
-                        "output": self._coerce_text(content),
-                    }
-                ]
-            output = dict(self._to_dict(message.get("provider_extras") or {}))
+                output.update({
+                    "type": "tool_search_output",
+                    "tool_call_id": message.get("tool_call_id", ""),
+                    "output": self._coerce_text(content),
+                })
+                return [output]
             output.update({
                 "type": "function_call_output",
                 "call_id": message.get("tool_call_id", ""),
                 "output": json.dumps(content, ensure_ascii=False) if isinstance(content, (dict, list)) else self._coerce_text(content),
             })
-            for name, wire_name in (("item_id", "id"), ("status", "status")):
-                if name in message:
-                    output[wire_name] = message[name]
             return [output]
 
         items: List[Dict[str, Any]] = []

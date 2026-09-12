@@ -13,6 +13,83 @@ from types import SimpleNamespace
 from ruamel.yaml import YAML
 
 
+@pytest.mark.parametrize("loaded", [False, True])
+@pytest.mark.parametrize("metadata", [{"refusal": "blocked"}, {"provider_extras": {"future": None}}])
+def test_imported_null_assistant_preserves_metadata_without_inventing_text(tmp_path, loaded, metadata):
+    """Null dialogue stays separate from metadata and recorded refusal content."""
+    from chatsnack.runtime.conversation import project_chat_completions
+    chat = Chat()
+    chat.add_messages_json(json.dumps([{"role": "assistant", "content": None, **metadata}]))
+    if loaded:
+        path = tmp_path / "refusal.yml"
+        chat.save(str(path))
+        chat = Chat()
+        chat.load(str(path))
+    before = json.loads(chat.json)
+    assert chat.get_messages()[0]["content"] is None
+    assert chat.response is None
+    if loaded or "provider_extras" in metadata:
+        with pytest.warns(UserWarning, match="provider-only history"):
+            projected = project_chat_completions(chat.get_messages())
+    else:
+        projected = project_chat_completions(chat.get_messages())
+    expected_cc = {"role": "assistant", "content": None}
+    if "refusal" in metadata:
+        expected_cc["refusal"] = "blocked"
+    assert projected == [expected_cc]
+    replay = ResponsesAdapter(SimpleNamespace()).build_responses_request(chat.get_messages(), {})
+    assert replay["input"][0]["content"] == ([{"type": "refusal", "refusal": "blocked"}] if "refusal" in metadata else [])
+    if "provider_extras" in metadata:
+        assert replay["input"][0]["future"] is None
+    assert json.loads(chat.json) == before
+
+
+@pytest.mark.parametrize("loaded", [False, True])
+@pytest.mark.parametrize("refusal", [None, "blocked"])
+def test_imported_assistant_text_and_refusal_use_responses_content_parts(tmp_path, loaded, refusal):
+    """CC refusal metadata never leaks as an unsupported Responses item field."""
+    chat = Chat()
+    chat.add_messages_json(json.dumps([{"role": "assistant", "content": "Hello", "refusal": refusal}]))
+    if loaded:
+        path = tmp_path / "text-and-refusal.yml"
+        chat.save(str(path))
+        chat = Chat()
+        chat.load(str(path))
+    original = json.loads(chat.json)
+    replay = ResponsesAdapter(SimpleNamespace()).build_responses_request(chat.get_messages(), {})
+    message = replay["input"][0]
+    assert "refusal" not in message
+    expected = [{"type": "output_text", "text": "Hello", "annotations": []}]
+    if refusal is not None:
+        expected.append({"type": "refusal", "refusal": refusal})
+    assert message["content"] == expected
+    assert json.loads(chat.json) == original
+
+
+@pytest.mark.parametrize("output_type", [None, "apply_patch_call_output", "tool_search_output"])
+def test_legacy_tool_metadata_survives_responses_replay(tmp_path, output_type):
+    """Top-level imported metadata and explicit extras both survive tool replay."""
+    item = {"role": "tool", "tool_call_id": "call_1", "content": "literal {output}",
+            "future": {"nullable": None}, "provider_extras": {"other": [], "future": "overridden"}}
+    if output_type:
+        item.update(output_type=output_type, status="completed")
+    chat = Chat()
+    chat.add_messages_json(json.dumps([item]))
+    path = tmp_path / "tool.yml"
+    chat.save(str(path))
+    restored = Chat()
+    restored.load(str(path))
+    assert restored.get_messages() == [item]
+    replay = ResponsesAdapter(SimpleNamespace()).build_responses_request(restored.get_messages(), {})
+    expected = {"type": output_type or "function_call_output", "output": "literal {output}",
+                "future": {"nullable": None}, "other": []}
+    expected["tool_call_id" if output_type == "tool_search_output" else "call_id"] = "call_1"
+    if output_type:
+        expected["status"] = "completed"
+    assert replay["input"] == [expected]
+    assert restored.get_messages() == [item]
+
+
 @pytest.mark.parametrize("content", [None, "", {"future": "content"}, [],
     [{"type": "output_text", "text": "stale one"}, {"type": "output_text", "text": "stale two"}],
     [None]])

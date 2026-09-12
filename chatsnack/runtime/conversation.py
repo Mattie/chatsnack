@@ -182,13 +182,19 @@ def message_to_item(role, block):
             result["arguments"] = json.dumps(result["arguments"], ensure_ascii=False)
         return result
     if role == "assistant" and "tool_calls" not in block and any(
-        key in block for key in ("item_id", "phase", "status", "provider_extras")
+        key in block for key in ("item_id", "phase", "status", "provider_extras", "refusal")
     ) and "text" in block:
         result = _restore(block, "message", {
-            "item_id": "id", "phase": "phase", "status": "status",
+            "item_id": "id", "phase": "phase", "status": "status", "refusal": "refusal",
         })
         result["role"] = "assistant"
         result.setdefault("status", "completed")
+        refusal = result.pop("refusal", None)
+        if block["text"] is None:
+            # CC refusals have null content; Responses represents the refusal as
+            # a content part. Never fabricate output text from its metadata.
+            result["content"] = [{"type": "refusal", "refusal": refusal}] if isinstance(refusal, str) else []
+            return result
         parts = result.get("content", [{"type": "output_text"}])
         if (not isinstance(parts, list) or len(parts) != 1
                 or not isinstance(parts[0], dict)
@@ -201,6 +207,8 @@ def message_to_item(role, block):
             parts[0].setdefault("type", "output_text")
             parts[0].setdefault("annotations", [])
             parts[0]["text"] = block["text"]
+        if isinstance(refusal, str):
+            parts.append({"type": "refusal", "refusal": refusal})
         result["content"] = parts
         return result
     return None
@@ -388,6 +396,8 @@ def project_chat_completions(messages):
         if role == "tool" and message.get("output_type") not in (None, "function_call_output"):
             omitted.add(message["output_type"])
             continue
+        if role == "assistant" and "refusal" in (message.get("provider_extras") or {}):
+            message.setdefault("refusal", message["provider_extras"]["refusal"])
         for key in metadata_fields:
             if key in message:
                 omitted.add("message metadata")

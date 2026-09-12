@@ -54,6 +54,10 @@ For imported compact assistants, mapped `text` owns one output-text part.
 An incompatible `provider_extras.content` shape stays in saved history, while
 replay substitutes that mapped part. Complete multipart content belongs in a
 `provider_item`. Opaque non-list content exposes no text through `.response`.
+Imported null assistant text stays null alongside its metadata. CC refusal
+metadata becomes a refusal content part when replayed through Responses; it
+never becomes fabricated assistant text. Legacy tool-output fields merge with
+explicit provider extras before canonical correlation and output fields win.
 
 Existing scalar and expanded messages, including `assistant.tool_calls`, still
 load. We cannot recover ordering or fields lost by older saved files. Default
