@@ -65,6 +65,8 @@ entries. Normalized results gain an optional `messages` list and retain their
 aggregate `message` compatibility view. `.response`, `.last`, `.images`, and
 `.files` retain their existing roles. Generated media uses the existing local
 asset policy rather than putting base64 copies into the transcript.
+Markdown export reads textual dialogue from expanded and opaque message entries,
+omitting non-text provider records and metadata from that display view.
 Latest-result accessors recognize compact and opaque assistant entries alike.
 Input/tool-result boundaries and an older explicit `final_answer` separate output
 groups, so pending calls and image-only replies cannot reuse earlier answers or
@@ -99,6 +101,10 @@ all items remain recorded, and no partial batch is executed or auto-fed.
 Chat Completions projection places available tool results immediately after the
 assistant that requested them. This changes only the projected order, leaving
 the saved Responses transcript and individual assistant messages untouched.
+Imported user/system/developer message items retain representable text in this
+projection; user image URLs and supported file references/data are converted to
+Chat Completions content parts. Unsupported parts remain in saved history and
+participate in the existing projection warning.
 
 ## Validation and boundaries
 

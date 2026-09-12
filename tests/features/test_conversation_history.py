@@ -67,6 +67,86 @@ def test_opaque_assistant_non_list_content_has_no_text(tmp_path, content):
     assert restored.messages[-1] == {"provider_item": item}
 
 
+def test_saved_recorded_conversation_exports_readable_markdown(tmp_path):
+    """Markdown reads expanded/opaque dialogue without dumping provider metadata."""
+    chat = Chat(messages=[{"system": {"text": "House rules", "provider_extras": {"future": None}}},
+                          {"user": {"text": "Draw a snack", "images": [{"file_id": "file_input"}]}}])
+    chat.add_messages_json(json.dumps([
+        {"type": "message", "role": "assistant", "id": "msg_1",
+         "content": [{"type": "output_text", "text": "Checking stock"}]},
+        {"type": "reasoning", "summary": [], "encrypted_content": "private-token"},
+        {"type": "message", "role": "user", "content": [{"type": "input_text", "text": "Include popcorn"}]},
+        {"type": "message", "role": "assistant", "id": "msg_2", "content": [
+            {"type": "output_text", "text": "Here is "}, {"type": "output_text", "text": "popcorn"}]},
+        {"type": "message", "role": "assistant", "content": None},
+    ]))
+    path = tmp_path / "markdown.yml"
+    chat.save(str(path))
+    restored = Chat()
+    restored.load(str(path))
+    original = json.loads(restored.json)
+    markdown = restored.generate_markdown()
+    assert all(text in markdown for text in ["House rules", "Draw a snack", "Checking stock",
+                                              "Include popcorn", "Here is popcorn"])
+    assert "**User:**" in markdown
+    assert "**Assistant:**" in markdown
+    assert "private-token" not in markdown
+    assert "provider_item" not in markdown
+    assert json.loads(restored.json) == original
+
+
+@pytest.mark.parametrize("role", ["user", "system", "developer"])
+@pytest.mark.parametrize("content", ["Keep it short", [{"type": "input_text", "text": "Keep it short"}]])
+def test_imported_input_messages_reach_chat_completions(tmp_path, role, content):
+    """Switching runtimes retains imported dialogue and instructions after load."""
+    from chatsnack.runtime.chat_completions_adapter import ChatCompletionsAdapter
+    captured = []
+
+    def create(**kwargs):
+        """Capture the final CC request without making a provider call."""
+        captured.append(kwargs["messages"])
+        return {"choices": [{"message": {"role": "assistant", "content": "ok"}}]}
+
+    item = {"type": "message", "role": role, "content": content, "id": "msg_imported"}
+    chat = Chat()
+    chat.add_messages_json(json.dumps([item]))
+    path = tmp_path / "imported-input.yml"
+    chat.save(str(path))
+    restored = Chat()
+    restored.load(str(path))
+    adapter = ChatCompletionsAdapter(SimpleNamespace(client=SimpleNamespace(
+        chat=SimpleNamespace(completions=SimpleNamespace(create=create)))))
+    with pytest.warns(UserWarning, match="provider-only history"):
+        adapter.create_completion(restored.get_messages(), model="test-model")
+    expected = content if isinstance(content, str) else [{"type": "text", "text": "Keep it short"}]
+    assert captured == [[{"role": role, "content": expected}]]
+    assert restored.messages == [{"provider_item": item}]
+
+
+@pytest.mark.parametrize("detail", ["low", "original"])
+def test_cc_projects_imported_user_attachments_and_keeps_unmapped_parts(detail):
+    """Representable input parts survive projection; unsupported data stays saved."""
+    from chatsnack.runtime.conversation import project_chat_completions
+    item = {"type": "message", "role": "user", "content": [
+        {"type": "input_text", "text": "Compare these"},
+        {"type": "input_image", "image_url": "https://example.test/snack.png", "detail": detail},
+        {"type": "input_file", "file_id": "file_1"},
+        {"type": "input_file", "file_data": "data:text/plain;base64,aGk=", "filename": "note.txt"},
+        {"type": "future_input", "data": "keep"},
+    ]}
+    chat = Chat()
+    chat.add_messages_json(json.dumps([item]))
+    with pytest.warns(UserWarning, match="provider-only history"):
+        projected = project_chat_completions(chat.get_messages())
+    assert projected == [{"role": "user", "content": [
+        {"type": "text", "text": "Compare these"},
+        {"type": "image_url", "image_url": {"url": "https://example.test/snack.png", **({"detail": detail} if detail == "low" else {})}},
+        {"type": "file", "file": {"file_id": "file_1"}},
+        {"type": "file", "file": {"file_data": "data:text/plain;base64,aGk=", "filename": "note.txt"}},
+    ]}]
+    assert chat.messages == [{"provider_item": item}]
+
+
 @pytest.mark.parametrize("old_defaults", [False, True], ids=["provider-capture", "existing-yaml"])
 def test_saved_history_omits_metadata_defaults_and_keeps_scalar_dialogue(tmp_path, old_defaults):
     """Compact YAML retains replay data and the ordinary scalar authoring form."""

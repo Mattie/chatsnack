@@ -247,6 +247,18 @@ def latest_response_entries(entries):
     return list(reversed(group))
 
 
+def content_text(content):
+    """Read display text from scalar or multipart content, excluding opaque data."""
+    if isinstance(content, str):
+        return content
+    if not isinstance(content, list):
+        return None
+    text = "".join(part["text"] for part in content
+                   if isinstance(part, dict) and part.get("type") in {"text", "input_text", "output_text"}
+                   and isinstance(part.get("text"), str))
+    return text or None
+
+
 def entry_text(entry):
     """Read assistant text from compact or opaque message entries."""
     if "assistant" in entry:
@@ -336,6 +348,30 @@ def project_chat_completions(messages):
             if role == "provider_item":
                 block = message.get("content") or {}
                 item = block.get("item", block) if "type" not in block else block
+                if item.get("type") == "message" and item.get("role") in {"user", "system", "developer"}:
+                    input_role, content = item["role"], item.get("content")
+                    if isinstance(content, list):
+                        parts = []
+                        for part in content:
+                            if not isinstance(part, dict):
+                                continue
+                            kind = part.get("type")
+                            if kind == "input_text" and isinstance(part.get("text"), str):
+                                parts.append({"type": "text", "text": part["text"]})
+                            elif input_role == "user" and kind == "input_image" and part.get("image_url"):
+                                image = {"url": part["image_url"]}
+                                # Responses also accepts 'original'; CC does not.
+                                if part.get("detail") in {"auto", "low", "high"}:
+                                    image["detail"] = part["detail"]
+                                parts.append({"type": "image_url", "image_url": image})
+                            elif input_role == "user" and kind == "input_file":
+                                file = {key: part[key] for key in ("file_id", "file_data", "filename") if part.get(key)}
+                                if file.get("file_id") or file.get("file_data"):
+                                    parts.append({"type": "file", "file": file})
+                        content = parts
+                    if isinstance(content, str) or isinstance(content, list) and content:
+                        projected.append({"role": input_role, "content": content})
+                    continue
                 if item.get("type") == "function_call_output":
                     # Keep the correlation even when CC cannot consume image parts.
                     output = item.get("output")
