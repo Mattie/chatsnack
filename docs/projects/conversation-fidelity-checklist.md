@@ -100,6 +100,16 @@ so Markdown export works without discarding metadata. Five new regression cases
 failed before the fixes; the focused history/replay/base/reset/serialization/YAML
 suite then passed **112 tests** with a clean process exit.
 
+Philosophy review remedies (2026-09-12): trailing image replay wrappers no longer
+hide the assistant's captured `.images`/`.files`, and reset restores the complete
+initial system block without overwriting its metadata through a text accessor.
+Eight new regression cases reproduced the failures. Image coverage now checks
+both output orders, compact/multipart commentary, stored/stateless replay, and
+asset bytes through save/load. Reset coverage checks constructed/loaded chats,
+system/developer roles, and repeated restoration after nested edits.
+The focused history/replay/base/reset/serialization/YAML suite passed
+**120 tests** with a clean process exit.
+
 Run this feature's live contracts explicitly in PowerShell:
 
 ```powershell

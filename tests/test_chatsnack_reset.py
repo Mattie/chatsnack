@@ -1,5 +1,27 @@
 import pytest
 from chatsnack import Chat
+from chatsnack.runtime.conversation import copy_value
+
+
+@pytest.mark.parametrize("loaded", [False, True], ids=["constructed", "loaded"])
+@pytest.mark.parametrize("role", ["system", "developer"])
+def test_reset_restores_expanded_system_metadata(tmp_path, loaded, role):
+    """Reset restores the saved system block, including nested metadata, every time."""
+    chat = Chat(messages=[{role: {"text": "Rules", "provider_extras": {
+        "future": {"items": [], "nullable": None}}}}, {"user": "Hi"}])
+    if loaded:
+        path = tmp_path / "reset.yml"
+        chat.save(str(path))
+        chat = Chat()
+        chat.load(str(path))
+    original = copy_value(chat.messages)
+    for _ in range(2):
+        block = next(iter(chat.messages[0].values()))
+        block["provider_extras"]["future"]["items"].append("changed")
+        chat.system("Temporary rules").user("Later")
+        chat.reset()
+        assert chat.messages == original
+        assert chat.system_message == "Rules"
 
 def test_reset_feature():
     # Create a Chat object with a user message

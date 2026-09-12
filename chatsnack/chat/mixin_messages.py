@@ -278,7 +278,10 @@ class ChatMessagesMixin:
         entries = [self._msg_dict(message) for message in self.messages]
         for message in reversed(latest_response_entries(entries)):
             item = message.get("provider_item")
-            if isinstance(item, dict) and "item" in item and "type" not in item:
+            # A result_asset wrapper restores provider bytes for replay; it may
+            # follow the assistant that owns the response's convenience views.
+            if (isinstance(item, dict) and "item" in item and "type" not in item
+                    and any(key in item for key in ("images", "files", "sources"))):
                 return item
             if "assistant" in message:
                 assistant = message["assistant"]

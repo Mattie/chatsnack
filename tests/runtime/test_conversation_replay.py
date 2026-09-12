@@ -173,8 +173,9 @@ def test_json_copy_include_and_reset_preserve_nested_provider_values(tmp_path, m
 
 @pytest.mark.parametrize("store", [False, True])
 @pytest.mark.parametrize("multipart", [False, True])
+@pytest.mark.parametrize("image_last", [False, True], ids=["image-first", "image-after-commentary"])
 @pytest.mark.asyncio
-async def test_multipart_answer_sources_and_generated_image_replay(tmp_path, monkeypatch, store, multipart):
+async def test_multipart_answer_sources_and_generated_image_replay(tmp_path, monkeypatch, store, multipart, image_last):
     """Save media under the asset policy and restore its bytes only for submission."""
     monkeypatch.setenv("CHATSNACK_BASE_DIR", str(tmp_path))
     image_bytes = b"\x89PNG\r\n\x1a\nprovider-image"
@@ -183,7 +184,9 @@ async def test_multipart_answer_sources_and_generated_image_replay(tmp_path, mon
     message = answer(multipart=multipart)
     message["content"][0]["annotations"] = [{"type": "url_citation", "url": "https://example.test",
                                              "title": "Source", "start_index": 0, "end_index": 6}]
-    output = [image_item, message]
+    if image_last:
+        message["phase"] = "commentary"
+    output = [message, image_item] if image_last else [image_item, message]
     requests = []
 
     def respond(request):
@@ -200,6 +203,7 @@ async def test_multipart_answer_sources_and_generated_image_replay(tmp_path, mon
         assert continued.response == "Answer {literal}" + (" again" if multipart else "")
         assert len(continued.messages) == 3
         assert continued.images[0].read_bytes() == image_bytes
+        assert continued.files[0].read_bytes() == image_bytes
         assert image_item["result"] not in continued.yaml
         await continued.chat_a("edit immediately")
         if store:
@@ -211,6 +215,8 @@ async def test_multipart_answer_sources_and_generated_image_replay(tmp_path, mon
         continued.save(str(path))
         loaded = Chat()
         loaded.load(str(path))
+        assert loaded.images[0].read_bytes() == image_bytes
+        assert loaded.files[0].read_bytes() == image_bytes
         loaded.ai.aclient = sdk
         await loaded.chat_a("edit")
     assert requests[2]["input"][1:3] == output

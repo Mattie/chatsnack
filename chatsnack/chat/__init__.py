@@ -284,7 +284,6 @@ class Chat(ChatQueryMixin, ChatSerializationMixin, ChatUtensilMixin):
         self._initial_name = self.name
         self._initial_params = copy.copy(self.params)
         self._initial_messages = copy_value(self.messages)
-        self._initial_system_message = self.system_message
         # do the same for the tool registry
         self._initial_registry = getattr(self, '_local_registry', None)
         self._initial_runtime_bindings = dict(self._runtime_bindings)
@@ -603,8 +602,6 @@ class Chat(ChatQueryMixin, ChatSerializationMixin, ChatUtensilMixin):
         self.name = self._initial_name
         self.params = copy.copy(self._initial_params)
         self.messages = copy_value(self._initial_messages)
-        if self._initial_system_message is not None:
-            self.system_message = self._initial_system_message
         # Reset tools if initial registry was stored
         if hasattr(self, '_initial_registry'):
             # Re-register the initial tools
@@ -865,7 +862,6 @@ def _capture_chat_reset_state(chat):
     chat._initial_name = chat.name
     chat._initial_params = copy.copy(chat.params)
     chat._initial_messages = copy_value(chat.messages)
-    chat._initial_system_message = chat.system_message
     chat._initial_registry = getattr(chat, "_local_registry", None)
     chat._initial_runtime_bindings = dict(
         getattr(chat, "_runtime_bindings", {})
