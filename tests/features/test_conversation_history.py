@@ -13,8 +13,10 @@ from types import SimpleNamespace
 from ruamel.yaml import YAML
 
 
-@pytest.mark.parametrize("content", [None, "", {"future": "content"}])
-def test_saved_assistant_with_non_list_content_replays_text(tmp_path, content):
+@pytest.mark.parametrize("content", [None, "", {"future": "content"}, [],
+    [{"type": "output_text", "text": "stale one"}, {"type": "output_text", "text": "stale two"}],
+    [None]])
+def test_saved_assistant_with_unmapped_content_replays_text(tmp_path, content):
     """Imported content extras stay saved while mapped text owns wire replay."""
     chat = Chat(messages=[{"assistant": {"text": "Recorded {literal}",
         "provider_extras": {"content": content, "future": None}}}])
@@ -46,6 +48,23 @@ def test_saved_system_metadata_keeps_text_access_and_markdown(tmp_path, role):
     assert "> Follow the house style." in restored.generate_markdown()
     assert json.loads(restored.json) == original
     assert restored.messages[0]["system"]["provider_extras"] == {"future": None}
+
+
+@pytest.mark.parametrize("content", [None, "unexpected", {"future": None}])
+def test_opaque_assistant_non_list_content_has_no_text(tmp_path, content):
+    """Opaque history retains unusual content without breaking text conveniences."""
+    item = {"type": "message", "role": "assistant", "content": content}
+    chat = Chat().asst("Older answer").user("Next")
+    chat.add_messages_json(json.dumps([item]))
+    path = tmp_path / "opaque.yml"
+    chat.save(str(path))
+    restored = Chat()
+    restored.load(str(path))
+    assert restored.response is None
+    assert str(restored) == ""
+    replay = ResponsesAdapter(SimpleNamespace()).build_responses_request(restored.get_messages(), {})
+    assert replay["input"][-1] == item
+    assert restored.messages[-1] == {"provider_item": item}
 
 
 @pytest.mark.parametrize("old_defaults", [False, True], ids=["provider-capture", "existing-yaml"])

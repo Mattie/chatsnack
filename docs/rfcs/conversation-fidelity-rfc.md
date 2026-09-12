@@ -50,6 +50,10 @@ Scalar `assistant: Blah` stays valid; only meaningful metadata requires a block.
 `provider_item` retains an unfamiliar or otherwise unrepresentable item without
 a second raw copy of mapped conversation text. Generated argument/output strings
 remain literal; authored argument mappings compile to JSON.
+For imported compact assistants, mapped `text` owns one output-text part.
+An incompatible `provider_extras.content` shape stays in saved history, while
+replay substitutes that mapped part. Complete multipart content belongs in a
+`provider_item`. Opaque non-list content exposes no text through `.response`.
 
 Existing scalar and expanded messages, including `assistant.tool_calls`, still
 load. We cannot recover ordering or fields lost by older saved files. Default
@@ -90,7 +94,7 @@ not locally known. Authentication scope is represented only by a fingerprint.
 
 HTTP and WebSocket share item normalization. Completed/incomplete responses keep
 their distinct terminal status. Streaming retains the existing listener surface.
-An explicitly unfinished function call keeps its whole execution batch pending;
+An explicitly unfinished function, Apply Patch, or tool-search call keeps its whole execution batch pending;
 all items remain recorded, and no partial batch is executed or auto-fed.
 Chat Completions projection places available tool results immediately after the
 assistant that requested them. This changes only the projected order, leaving

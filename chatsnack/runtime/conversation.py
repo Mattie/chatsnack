@@ -190,9 +190,12 @@ def message_to_item(role, block):
         result["role"] = "assistant"
         result.setdefault("status", "completed")
         parts = result.get("content", [{"type": "output_text"}])
-        if not isinstance(parts, list):
-            # Imported extras can contain null or another non-part value. The
-            # mapped text owns replay; keep the original extra in saved history.
+        if (not isinstance(parts, list) or len(parts) != 1
+                or not isinstance(parts[0], dict)
+                or parts[0].get("type", "output_text") != "output_text"):
+            # Compact assistant text owns one output-text part. Imported shapes
+            # that cannot carry it stay saved, but cannot override mapped text.
+            # Full multipart provider messages use the opaque representation.
             parts = [{"type": "output_text"}]
         if len(parts) == 1:
             parts[0].setdefault("type", "output_text")
@@ -251,8 +254,11 @@ def entry_text(entry):
         return value.get("text") if isinstance(value, dict) else value
     item = _provider_item(entry)
     if item.get("type") == "message" and item.get("role") == "assistant":
-        return "".join(part.get("text", "") for part in item.get("content", [])
-                       if part.get("type") == "output_text") or None
+        parts = item.get("content")
+        if not isinstance(parts, list):
+            return None
+        return "".join(part.get("text", "") for part in parts
+                       if isinstance(part, dict) and part.get("type") == "output_text") or None
     return None
 
 

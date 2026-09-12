@@ -181,7 +181,8 @@ def test_terminal_response_keeps_ordered_items_and_distinct_status(monkeypatch, 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("call_status", ["incomplete", "in_progress"])
 @pytest.mark.parametrize("completed_peer", [False, True])
-async def test_incomplete_function_call_is_recorded_without_execution(tmp_path, monkeypatch, call_status, completed_peer):
+@pytest.mark.parametrize("call_type", ["function_call", "apply_patch_call", "tool_search_call"])
+async def test_incomplete_call_is_recorded_without_execution(tmp_path, monkeypatch, call_status, completed_peer, call_type):
     """Valid partial JSON must not turn an unfinished SDK call into a side effect."""
     from chatsnack import Chat, utensil
     monkeypatch.setenv("CHATSNACK_BASE_DIR", str(tmp_path))
@@ -195,8 +196,14 @@ async def test_incomplete_function_call_is_recorded_without_execution(tmp_path, 
 
     item = {"type": "function_call", "id": "fc_partial", "call_id": "call_partial",
             "name": "stock", "arguments": '{"sku":"box"}', "status": call_status}
-    output = ([{**item, "id": "fc_complete", "call_id": "call_complete", "status": "completed"}]
-              if completed_peer else []) + [item]
+    peer = {**item, "id": "fc_complete", "call_id": "call_complete", "status": "completed"}
+    if call_type == "apply_patch_call":
+        item = {"type": call_type, "id": "ap_partial", "call_id": "call_partial",
+                "status": call_status, "operation": {"type": "create_file", "path": "note.txt", "diff": "+partial"}}
+    elif call_type == "tool_search_call":
+        item = {"type": call_type, "id": "ts_partial", "call_id": "call_partial",
+                "status": call_status, "arguments": {"query": "stock"}}
+    output = ([peer] if completed_peer else []) + [item]
     response = Response.model_construct(id="resp_partial", status="incomplete", model="test-model", output=output)
     event = ResponseIncompleteEvent.model_construct(type="response.incomplete", response=response, sequence_number=1)
     connection = _FakeAsyncConnection([event])
@@ -205,13 +212,20 @@ async def test_incomplete_function_call_is_recorded_without_execution(tmp_path, 
         return connection
 
     monkeypatch.setattr(ResponsesWebSocketAdapter, "_connect_async", connect)
-    source = Chat(model="test-model", utensils=[stock])
+    def native_handler(call):
+        """Record native execution without performing any filesystem action."""
+        executions.append(call)
+        return {"status": "completed", "output": "done"}
+
+    source = Chat(model="test-model", utensils=[stock, utensil.apply_patch(execute=native_handler)],
+                  tool_search_handler=native_handler)
     source.runtime = ResponsesWebSocketAdapter(source.ai, session=ResponsesWebSocketSession(mode="inherit"))
     try:
         continued = await source.chat_a("Check stock.")
         assert executions == []
         assert len(connection.create_calls) == 1
-        assert continued.messages[-1]["tool_call"]["status"] == call_status
+        block = continued.messages[-1]["tool_call" if call_type == "function_call" else "provider_item"]
+        assert block["status"] == call_status
         saved = tmp_path / "partial.yml"
         continued.save(str(saved))
         loaded = Chat()

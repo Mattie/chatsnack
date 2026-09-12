@@ -411,7 +411,7 @@ class ResponsesNormalizationMixin:
         pending_outputs: List[PendingOutput] = []
         encrypted_content: Optional[str] = None
         tool_calls: List[NormalizedToolCall] = []
-        unfinished_function_call = False
+        unfinished_local_call = False
         hosted_tool_calls: List[Dict[str, Any]] = []
         code_interpreter_container_ids: List[str] = []
         assistant_phase: Optional[str] = None
@@ -419,6 +419,9 @@ class ResponsesNormalizationMixin:
         for item in response_dict.get("output") or []:
             item_dict = self._to_dict(item)
             item_type = item_dict.get("type")
+            if (item_type in {"function_call", "apply_patch_call", "tool_search_call"}
+                    and item_dict.get("status") in {"in_progress", "incomplete"}):
+                unfinished_local_call = True
             if item_type == "message" and item_dict.get("role") == "assistant":
                 assistant_phase = assistant_phase or item_dict.get("phase")
                 for part in item_dict.get("content") or []:
@@ -468,8 +471,6 @@ class ResponsesNormalizationMixin:
                     elif part_type == "encrypted_content":
                         encrypted_content = part_dict.get("encrypted_content") or part_dict.get("text")
             elif item_type == "function_call":
-                if item_dict.get("status") in {"in_progress", "incomplete"}:
-                    unfinished_function_call = True
                 tool_calls.append(
                     NormalizedToolCall(
                         id=item_dict.get("call_id", ""),
@@ -612,7 +613,7 @@ class ResponsesNormalizationMixin:
         # Keep an unfinished batch pending. Executing just its completed peers
         # would auto-feed an exchange that still contains an unresolved call.
         # normalize_completion retains every raw item in the saved transcript.
-        if unfinished_function_call:
+        if unfinished_local_call:
             tool_calls = []
 
         message = NormalizedAssistantMessage(
