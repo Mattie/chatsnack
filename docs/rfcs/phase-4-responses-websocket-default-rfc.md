@@ -1,5 +1,8 @@
 # Phase 4 RFC: Responses/WebSocket Becomes the Default Runtime
 
+The [portable conversation history RFC](conversation-fidelity-rfc.md) supersedes
+the folded history and message-field export gating described in this proposal.
+
 ## Status
 Proposed.
 

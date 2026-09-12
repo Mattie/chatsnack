@@ -15,6 +15,9 @@ from typing import Any, Dict, List, Optional, Union
 # Canonical field ordering for expanded user/assistant blocks on save.
 CANONICAL_FIELD_ORDER: List[str] = [
     "text",
+    "item_id",
+    "phase",
+    "status",
     "reasoning",
     "encrypted_content",
     "sources",
@@ -25,10 +28,11 @@ CANONICAL_FIELD_ORDER: List[str] = [
 ]
 
 # Allowed canonical fields by role.
-_SYSTEM_FIELDS = {"text"}
+_SYSTEM_FIELDS = {"text", "provider_extras"}
 _USER_FIELDS = {"text", "images", "files", "provider_extras"}
 _ASSISTANT_FIELDS = {
     "text",
+    "item_id", "phase", "status",
     "reasoning",
     "encrypted_content",
     "sources",
@@ -70,6 +74,10 @@ class NormalizedTurn:
     tool_calls: Optional[List[Dict[str, Any]]] = None
     tool_output: Optional[Dict[str, Any]] = None  # for tool role messages
     provider_extras: Optional[Dict[str, Any]] = None
+    item_id: Optional[str] = None
+    phase: Optional[str] = None
+    status: Optional[str] = None
+    item: Optional[Dict[str, Any]] = None
 
     # ── construction helpers ────────────────────────────────────────────
 
@@ -88,6 +96,9 @@ class NormalizedTurn:
 
         # ``developer`` is loaded as an alias for ``system``.
         canonical_role = CANONICAL_SYSTEM_ROLE if role == DEVELOPER_ALIAS else role
+
+        if canonical_role in {"reasoning", "tool_call", "provider_item"}:
+            return cls(role=canonical_role, item=content)
 
         # Tool messages keep their own shape.
         if canonical_role == "tool":
@@ -143,13 +154,12 @@ class NormalizedTurn:
     def to_message_dict(self, fidelity: str = "authoring") -> Dict[str, Any]:
         """Convert back to the chatsnack internal message dict.
 
-        ``fidelity`` controls how much data is emitted:
-
-        * ``"authoring"`` – default readable YAML
-        * ``"continuation"`` – includes continuation metadata hints
-        * ``"diagnostic"`` – includes provider_extras
+        ``fidelity`` remains accepted for compatibility. Every mode preserves
+        message data; export flags govern response-level state elsewhere.
         """
         # Tool messages.
+        if self.item is not None:
+            return {self.role: self.item}
         if self.role == "tool":
             if self.tool_output is not None:
                 return {"tool": self.tool_output}
@@ -162,10 +172,6 @@ class NormalizedTurn:
         # Decide canonical role key for output. Always ``system``.
         out_role = CANONICAL_SYSTEM_ROLE if self.role == DEVELOPER_ALIAS else self.role
 
-        # System turns are text-only after normalization.
-        if out_role == "system":
-            return {"system": self.text}
-
         # If this turn only has text, collapse to scalar form.
         if not self._has_non_text_canonical(fidelity):
             return {out_role: self.text}
@@ -176,14 +182,6 @@ class NormalizedTurn:
             value = getattr(self, fname, None)
             if value is None:
                 continue
-
-            # Fidelity gating for specific fields.
-            if fname == "provider_extras":
-                if fidelity not in ("continuation", "diagnostic"):
-                    continue
-            if fname == "encrypted_content":
-                if fidelity == "authoring":
-                    continue  # MAY be dropped
 
             block[fname] = value
 
@@ -197,11 +195,6 @@ class NormalizedTurn:
                 continue
             value = getattr(self, fname, None)
             if value is None:
-                continue
-            # Apply same gating as to_message_dict
-            if fname == "provider_extras" and fidelity not in ("continuation", "diagnostic"):
-                continue
-            if fname == "encrypted_content" and fidelity == "authoring":
                 continue
             return True
         return False

@@ -1,4 +1,5 @@
 from contextlib import contextmanager
+import asyncio
 from io import StringIO
 import sys
 import threading
@@ -6,6 +7,7 @@ import types
 from types import SimpleNamespace
 
 import pytest
+from openai.types.responses import Response, ResponseCompletedEvent, ResponseIncompleteEvent
 from loguru import logger
 
 from chatsnack.runtime import (
@@ -136,6 +138,134 @@ class _FakeAsyncConnection:
         self.closed = True
 
 
+@pytest.mark.parametrize("async_mode", [False, True])
+@pytest.mark.parametrize("status", ["completed", "incomplete"])
+def test_terminal_response_keeps_ordered_items_and_distinct_status(monkeypatch, async_mode, status):
+    """Both SDK transports stop on either terminal event and retain all items."""
+    from openai.types.responses import ResponseFunctionToolCall
+    output = [
+        {"type": "reasoning", "id": "rs_1", "summary": [], "encrypted_content": "opaque"},
+        ResponseFunctionToolCall.model_validate({"type": "function_call", "id": "fc_1",
+            "call_id": "call_1", "name": "stock", "arguments": '{ "sku": "box" }',
+            "async": False, "status": "completed"}),
+        {"type": "message", "id": "msg_1", "role": "assistant", "phase": "commentary",
+         "status": status, "content": [{"type": "output_text", "text": "Checking {sku}", "annotations": []}]},
+    ]
+    response = Response.model_construct(id="resp_1", status=status, model="test-model", output=output)
+    event_class = ResponseCompletedEvent if status == "completed" else ResponseIncompleteEvent
+    event = event_class.model_construct(type=f"response.{status}", response=response, sequence_number=1)
+    ai = SimpleNamespace(client=None, aclient=None)
+    adapter = ResponsesWebSocketAdapter(ai, session=ResponsesWebSocketSession(mode="inherit"))
+    if async_mode:
+        connection = _FakeAsyncConnection([event])
+
+        async def connect():
+            return connection
+
+        monkeypatch.setattr(adapter, "_connect_async", connect)
+        result = asyncio.run(adapter.create_completion_a([{"role": "user", "content": "go"}], model="test-model"))
+    else:
+        connection = _FakeSyncConnection([event])
+        monkeypatch.setattr(adapter, "_connect_sync", lambda: connection)
+        result = adapter.create_completion([{"role": "user", "content": "go"}], model="test-model")
+    assert len(connection.create_calls) == 1
+    assert result.finish_reason == status
+    assert result.metadata["response_status"] == status
+    assert result.metadata["assistant_phase"] == "commentary"
+    assert [next(iter(entry)) for entry in result.messages] == ["reasoning", "tool_call", "assistant"]
+    assert result.messages[1]["tool_call"]["provider_extras"]["async"] is False
+    assert "async_" not in result.messages[1]["tool_call"]["provider_extras"]
+    assert result.messages[2]["assistant"]["text"] == "Checking {sku}"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("call_status", ["incomplete", "in_progress"])
+@pytest.mark.parametrize("completed_peer", [False, True])
+async def test_incomplete_function_call_is_recorded_without_execution(tmp_path, monkeypatch, call_status, completed_peer):
+    """Valid partial JSON must not turn an unfinished SDK call into a side effect."""
+    from chatsnack import Chat, utensil
+    monkeypatch.setenv("CHATSNACK_BASE_DIR", str(tmp_path))
+    executions = []
+
+    @utensil
+    def stock(sku: str):
+        """Record any accidental execution of the unfinished call."""
+        executions.append(sku)
+        return 12
+
+    item = {"type": "function_call", "id": "fc_partial", "call_id": "call_partial",
+            "name": "stock", "arguments": '{"sku":"box"}', "status": call_status}
+    output = ([{**item, "id": "fc_complete", "call_id": "call_complete", "status": "completed"}]
+              if completed_peer else []) + [item]
+    response = Response.model_construct(id="resp_partial", status="incomplete", model="test-model", output=output)
+    event = ResponseIncompleteEvent.model_construct(type="response.incomplete", response=response, sequence_number=1)
+    connection = _FakeAsyncConnection([event])
+
+    async def connect(self):
+        return connection
+
+    monkeypatch.setattr(ResponsesWebSocketAdapter, "_connect_async", connect)
+    source = Chat(model="test-model", utensils=[stock])
+    source.runtime = ResponsesWebSocketAdapter(source.ai, session=ResponsesWebSocketSession(mode="inherit"))
+    try:
+        continued = await source.chat_a("Check stock.")
+        assert executions == []
+        assert len(connection.create_calls) == 1
+        assert continued.messages[-1]["tool_call"]["status"] == call_status
+        saved = tmp_path / "partial.yml"
+        continued.save(str(saved))
+        loaded = Chat()
+        loaded.load(str(saved))
+        assert loaded.messages == continued.messages
+    finally:
+        await source.runtime.close_session_a()
+
+
+@pytest.mark.asyncio
+async def test_chat_branches_retry_missing_ancestor_with_full_ordered_history(tmp_path, monkeypatch):
+    """Advancing a shared socket cannot replace a branch's own provider ancestor."""
+    from chatsnack import Chat
+    from chatsnack.runtime.conversation import copy_value
+    monkeypatch.setenv("CHATSNACK_BASE_DIR", str(tmp_path))
+    connection = _FakeAsyncConnection()
+
+    async def create(**kwargs):
+        connection.create_calls.append(kwargs)
+        number = len(connection.create_calls)
+        if number == 3:
+            connection._events = [_FakeTopLevelErrorEvent("previous_response_not_found")]
+            return
+        output = [
+            {"type": "reasoning", "id": f"rs_{number}", "summary": []},
+            {"type": "message", "id": f"msg_{number}", "role": "assistant", "status": "completed",
+             "phase": "final_answer", "content": [{"type": "output_text", "text": "ok", "annotations": []}]},
+        ]
+        response = Response.model_construct(id=f"resp_{number}", status="completed", model="test-model", output=output)
+        connection._events = [ResponseCompletedEvent.model_construct(
+            type="response.completed", response=response, sequence_number=1)]
+
+    async def connect(self):
+        return connection
+
+    connection.response.create = create
+    monkeypatch.setattr(ResponsesWebSocketAdapter, "_connect_async", connect)
+    source = Chat(model="test-model")
+    source.runtime = ResponsesWebSocketAdapter(source.ai, session=ResponsesWebSocketSession(mode="inherit"))
+    ancestor = await source.chat_a("first")
+    original = copy_value(ancestor.messages)
+    await ancestor.chat_a("left")
+    right = await ancestor.chat_a("right")
+    requests = connection.create_calls
+    assert len(requests) == 4
+    assert requests[1]["previous_response_id"] == requests[2]["previous_response_id"] == "resp_1"
+    assert len(requests[1]["input"]) == len(requests[2]["input"]) == 1
+    assert "previous_response_id" not in requests[3]
+    assert [item.get("id") for item in requests[3]["input"] if item.get("id")] == ["rs_1", "msg_1"]
+    assert requests[3]["input"][-1]["content"][0]["text"] == "right"
+    assert ancestor.messages == original
+    assert right.response == "ok"
+
+
 class _SequencedSyncResponses:
     def __init__(self, outcomes):
         self.outcomes = list(outcomes)
@@ -234,7 +364,7 @@ def test_busy_session_does_not_clear_existing_in_flight_flag():
     assert adapter.session.in_flight is True
 
 
-def test_request_with_session_applies_continuation_defaults_before_building_input():
+def test_request_with_session_does_not_infer_history_from_last_session_response():
     ai = SimpleNamespace(api_key="x", base_url=None, client=None, aclient=None)
     adapter = ResponsesWebSocketAdapter(ai, session=ResponsesWebSocketSession(mode="inherit"))
     adapter.session.last_response_id = "resp_prev"
@@ -247,10 +377,10 @@ def test_request_with_session_applies_continuation_defaults_before_building_inpu
 
     request = adapter._request_with_session(messages, {"model": "gpt-4.1", "store": True}, include_prev=True)
 
-    assert request["previous_response_id"] == "resp_prev"
+    assert "previous_response_id" not in request
     assert request["store"] is True
-    assert len(request["input"]) == 1
-    assert request["input"][0]["content"][0]["text"] == "continue"
+    assert len(request["input"]) == 3
+    assert request["input"][-1]["content"][0]["text"] == "continue"
 
 def test_previous_response_not_found_retries_once_without_previous(monkeypatch):
     ai = SimpleNamespace(api_key="x", base_url=None, client=None, aclient=None)
@@ -1569,7 +1699,7 @@ def test_request_with_session_keeps_attachment_only_turn_for_continuation():
             {"role": "assistant", "content": "reply"},
             {"role": "user", "content": "", "files": [{"file_id": "file_abc"}]},
         ],
-        {"model": "gpt-4.1"},
+        {"model": "gpt-4.1", "previous_response_id": "resp_prev", "_continuation_prefix_length": 2},
         include_prev=True,
     )
 

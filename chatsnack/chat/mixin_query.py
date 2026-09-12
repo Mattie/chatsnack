@@ -20,6 +20,10 @@ from ..fillings import (
 )
 from ..runtime import ApplyPatchCall, EVENT_SCHEMA_VERSION, ResponsesWebSocketAdapter
 from ..runtime.attachment_inputs import normalize_attachment_inputs
+from ..runtime.conversation import (
+    ITEM_ROLES, entry_text, copy_value, entries_to_bridge, prefix_fingerprint,
+    is_assistant_entry, latest_response_entries,
+)
 
 from .mixin_messages import ChatMessagesMixin
 from .mixin_params import (
@@ -398,7 +402,7 @@ class ChatQueryMixin(ChatMessagesMixin, ChatParamsMixin):
             )
         )
 
-    async def _capture_assistant_outputs(self, response_message) -> None:
+    async def _capture_assistant_outputs(self, response_message, entries=None) -> None:
         """Capture pending generated outputs before a continued Chat adopts them."""
         pending_outputs = list(getattr(response_message, "pending_outputs", None) or [])
         if not pending_outputs:
@@ -439,6 +443,12 @@ class ChatQueryMixin(ChatMessagesMixin, ChatParamsMixin):
                 ]
             bucket.append(reference)
             setattr(response_message, bucket_name, bucket)
+            if pending.kind == "image" and pending.item_id:
+                for entry in entries or []:
+                    item = entry.get("provider_item", {})
+                    if item.get("id") == pending.item_id and item.get("type") == "image_generation_call":
+                        entry["provider_item"] = {"item": item, "result_asset": copy_value(reference)}
+                        break
 
         response_message.pending_outputs = []
 
@@ -496,7 +506,11 @@ class ChatQueryMixin(ChatMessagesMixin, ChatParamsMixin):
                 return
             async def format_message(message):
                 logger.trace("formatting content: {content}", content=message['content'])
-                if message.get("role") == "tool":
+                if message.get("role") in ITEM_ROLES | {"tool"}:
+                    return
+                if message.get("role") == "assistant" and (
+                    message.get("item_id") or "content" in (message.get("provider_extras") or {})
+                ):
                     return
                 if isinstance(message["content"], str):
                     try:
@@ -761,11 +775,9 @@ class ChatQueryMixin(ChatMessagesMixin, ChatParamsMixin):
         WebSocket Responses keeps server-side session state, so continuation
         via ``previous_response_id`` is always valid there.
 
-        HTTP Responses is more constrained. We should still continue there when
-        the prior response was explicitly stored, and while we are still inside
-        an in-progress tool-recursion chain. Outside those cases, HTTP should
-        fall back to local message replay instead of auto-injecting a previous
-        response id.
+        HTTP requires an actually stored prior response and current storage
+        opt-in. Stateless tool chains replay their complete local history.
+        Callers must additionally verify the resolved prefix before using an ID.
         """
         from ..runtime import ResponsesAdapter, ResponsesWebSocketAdapter
 
@@ -775,13 +787,8 @@ class ChatQueryMixin(ChatMessagesMixin, ChatParamsMixin):
         if not isinstance(runtime, ResponsesAdapter):
             return False
 
-        request_kwargs = request_kwargs or {}
-        if request_kwargs.get("store") is True:
-            return True
-
-        metadata = (getattr(self, "_last_runtime_metadata", None) or {})
-        assistant_phase = metadata.get("assistant_phase")
-        return assistant_phase not in (None, "completed")
+        cache = (getattr(self, "_last_runtime_metadata", None) or {}).get("continuation_cache") or {}
+        return cache.get("stored") is True and (request_kwargs or {}).get("store") is True
 
     def _normalize_runtime_metadata(self, normalized_response) -> Dict[str, object]:
         metadata = {}
@@ -793,6 +800,8 @@ class ChatQueryMixin(ChatMessagesMixin, ChatParamsMixin):
             "previous_response_id": metadata.get("previous_response_id"),
             "usage": getattr(normalized_response, "usage", None) if normalized_response is not None else None,
             "assistant_phase": metadata.get("assistant_phase"),
+            "response_status": metadata.get("response_status"),
+            "continuation_cache": metadata.get("continuation_cache"),
             "provider_extras": metadata.get("provider_extras"),
         }
 
@@ -855,6 +864,45 @@ class ChatQueryMixin(ChatMessagesMixin, ChatParamsMixin):
         meta = self._normalize_runtime_metadata(response)
         self._set_last_runtime_metadata(meta)
 
+    def _append_response_messages(self, response):
+        """Adopt prepared transcript entries, retaining the legacy adapter fallback."""
+        message = response.message if hasattr(response, "message") else response
+        entries = getattr(response, "messages", None)
+        if entries is None:
+            turn = (self._tool_response_to_dict(message) if getattr(message, "tool_calls", None)
+                    else self._assistant_response_to_turn(message))
+            entries = [{"assistant": turn}] if turn is not None else []
+        else:
+            entries = copy_value(entries)
+        self.messages.extend(entries)
+        self._set_runtime_metadata_from_response(response)
+
+    async def _prepare_response_history(self, response):
+        """Capture media and attach convenience views before fingerprinting history."""
+        message = response.message
+        entries = getattr(response, "messages", None)
+        await self._capture_assistant_outputs(message, entries)
+        if entries is None:
+            return
+        outputs = {key: copy_value(getattr(message, key))
+                   for key in ("images", "files", "sources") if getattr(message, key, None)}
+        if not outputs:
+            return
+        assistant = next((entry for entry in reversed(entries) if is_assistant_entry(entry)), None)
+        if assistant is not None and "assistant" in assistant:
+            if isinstance(assistant["assistant"], str):
+                assistant["assistant"] = {"text": assistant["assistant"]}
+            assistant["assistant"].update(outputs)
+        else:
+            # Opaque output owns its asset views without a synthetic turn.
+            owner = assistant if assistant is not None else next(
+                (entry for entry in reversed(entries) if "provider_item" in entry), None)
+            if owner is not None:
+                block = owner["provider_item"]
+                if "item" not in block or "type" in block:
+                    block = {"item": block}
+                owner["provider_item"] = {**block, **outputs}
+
     async def _cleaned_chat_completion(
         self,
         prompt,
@@ -879,21 +927,51 @@ class ChatQueryMixin(ChatMessagesMixin, ChatParamsMixin):
         adapter = getattr(self, "runtime", None)
         if adapter is not None:
             request_kwargs = kwargs.copy()
-            # Phase 3: do NOT auto-enable store=True for continuation.
-            # Let the explicit params.responses.store value flow through
-            # from the YAML config.  Phase 2a WebSocket continuation with
-            # store=False is a valid and important path.
-            if (
-                track_continuation
+            apply_defaults = getattr(adapter, "_apply_profile_defaults", None)
+            if callable(apply_defaults):
+                # Cache decisions must see the same defaults as the submitted request.
+                request_kwargs = apply_defaults(request_kwargs)
+            cache = (getattr(self, "_last_runtime_metadata", {}) or {}).get("continuation_cache") or {}
+            sdk = getattr(getattr(adapter, "ai_client", None), "aclient", None)
+            binding = list(self._runtime_binding_signature(adapter)) + [
+                id(sdk), str(getattr(sdk, "base_url", "")), request_kwargs.get("model"),
+                prefix_fingerprint([*[str(getattr(sdk, key, "")) for key in
+                                      ("api_key", "organization", "project")],
+                                    request_kwargs.get("extra_headers")]),
+            ]
+            local_ancestry = not (
+                request_kwargs.get("extra_body") or request_kwargs.get("conversation")
+                or callable(getattr(sdk, "api_key", None))
+            )
+            length = cache.get("prefix_length", 0)
+            verified = bool(
+                track_continuation and cache.get("response_id") and local_ancestry
                 and self._runtime_supports_provider_continuation(request_kwargs)
-                and not request_kwargs.get("previous_response_id")
-            ):
-                last_response_id = (getattr(self, "_last_runtime_metadata", {}) or {}).get("response_id")
-                if last_response_id:
-                    request_kwargs["previous_response_id"] = last_response_id
+                and cache.get("binding") == binding
+                and len(messages) >= length
+                and prefix_fingerprint(messages[:length]) == cache.get("fingerprint")
+                and request_kwargs.get("previous_response_id") in (None, cache["response_id"])
+            )
+            if verified:
+                request_kwargs["previous_response_id"] = cache["response_id"]
+                request_kwargs["_continuation_prefix_length"] = length
             normalized = await adapter.create_completion_a(messages=messages, **request_kwargs)
             if _call_usage_ledger is not None:
+                # A completed provider response counts even if local capture fails.
                 _call_usage_ledger.record(normalized)
+            if track_continuation:
+                await self._prepare_response_history(normalized)
+            # Cache only histories whose complete ancestry is present locally.
+            entries = getattr(normalized, "messages", None)
+            if (track_continuation and entries is not None and local_ancestry
+                    and (not request_kwargs.get("previous_response_id") or verified)
+                    and normalized.metadata.get("response_id")):
+                prefix = messages + entries_to_bridge(entries)
+                normalized.metadata["continuation_cache"] = {
+                    "response_id": normalized.metadata["response_id"],
+                    "prefix_length": len(prefix), "fingerprint": prefix_fingerprint(prefix),
+                    "binding": binding, "stored": request_kwargs.get("store") is True,
+                }
             response = normalized
             if track_continuation:
                 self._set_last_runtime_metadata(self._normalize_runtime_metadata(normalized))
@@ -1014,12 +1092,10 @@ class ChatQueryMixin(ChatMessagesMixin, ChatParamsMixin):
     def response(self) -> Optional[str]:
         """Return the text from the last assistant message, when it has any. ⭐"""
         last_assistant_message = None
-        for _message in self.messages:
-            message = self._msg_dict(_message)
-            if "assistant" in message:
-                last_assistant_message = message["assistant"]
-        if isinstance(last_assistant_message, dict):
-            last_assistant_message = last_assistant_message.get("text")
+        entries = [self._msg_dict(message) for message in self.messages]
+        for message in latest_response_entries(entries):
+            if is_assistant_entry(message):
+                last_assistant_message = entry_text(message)
         if not isinstance(last_assistant_message, str):
             last_assistant_message = None
         # Filter only assistant text; rich output-only turns have no string to filter.
@@ -1215,17 +1291,14 @@ class ChatQueryMixin(ChatMessagesMixin, ChatParamsMixin):
             # Adapter path: response is a NormalizedCompletionResult with
             # .message (content/tool_calls) and .metadata for continuation.
             message = response.message if hasattr(response, "message") else response
-            await self._capture_assistant_outputs(message)
             content = message.content if hasattr(message, "content") else None
             has_tool_calls = hasattr(message, "tool_calls") and message.tool_calls
+            new_chatprompt._append_response_messages(response)
             
             if not has_tool_calls:
                 # trace log
                 logger.trace("No tool calls in response")
                 # Just a regular response with content but no tool calls
-                assistant_turn = self._assistant_response_to_turn(message)
-                if assistant_turn is not None:
-                    new_chatprompt = new_chatprompt.assistant(assistant_turn)
                 # Propagate metadata from the adapter response (not from self,
                 # which may be the source chat that did not run the completion).
                 new_chatprompt._set_runtime_metadata_from_response(response)
@@ -1235,8 +1308,6 @@ class ChatQueryMixin(ChatMessagesMixin, ChatParamsMixin):
                              num_calls=len(message.tool_calls))
                 
             # Add the assistant response with tool calls
-            msg = self._tool_response_to_dict(message)
-            new_chatprompt = new_chatprompt.assistant(msg)
             # Seed new_chatprompt with the metadata from the initial tool-bearing response.
             new_chatprompt._set_runtime_metadata_from_response(response)
             logger.debug(f"Tool calls in response: {message.tool_calls}")
@@ -1304,21 +1375,16 @@ class ChatQueryMixin(ChatMessagesMixin, ChatParamsMixin):
                         else:
                             # follow_up is a NormalizedCompletionResult; extract message.
                             follow_msg = follow_up.message if hasattr(follow_up, "message") else follow_up
-                            await temp_chat._capture_assistant_outputs(follow_msg)
                             has_tool_calls = hasattr(follow_msg, "tool_calls") and follow_msg.tool_calls
+                            current_chat._append_response_messages(follow_up)
                             
                             if has_tool_calls:
                                 # More tool calls - add to chat and continue loop
-                                msg = self._tool_response_to_dict(follow_msg)
-                                current_chat = current_chat.assistant(msg)
                                 current_chat._set_runtime_metadata_from_response(follow_up)
                                 logger.debug(f"Tool calls in follow-up response: {follow_msg.tool_calls}")
                                 message = follow_msg  # Update for next iteration
                             else:
                                 # Final response with content but no more tool calls
-                                assistant_turn = self._assistant_response_to_turn(follow_msg)
-                                if assistant_turn is not None:
-                                    current_chat = current_chat.assistant(assistant_turn)
                                 current_chat._set_runtime_metadata_from_response(follow_up)
                     else:
                         # The pending tool batch executed, but its results are
@@ -1429,7 +1495,10 @@ class ChatQueryMixin(ChatMessagesMixin, ChatParamsMixin):
             prompt = asyncio.run(self._build_final_prompt(additional_vars))
             new_chat.add_messages_json(prompt, escape=True)
         else:
-            new_chat.add_messages_json(self.json if expand_includes else self.json_unexpanded, escape=False)
+            if expand_includes:
+                new_chat.add_messages_json(self.json, escape=False)
+            else:
+                new_chat.messages = copy_value(self.messages)
         if system is not None:
             new_chat.system(system)
         self._clone_runtime_metadata_to(new_chat)
