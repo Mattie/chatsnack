@@ -66,6 +66,75 @@ def test_imported_assistant_text_and_refusal_use_responses_content_parts(tmp_pat
     assert json.loads(chat.json) == original
 
 
+@pytest.mark.parametrize("role", ["user", "system", "developer"])
+def test_legacy_dialogue_metadata_survives_responses_replay(tmp_path, role):
+    """Imported dialogue keeps unknown wire fields beside explicit provider extras."""
+    item = {"role": role, "content": "Hello", "future": {"nullable": None},
+            "provider_extras": {"other": [], "future": "overridden"}}
+    chat = Chat()
+    chat.add_messages_json(json.dumps([item]))
+    path = tmp_path / "dialogue-extras.yml"
+    chat.save(str(path))
+    restored = Chat()
+    restored.load(str(path))
+    original = json.loads(restored.json)
+    request = ResponsesAdapter(SimpleNamespace()).build_responses_request(restored.get_messages(), {})
+    assert request["input"] == [{"type": "message", "role": "system" if role == "developer" else role,
+        "content": [{"type": "input_text", "text": "Hello"}],
+        "future": {"nullable": None}, "other": []}]
+    assert json.loads(restored.json) == original
+
+
+def test_imported_bare_null_assistant_stays_null(tmp_path):
+    """Legacy null dialogue remains null when there is no metadata to expand."""
+    item = {"role": "assistant", "content": None}
+    chat = Chat()
+    chat.add_messages_json(json.dumps([item]))
+    assert chat.get_messages() == [item]
+    path = tmp_path / "null-assistant.yml"
+    chat.save(str(path))
+    restored = Chat()
+    restored.load(str(path))
+    assert restored.get_messages() == [item]
+
+
+@pytest.mark.parametrize("role", ["system", "developer"])
+def test_markdown_retains_opaque_instruction_once(tmp_path, role):
+    """Opaque instructions are displayed with their role, outside the canonical directive."""
+    item = {"type": "message", "role": role,
+            "content": [{"type": "input_text", "text": "Imported rules"}]}
+    chat = Chat("Canonical rules")
+    chat.add_messages_json(json.dumps([item]))
+    path = tmp_path / "instructions.yml"
+    chat.save(str(path))
+    restored = Chat()
+    restored.load(str(path))
+    markdown = restored.generate_markdown()
+    assert restored.system_message == "Canonical rules"
+    assert markdown.count("Imported rules") == 1
+    assert markdown.count("Canonical rules") == 1
+    assert f"**{role.capitalize()}:**" in markdown
+
+
+def test_legacy_function_call_metadata_survives_responses_replay(tmp_path):
+    """Unknown call metadata survives the legacy nested-function representation."""
+    item = {"role": "assistant", "content": None, "tool_calls": [
+        {"id": "call_1", "type": "function", "future": {"nullable": None},
+         "provider_extras": {"other": [], "future": "overridden"},
+         "function": {"name": "stock", "arguments": "{}"}}]}
+    chat = Chat()
+    chat.add_messages_json(json.dumps([item]))
+    path = tmp_path / "call-extras.yml"
+    chat.save(str(path))
+    restored = Chat()
+    restored.load(str(path))
+    original = json.loads(restored.json)
+    request = ResponsesAdapter(SimpleNamespace()).build_responses_request(restored.get_messages(), {})
+    assert request["input"] == [{"type": "function_call", "call_id": "call_1", "name": "stock",
+        "arguments": "{}", "future": {"nullable": None}, "other": []}]
+    assert json.loads(restored.json) == original
+
+
 @pytest.mark.parametrize("output_type", [None, "apply_patch_call_output", "tool_search_output"])
 def test_legacy_tool_metadata_survives_responses_replay(tmp_path, output_type):
     """Top-level imported metadata and explicit extras both survive tool replay."""
@@ -198,6 +267,47 @@ def test_imported_input_messages_reach_chat_completions(tmp_path, role, content)
     expected = content if isinstance(content, str) else [{"type": "text", "text": "Keep it short"}]
     assert captured == [[{"role": role, "content": expected}]]
     assert restored.messages == [{"provider_item": item}]
+
+
+@pytest.mark.parametrize("content, expected_text, expected_refusal", [
+    ([{"type": "refusal", "refusal": "Cannot help with {request}."}], None, "Cannot help with {request}."),
+    ([{"type": "output_text", "text": "Here is {context}."},
+      {"type": "refusal", "refusal": "Cannot help."}], "Here is {context}.", "Cannot help."),
+    ([{"type": "refusal", "refusal": "Cannot "},
+      {"type": "output_text", "text": "Safe alternative."},
+      {"type": "refusal", "refusal": "help."}], "Safe alternative.", "Cannot help."),
+    ([{"type": "refusal", "refusal": ""}], None, ""),
+])
+def test_saved_responses_refusals_reach_chat_completions(tmp_path, content, expected_text, expected_refusal):
+    """Switching APIs preserves refusal and text while saved Responses items stay intact."""
+    from chatsnack.runtime.chat_completions_adapter import ChatCompletionsAdapter
+    captured = []
+
+    def respond(request):
+        """Capture the serialized SDK request without making a provider call."""
+        captured.append(json.loads(request.content)["messages"])
+        return httpx.Response(200, json={"id": "cc_1", "object": "chat.completion",
+            "created": 1, "model": "test-model", "choices": [{"index": 0,
+                "message": {"role": "assistant", "content": "ok"}, "finish_reason": "stop"}]})
+
+    item = {"type": "message", "role": "assistant", "id": "msg_refusal", "content": content}
+    chat = Chat().user("Request")
+    chat.add_messages_json(json.dumps([item]))
+    path = tmp_path / "refusal-history.yml"
+    chat.save(str(path))
+    restored = Chat()
+    restored.load(str(path))
+    original = json.loads(restored.json)
+    with openai.OpenAI(api_key="offline", http_client=httpx.Client(
+            transport=httpx.MockTransport(respond))) as sdk:
+        adapter = ChatCompletionsAdapter(SimpleNamespace(client=sdk))
+        with pytest.warns(UserWarning, match="provider-only history"):
+            adapter.create_completion(restored.get_messages(), model="test-model")
+    assert captured == [[{"role": "user", "content": "Request"},
+                         {"role": "assistant", "content": expected_text, "refusal": expected_refusal}]]
+    replay = ResponsesAdapter(SimpleNamespace()).build_responses_request(restored.get_messages(), {})
+    assert replay["input"][-1] == item
+    assert json.loads(restored.json) == original
 
 
 @pytest.mark.parametrize("detail", ["low", "original"])

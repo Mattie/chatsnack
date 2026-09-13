@@ -390,8 +390,20 @@ def project_chat_completions(messages):
                     projected.append({"role": "tool", "tool_call_id": item.get("call_id", ""), "content": text})
                     continue
                 text = entry_text({"provider_item": block})
-                if text is not None:
-                    projected.append({"role": "assistant", "content": text})
+                refusals = []
+                if item.get("type") == "message" and item.get("role") == "assistant":
+                    parts = item.get("content")
+                    if isinstance(parts, list):
+                        refusals = [part["refusal"] for part in parts
+                                    if isinstance(part, dict) and part.get("type") == "refusal"
+                                    and isinstance(part.get("refusal"), str)]
+                if text is not None or refusals:
+                    assistant = {"role": "assistant", "content": text}
+                    if refusals:
+                        # CC has one refusal field; retain part order just as
+                        # output-text parts are joined into one content value.
+                        assistant["refusal"] = "".join(refusals)
+                    projected.append(assistant)
             continue
         if role == "tool" and message.get("output_type") not in (None, "function_call_output"):
             omitted.add(message["output_type"])

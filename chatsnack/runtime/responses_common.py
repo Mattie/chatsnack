@@ -181,6 +181,8 @@ class ResponsesNormalizationMixin:
                     continue
                 function = self._to_dict(tool_call.get("function") or {})
                 item = dict(self._to_dict(tool_call.get("provider_extras") or {}))
+                item.update({key: value for key, value in tool_call.items() if key not in {
+                    "id", "type", "function", "provider_extras", "item_id", "status", "payload"}})
                 item.update({
                     "type": "function_call",
                     "call_id": tool_call.get("id", ""),

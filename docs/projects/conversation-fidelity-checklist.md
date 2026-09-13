@@ -123,6 +123,16 @@ watchdog added no callback draining. The final focused suite passed **202 tests*
 Import regressions also cover null assistant text/refusal metadata and legacy
 tool-output extras through save/load and cross-runtime replay.
 
+Further replay validation: refusal-only and mixed assistant messages retain
+their refusal when switching to Chat Completions. Legacy function-call extras
+also survive Responses replay. Mutable local attachment paths force full replay
+with current file bytes; stable provider references still use cached continuation.
+Recorded image capture failures raise with usage retained before an incomplete
+Chat can be returned. The combined history, adapters, attachments, assets, usage,
+and YAML suite passed **291 tests** (one existing async-client cleanup warning),
+and `mkdocs build --strict` passed. The continuation guide now defines its prompt
+and utensil before use.
+
 Run this feature's live contracts explicitly in PowerShell:
 
 ```powershell

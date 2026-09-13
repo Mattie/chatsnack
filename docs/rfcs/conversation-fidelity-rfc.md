@@ -58,6 +58,9 @@ Imported null assistant text stays null alongside its metadata. CC refusal
 metadata becomes a refusal content part when replayed through Responses; it
 never becomes fabricated assistant text. Legacy tool-output fields merge with
 explicit provider extras before canonical correlation and output fields win.
+Legacy function-call fields follow the same precedence. In authored compact
+`reasoning` and `tool_call` entries, new provider fields belong in
+`provider_extras`, matching the representation produced by provider imports.
 
 Existing scalar and expanded messages, including `assistant.tool_calls`, still
 load. We cannot recover ordering or fields lost by older saved files. Default
@@ -80,6 +83,8 @@ An image-generation `provider_item` can wrap its wire `item` with a
 `result_asset` reference. The request builder restores `result` from verified
 local bytes. `images`, `files`, and `sources` are convenience views attached to
 an existing entry; they never create an extra assistant message.
+If generated image bytes cannot be captured locally, the call raises with its
+usage attached instead of returning a continued Chat with incomplete history.
 
 ## Compilation and continuation
 
@@ -97,6 +102,8 @@ Caller-authored `previous_response_id` remains an advanced, caller-owned option.
 Profile defaults participate in the same check. Server-side `conversation` and
 request-body overrides disable automatic caching because their full ancestry is
 not locally known. Authentication scope is represented only by a fingerprint.
+Unresolved local attachment paths also disable automatic caching, so editing a
+file causes its current bytes to be uploaded and replayed on the next call.
 
 HTTP and WebSocket share item normalization. Completed/incomplete responses keep
 their distinct terminal status. Streaming retains the existing listener surface.
@@ -109,6 +116,9 @@ Imported user/system/developer message items retain representable text in this
 projection; user image URLs and supported file references/data are converted to
 Chat Completions content parts. Unsupported parts remain in saved history and
 participate in the existing projection warning.
+Assistant refusal parts become the Chat Completions `refusal` field while
+output text remains in `content`. Multiple refusal parts join in their original
+order, and the saved Responses item remains unchanged.
 
 ## Validation and boundaries
 

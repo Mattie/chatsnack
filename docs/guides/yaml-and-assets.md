@@ -68,9 +68,17 @@ messages:
       phase: final_answer
 ```
 
-Save the continued Chat and restore it normally:
+Save a continued Chat and restore it with the same Python utensils:
 
 ```python
+from chatsnack import Chat, utensil
+
+@utensil
+def stock(sku: str):
+    """Look up stock in this example's inventory."""
+    return {"available": {"snack-box": 12}.get(sku, 0)}
+
+helper = Chat("Use the stock utensil.", utensils=[stock]).user("Check stock for {sku}.")
 thread = helper.chat(sku="snack-box")
 thread.save()
 
@@ -79,7 +87,6 @@ restored.load()
 reply = restored.chat("Could I order six?")
 ```
 
-Here `helper` is our prompt and `stock` is its existing Python utensil.
 `export_state` is unnecessary for preserving messages. It still controls optional
 response-level state exports. Old scalar messages and `assistant.tool_calls`
 continue to load.

@@ -403,7 +403,7 @@ class ChatQueryMixin(ChatMessagesMixin, ChatParamsMixin):
         )
 
     async def _capture_assistant_outputs(self, response_message, entries=None) -> None:
-        """Capture pending generated outputs before a continued Chat adopts them."""
+        """Capture outputs before adoption; recorded images require durable bytes."""
         pending_outputs = list(getattr(response_message, "pending_outputs", None) or [])
         if not pending_outputs:
             return
@@ -427,6 +427,12 @@ class ChatQueryMixin(ChatMessagesMixin, ChatParamsMixin):
                     kind=pending.kind,
                 )
             except Exception as exc:
+                if pending.kind == "image" and entries is not None:
+                    # Recorded image items have already shed their base64 result.
+                    # Returning a Chat here would make its history unreplayable.
+                    raise RuntimeError(
+                        f"Could not preserve generated image in conversation history: {exc}"
+                    ) from exc
                 warnings.warn(
                     f"Could not capture generated {pending.kind}: {exc}",
                     RuntimeWarning,
@@ -903,6 +909,21 @@ class ChatQueryMixin(ChatMessagesMixin, ChatParamsMixin):
                     block = {"item": block}
                 owner["provider_item"] = {**block, **outputs}
 
+    @staticmethod
+    def _has_unresolved_attachment_paths(messages) -> bool:
+        """Detect mutable local inputs that a message-only fingerprint cannot verify."""
+        for message in messages:
+            if message.get("role") == "assistant" and (
+                message.get("item_id") or "content" in (message.get("provider_extras") or {})
+            ):
+                continue  # Recorded output attachment lists are convenience views.
+            for key in ("images", "files"):
+                for attachment in message.get(key) or []:
+                    if (isinstance(attachment, dict) and attachment.get("path")
+                            and not any(attachment.get(source) for source in ("asset", "file_id", "url"))):
+                        return True
+        return False
+
     async def _cleaned_chat_completion(
         self,
         prompt,
@@ -942,6 +963,7 @@ class ChatQueryMixin(ChatMessagesMixin, ChatParamsMixin):
             local_ancestry = not (
                 request_kwargs.get("extra_body") or request_kwargs.get("conversation")
                 or callable(getattr(sdk, "api_key", None))
+                or self._has_unresolved_attachment_paths(messages)
             )
             length = cache.get("prefix_length", 0)
             verified = bool(
