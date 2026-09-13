@@ -234,6 +234,13 @@ class AttachmentResolver:
         """
         resolved = []
         for msg in messages:
+            if msg.get("role") == "assistant" and (
+                msg.get("item_id") or "content" in (msg.get("provider_extras") or {})
+            ):
+                # Recorded output already owns its wire content. Its asset lists
+                # are display conveniences, not new attachment inputs to upload.
+                resolved.append(msg)
+                continue
             new_msg = dict(msg)
             changed = False
 
@@ -257,6 +264,11 @@ class AttachmentResolver:
         """Async variant of :meth:`resolve_messages`."""
         resolved = []
         for msg in messages:
+            if msg.get("role") == "assistant" and (
+                msg.get("item_id") or "content" in (msg.get("provider_extras") or {})
+            ):
+                resolved.append(msg)
+                continue
             new_msg = dict(msg)
             changed = False
 

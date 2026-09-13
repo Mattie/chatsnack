@@ -87,7 +87,10 @@ async def test_stream_completion_a_retries_previous_response_not_found_with_full
     ]
 
     events = []
-    async for event in adapter.stream_completion_a(messages, model="gpt-5.4", store=False):
+    async for event in adapter.stream_completion_a(
+        messages, model="gpt-5.4", store=False,
+        previous_response_id="resp_prev", _continuation_prefix_length=2,
+    ):
         events.append(event)
 
     assert [event.type for event in events] == ["completed"]

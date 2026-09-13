@@ -2,6 +2,7 @@ import json
 from pathlib import Path
 
 from snapclass import Stash
+from ..runtime.conversation import content_text
 
 
 def _stash_for_path(path):
@@ -244,8 +245,22 @@ class ChatSerializationMixin(DatafileMixin):
         markdown_lines.append(f"## Conversation")
         for _message in self.messages:
             message = self._msg_dict(_message)
-            for role, text in message.items():
-                if role == "system":
+            for role, value in message.items():
+                if role in {"system", "developer"}:
+                    continue
+                if role == "provider_item":
+                    item = value.get("item", value) if "type" not in value else value
+                    if item.get("type") != "message":
+                        continue
+                    role, value = item.get("role"), item.get("content")
+                    if role not in {"user", "system", "developer", "assistant"}:
+                        continue
+                elif role not in {"user", "assistant", "tool", "include"}:
+                    continue
+                elif isinstance(value, dict):
+                    value = value.get("text", value.get("content"))
+                text = content_text(value)
+                if text is None:
                     continue
                 text = md_quote_text(text)
                 emoji = "🤖" if role == "assistant" else "👤"

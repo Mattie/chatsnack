@@ -1,0 +1,144 @@
+# Conversation fidelity
+
+Implementation follows [the conversation history RFC](../rfcs/conversation-fidelity-rfc.md).
+
+- [x] Record SEPARATE / KEEP / PROJECT and the default persistence contract.
+- [x] Goal: saved tool conversation replays its ordered items after load.
+- [x] Reversible typed entries, alias-aware provider conversion, unknown items.
+- [x] Default YAML/JSON preservation; old message shapes remain supported.
+- [x] Ordered initial/follow-up responses; existing execution and asset behavior.
+- [x] Copy/reset/include isolation and literal submitted history.
+- [x] Verified continuation prefixes, stateless replay, safe WebSocket fallback.
+- [x] Chat Completions projection with warnings and unchanged stored messages.
+- [x] SDK floor/newer SDK regressions, notebook, strict documentation build.
+- [x] Independent implementation and test review; remedy material findings.
+- [x] Omit known metadata defaults; retain scalar assistant authoring and required native tool statuses.
+
+Current result: ordinary saved Chats retain ordered reasoning, replies, calls,
+results, and unfamiliar provider items. Users can reload or branch a conversation,
+edit earlier text, and continue from the preserved transcript. Generated images
+replay from their existing asset references.
+
+Review remedies cover effective profile defaults, external conversation ancestry,
+credential changes, asset capture before fingerprinting, CC tool correlation,
+and usage accounting when local preparation fails. A same-binding edit test proves
+that prefix changes alone invalidate cached response IDs.
+
+Validation: SDK 3.5.0 focused runtime/Goal/asset/usage/utensil checks passed
+(203 tests); YAML/import/attachment checks passed (96 tests). Every code cell in
+`PortableConversationHistory.ipynb` ran offline, and `mkdocs build --strict` passed.
+The full SDK 3.8.0 suite passed: **824 passed, 122 skipped**. Three existing
+async-client cleanup warnings remain in the test doubles. Independent focused
+review also passed 17 replay/usage tests. Live probes remain opt-in.
+
+Live validation on 2026-09-10, OpenAI SDK 3.5.0: **6 passed** in
+`tests/test_live_conversation_history.py`. GPT-6 Astra and GPT-5.4 each passed
+stateless HTTP, stored HTTP, and WebSocket cases. Every case executes a real
+stock utensil once, uses warm continuation, saves and loads ordinary YAML, and
+recovers a random proof token from the original tool result. Cold replay must
+match the complete original request and response sequence, allowing only the
+documented omission of known defaults and retaining the exact tool-output string.
+The HTTP response oracle uses the SDK's own wire serializer;
+WebSocket equality is checked at the adapter boundary alongside offline raw-event tests.
+
+The original medium-effort READY-only prompt emitted no GPT-6 reasoning items.
+The revised contract uses **high** effort on both models and asks them to solve a
+constrained selection problem supplied by the stock utensil. An exhaustive local
+oracle checks the optimum and tie-break. Each case requires positive reported
+reasoning-token usage and nonempty encrypted reasoning in the problem-solving
+response itself; the complete provider items must survive YAML and cold replay.
+JUnit properties record effort, reasoning-item count, total initial reasoning
+tokens, and problem-solving reasoning tokens. Missing reasoning fails the test.
+
+The final eight-offer, high-effort matrix passed **all 6 cases in 103.23 seconds**
+on 2026-09-10. Problem-solving reasoning tokens (stateless HTTP / stored HTTP /
+WebSocket) were **248 / 301 / 299** for GPT-6 Astra and **1169 / 1692 / 822** for
+GPT-5.4. Every case preserved encrypted reasoning through exact cold replay.
+The default offline invocation still skipped all six cases.
+
+Compact-YAML follow-up: **6 live cases passed in 107.96 seconds**. Known empty
+summary/content/annotation/logprob fields and completed-status defaults no longer
+appear in compact message entries. The real GPT-6 run also returned a nonempty
+public summary, which survived replay unchanged along with encrypted reasoning.
+Native Apply Patch success stays explicit because its protocol requires it.
+New Goal checks cover scalar dialogue, older noisy messages, no mutation on save,
+nondefault metadata, unknown empty payloads, and native tool result replay.
+The independent review confirmed the status/role-scope and live-oracle remedies.
+Final compaction validation: SDK 3.8.0 **828 passed, 129 skipped**; four existing
+async-client cleanup warnings remain in test doubles. SDK 3.5.0 focused checks
+passed (154 runtime/YAML tests plus 29 final provider/Goal/Apply Patch tests).
+All five notebook code cells ran offline, and the strict documentation build passed.
+
+Pre-push critical review (GPT-6 Astra, high reasoning) found and resolved:
+
+- Unfinished function calls could execute after an incomplete WebSocket response.
+  The whole batch now stays pending while its items remain saved.
+- Latest-result accessors could expose older text/images after opaque or tool-only
+  output. Compact and opaque assistant boundaries now agree, and final multipart
+  assistants own their asset views.
+- CC projection could interleave commentary between a call and its result.
+  Matching results now follow their requesting assistant in the projected list;
+  original messages, content, metadata, and persisted order remain intact.
+
+The review also caught and fixed explicit `tool_calls: null` compatibility.
+The remote base matched current `origin/master`. Final verification: SDK 3.8.0
+**845 passed, 129 skipped** (six existing async-client cleanup warnings), plus
+**30 final focused replay checks** including the last unknown-phase boundary
+regression. All **6 live history assertions passed again in 108.14 seconds**,
+but the process lingered after pytest's summary and required interruption.
+The live fixture now closes chats with `Chat.close_a()`; a three-transport rerun
+passed in 54.34 seconds but still lingered at shutdown. Those runs did not
+establish a clean process exit; the cause and remedy are recorded below.
+The notebook and strict documentation build passed. Contiguous unphased output
+without input boundaries remains one group, as documented in the RFC.
+
+PR #83 review follow-up (2026-09-12): both reported regressions reproduced and
+fixed. Imported assistant `provider_extras.content` values that are not lists
+remain saved, while replay builds an output-text part from the mapped text.
+Expanded system/developer messages expose their text through `system_message`,
+so Markdown export works without discarding metadata. Five new regression cases
+failed before the fixes; the focused history/replay/base/reset/serialization/YAML
+suite then passed **112 tests** with a clean process exit.
+
+Philosophy review remedies (2026-09-12): trailing image replay wrappers no longer
+hide the assistant's captured `.images`/`.files`, and reset restores the complete
+initial system block without overwriting its metadata through a text accessor.
+Eight new regression cases reproduced the failures. Image coverage now checks
+both output orders, compact/multipart commentary, stored/stateless replay, and
+asset bytes through save/load. Reset coverage checks constructed/loaded chats,
+system/developer roles, and repeated restoration after nested edits.
+The focused history/replay/base/reset/serialization/YAML suite passed
+**120 tests** with a clean process exit.
+
+Shutdown resolution (2026-09-12): `nest_asyncio` left AnyIO worker-stop callbacks
+queued after the test task completed, and pytest closed the loop before they
+ran. An offline subprocess reproduced the passing-test/hanging-process failure.
+The live suite now drains callbacks during fixture teardown and bounds owned
+client/session cleanup to 30 seconds. Offline regressions verify clean process
+exit and failure on stalled client cleanup.
+All **6 live cases passed in 120.89 seconds with exit code 0**, using SDK 3.5.0;
+only the main thread remained at both shutdown checkpoints. The diagnostic
+watchdog added no callback draining. The final focused suite passed **202 tests**
+(two existing async-client cleanup warnings in other test doubles).
+Import regressions also cover null assistant text/refusal metadata and legacy
+tool-output extras through save/load and cross-runtime replay.
+
+Further replay validation: refusal-only and mixed assistant messages retain
+their refusal when switching to Chat Completions. Legacy function-call extras
+also survive Responses replay. Mutable local attachment paths force full replay
+with current file bytes; stable provider references still use cached continuation.
+Recorded image capture failures raise with usage retained before an incomplete
+Chat can be returned. The combined history, adapters, attachments, assets, usage,
+and YAML suite passed **291 tests** (one existing async-client cleanup warning),
+and `mkdocs build --strict` passed. The continuation guide now defines its prompt
+and utensil before use.
+
+Run this feature's live contracts explicitly in PowerShell:
+
+```powershell
+$env:CHATSNACK_RUN_LIVE_TESTS = '1'
+.\.venv\Scripts\python.exe -m pytest tests/test_live_conversation_history.py -q
+```
+
+`CHATSNACK_LIVE_MODEL` and `CHATSNACK_LIVE_REASONING_MODEL` override the two
+models. Without the live opt-in, all six cases skip; normal test runs remain offline.

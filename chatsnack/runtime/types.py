@@ -90,6 +90,7 @@ class PendingOutput:
     data: Optional[bytes] = field(default=None, repr=False)
     file_id: Optional[str] = None
     container_id: Optional[str] = None
+    item_id: Optional[str] = None
 
 
 @dataclass
@@ -113,6 +114,8 @@ class NormalizedCompletionResult:
     model: Optional[str] = None
     usage: Optional[Dict[str, Any]] = None
     metadata: Dict[str, Any] = field(default_factory=dict)
+    # The authoritative ordered transcript additions; message is a legacy view.
+    messages: Optional[List[Dict[str, Any]]] = None
 
 
 @dataclass

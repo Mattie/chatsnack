@@ -19,6 +19,7 @@ from ..runtime import (
     ResponsesWebSocketSession,
 )
 from .mixin_query import ChatQueryMixin
+from ..runtime.conversation import copy_value
 from .mixin_params import ChatParams, ChatParamsMixin
 from .mixin_serialization import DatafileMixin, ChatSerializationMixin, refresh_snapclass_config_stash
 from .mixin_utensil import ChatUtensilMixin 
@@ -90,6 +91,8 @@ class Text(DatafileMixin):
     stash=CHATSNACK_PROMPTS,
     manual=True,
     init=False,
+    # Empty provider arrays are data; never serialize them as a null list item.
+    minimal_diffs=False,
     formatter=ChatsnackYAMLFormatter,
 )
 class Chat(ChatQueryMixin, ChatSerializationMixin, ChatUtensilMixin):
@@ -280,8 +283,7 @@ class Chat(ChatQueryMixin, ChatSerializationMixin, ChatUtensilMixin):
         # Save the initial state for reset() purposes
         self._initial_name = self.name
         self._initial_params = copy.copy(self.params)
-        self._initial_messages = copy.copy(self.messages)
-        self._initial_system_message = self.system_message
+        self._initial_messages = copy_value(self.messages)
         # do the same for the tool registry
         self._initial_registry = getattr(self, '_local_registry', None)
         self._initial_runtime_bindings = dict(self._runtime_bindings)
@@ -599,9 +601,7 @@ class Chat(ChatQueryMixin, ChatSerializationMixin, ChatUtensilMixin):
         """Restore the chat to the state captured immediately after initialization."""
         self.name = self._initial_name
         self.params = copy.copy(self._initial_params)
-        self.messages = copy.copy(self._initial_messages)
-        if self._initial_system_message is not None:
-            self.system_message = self._initial_system_message
+        self.messages = copy_value(self._initial_messages)
         # Reset tools if initial registry was stored
         if hasattr(self, '_initial_registry'):
             # Re-register the initial tools
@@ -861,8 +861,7 @@ def _apply_chat_constructor_overrides(chat):
 def _capture_chat_reset_state(chat):
     chat._initial_name = chat.name
     chat._initial_params = copy.copy(chat.params)
-    chat._initial_messages = copy.copy(chat.messages)
-    chat._initial_system_message = chat.system_message
+    chat._initial_messages = copy_value(chat.messages)
     chat._initial_registry = getattr(chat, "_local_registry", None)
     chat._initial_runtime_bindings = dict(
         getattr(chat, "_runtime_bindings", {})
