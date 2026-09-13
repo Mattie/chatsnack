@@ -1,6 +1,7 @@
 """Continuation must preserve the attachment bytes represented by its history."""
 
 import base64
+from contextlib import nullcontext
 import json
 from pathlib import Path
 
@@ -82,19 +83,24 @@ async def test_resolved_attachment_reference_keeps_the_stored_shortcut():
     assert len(requests[1]["input"]) == 1
 
 
-@pytest.mark.parametrize("capture_failure", ["storage-error", "invalid-image"])
+@pytest.mark.parametrize("capture_failure", ["storage-error", "invalid-image", "invalid-base64", "data-uri"])
 @pytest.mark.asyncio
 async def test_image_capture_failure_cannot_return_incomplete_history(monkeypatch, capture_failure):
     """A paid image response fails locally when its bytes cannot be preserved."""
     requests = []
     data = b"invalid image" if capture_failure == "invalid-image" else b"\x89PNG\r\n\x1a\nimage"
+    result = base64.b64encode(data).decode("ascii")
+    if capture_failure == "invalid-base64":
+        result = "not-base64!"
+    elif capture_failure == "data-uri":
+        result = f"data:image/png;base64,{result}"
 
     def respond(request):
         """Return an image whose replay depends on successful local capture."""
         requests.append(json.loads(request.content))
         return _response(request, 1, [{
             "type": "image_generation_call", "id": "ig_1", "status": "completed",
-            "result": base64.b64encode(data).decode("ascii"),
+            "result": result,
         }])
 
     if capture_failure == "storage-error":
@@ -108,7 +114,9 @@ async def test_image_capture_failure_cannot_return_incomplete_history(monkeypatc
     )) as sdk:
         source = Chat(runtime="responses", model="test-model")
         source.ai.aclient = sdk
-        with pytest.raises(RuntimeError, match="preserve generated image") as failure:
+        decode_warning = (pytest.warns(RuntimeWarning, match="Could not decode generated image")
+                          if capture_failure in {"invalid-base64", "data-uri"} else nullcontext())
+        with decode_warning, pytest.raises(RuntimeError, match="preserve generated image") as failure:
             await source.chat_a("Draw a snack.")
 
     assert failure.value.__cause__ is not None

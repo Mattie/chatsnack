@@ -537,7 +537,9 @@ class ResponsesNormalizationMixin:
                 )
             elif item_type == "image_generation_call":
                 image_bytes = self._decode_generated_image(item_dict.get("result", ""))
-                if image_bytes:
+                if image_bytes or item_dict.get("result"):
+                    # A nonempty result still needs capture when decoding fails.
+                    # The capture error path prevents adoption of lossy history.
                     pending_outputs.append(PendingOutput(kind="image", data=image_bytes, item_id=item_dict.get("id")))
                 hosted_tool_calls.append(
                     {key: value for key, value in item_dict.items() if key != "result"}
