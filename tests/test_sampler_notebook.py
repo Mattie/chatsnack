@@ -26,3 +26,9 @@ def test_introductory_notebook_cells(tmp_path, monkeypatch, evaluations):
     assert (tmp_path / 'samplers/SnackCheck.yml').read_text() == (
         'data: "{snack}"\nquestions:\n  - "{question.crunchy}"\n')
     assert len(evaluations) == 5
+    assert evaluations[3][0]['state'] == (
+        'Kettle-popped corn with a brittle caramel shell and roasted pecans.')
+    assert evaluations[3][0]['questions']['crunchy']['instructions'] == (
+        'Does this product description support calling the food crunchy?')
+    assert 'crunchy=yes' in scope['menu_description']
+    assert 'Only describe it as crunchy when that answer is yes.' in scope['menu_description']
