@@ -67,22 +67,63 @@ def test_imported_assistant_text_and_refusal_use_responses_content_parts(tmp_pat
 
 
 @pytest.mark.parametrize("role", ["user", "system", "developer"])
-def test_legacy_dialogue_metadata_survives_responses_replay(tmp_path, role):
+@pytest.mark.parametrize("loaded", [False, True])
+def test_legacy_dialogue_metadata_survives_responses_replay(tmp_path, role, loaded):
     """Imported dialogue keeps unknown wire fields beside explicit provider extras."""
     item = {"role": role, "content": "Hello", "future": {"nullable": None},
             "provider_extras": {"other": [], "future": "overridden"}}
     chat = Chat()
     chat.add_messages_json(json.dumps([item]))
-    path = tmp_path / "dialogue-extras.yml"
-    chat.save(str(path))
-    restored = Chat()
-    restored.load(str(path))
+    restored = chat
+    if loaded:
+        path = tmp_path / "dialogue-extras.yml"
+        chat.save(str(path))
+        restored = Chat()
+        restored.load(str(path))
     original = json.loads(restored.json)
     request = ResponsesAdapter(SimpleNamespace()).build_responses_request(restored.get_messages(), {})
     assert request["input"] == [{"type": "message", "role": "system" if role == "developer" else role,
         "content": [{"type": "input_text", "text": "Hello"}],
         "future": {"nullable": None}, "other": []}]
     assert json.loads(restored.json) == original
+
+
+@pytest.mark.parametrize("loaded", [False, True])
+@pytest.mark.parametrize("role, fields", [
+    ("user", {"name": "customer"}),
+    ("system", {"name": "policy"}),
+    ("developer", {"name": "developer"}),
+    ("assistant", {"name": "helper"}),
+    ("assistant", {"audio": {"id": "audio_1"}}),
+    ("assistant", {"function_call": {"name": "stock", "arguments": "{}"}}),
+    ("assistant", {"refusal": None}),
+])
+def test_imported_cc_fields_survive_replay_and_reload(tmp_path, loaded, role, fields):
+    """Supported fields reach CC consistently, while unknown metadata stays saved."""
+    from chatsnack.runtime.chat_completions_adapter import ChatCompletionsAdapter
+    captured = []
+
+    def create(**kwargs):
+        """Observe the final CC request without a provider call."""
+        captured.append(kwargs["messages"])
+        return {"choices": [{"message": {"role": "assistant", "content": "ok"}}]}
+
+    item = {"role": role, "content": "Hello", **fields,
+            "provider_extras": {"future": None, **{key: "stale" for key in fields}}}
+    chat = Chat()
+    chat.add_messages_json(json.dumps([item]))
+    if loaded:
+        path = tmp_path / "cc-fields.yml"
+        chat.save(str(path))
+        chat = Chat()
+        chat.load(str(path))
+    original = json.loads(chat.json)
+    adapter = ChatCompletionsAdapter(SimpleNamespace(client=SimpleNamespace(
+        chat=SimpleNamespace(completions=SimpleNamespace(create=create)))))
+    with pytest.warns(UserWarning, match="provider-only history"):
+        adapter.create_completion(chat.get_messages(), model="test-model")
+    assert captured == [[{"role": "system" if role == "developer" else role, "content": "Hello", **fields}]]
+    assert json.loads(chat.json) == original
 
 
 def test_imported_bare_null_assistant_stays_null(tmp_path):

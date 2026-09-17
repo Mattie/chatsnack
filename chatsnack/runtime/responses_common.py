@@ -238,9 +238,15 @@ class ResponsesNormalizationMixin:
         if not content_parts:
             content_parts.append({"type": text_part_type, "text": ""})
 
+        extras = dict(self._to_dict(message.get("provider_extras") or {}))
+        if role in {"user", "system", "developer"}:
+            # Imported wire extensions may still be top-level before YAML load.
+            # Match load-time precedence without changing the legacy JSON bridge.
+            extras.update({key: value for key, value in message.items() if key not in {
+                "role", "content", "images", "files", "provider_extras"}})
         return [
             {
-                **self._to_dict(message.get("provider_extras") or {}),
+                **extras,
                 "type": "message",
                 "role": role,
                 "content": content_parts,

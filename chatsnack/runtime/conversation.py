@@ -408,8 +408,16 @@ def project_chat_completions(messages):
         if role == "tool" and message.get("output_type") not in (None, "function_call_output"):
             omitted.add(message["output_type"])
             continue
-        if role == "assistant" and "refusal" in (message.get("provider_extras") or {}):
-            message.setdefault("refusal", message["provider_extras"]["refusal"])
+        # YAML stores optional wire fields as extras. Restore only fields CC
+        # accepts for this role, keeping explicit bridge values authoritative.
+        supported_extras = {
+            "system": {"name"}, "developer": {"name"}, "user": {"name"},
+            "assistant": {"name", "refusal", "audio", "function_call", "tool_calls"},
+            "tool": {"tool_call_id"}, "function": {"name"},
+        }.get(role, set())
+        for key, value in (message.get("provider_extras") or {}).items():
+            if key in supported_extras:
+                message.setdefault(key, value)
         for key in metadata_fields:
             if key in message:
                 omitted.add("message metadata")
