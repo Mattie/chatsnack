@@ -7,7 +7,7 @@ returns a Sample; `.answer` and `.question` are its first existing collection it
 
 - [x] Authored models and request compilation: inferred questions, structured inputs, stable results.
   Inline, stored, and batch calls return Sample; aliases preserve identity and named lookup survives reordering.
-- [x] Provider execution: optional SDK, async/sync parity, decoding and cleanup.
+- [x] Provider execution: included SDK, async/sync parity, decoding and cleanup.
   Real SDK HTTP contracts run with deterministic transports, including retries, errors, and cancellation.
 - [x] Persistence and replay: explicit writes, preserved authoring forms, literal reconstruction.
   Live references, embedded values, custom stashes, and Sample-valued follow-ups survive save/load.
@@ -16,19 +16,21 @@ returns a Sample; `.answer` and `.question` are its first existing collection it
 - [x] Notebook and guides: simple → durable → composable.
   `TastySamplersWithChatsnack.ipynb` executes offline in a dedicated test, checking the actual saved YAML.
 - [x] Validation: offline contracts, optional live test, compatibility, package/docs builds.
-  Strict MkDocs build, Poetry lock check, wheel/sdist builds, and fresh wheel installs with and without the extra pass.
+  Strict MkDocs build, Poetry lock check, wheel/sdist builds, and a fresh plain wheel install pass.
 - [x] Critical review and 0.9.0 version preparation.
   Independent review found two persistence defects; both were fixed and regression-tested.
   Version is 0.9.0. Publication remains separate.
 
 ## Verification
 
-- Final full offline compatibility suite: 840 passed, 125 skipped.
-- Final focused Sampler, notebook, SDK, and resolver contracts: 98 passed, 1 skipped.
-- Base wheel: authoring, saving/loading, and compilation work without `typesafe-sdk`;
-  evaluation reports the required extra.
-- Extra-enabled wheel: SDK 0.6.0 request/response decoding, notebook sync bridge,
-  alias identity, and client cleanup pass with an in-memory HTTP transport.
+- Full offline compatibility suite after simplification: 844 passed, 125 skipped.
+- Focused Sampler, notebook, SDK, and resolver contracts after dependency promotion:
+  103 passed, 1 opt-in live test skipped.
+- TypeSafe is included in the standard 0.9.0 install. A fresh plain wheel install
+  automatically installs SDK 0.6.0, msgspec, and tenacity. Package metadata confirms
+  the SDK is required without an extra; `pip check` passes.
+- Plain-wheel Sampler execution and client cleanup pass with an in-memory HTTP
+  transport. SDK imports remain lazy; authoring requires no provider credentials.
 - The paid live contract is opt-in via `CHATSNACK_RUN_TYPESAFE_LIVE=1`.
   Verified against the live provider on 2026-09-17: 1 passed in 1.76s.
   The first live run exposed pending AnyIO worker-stop callbacks after synchronous

@@ -1,4 +1,4 @@
-"""Contract tests through the optional SDK's real HTTP encode/decode boundary."""
+"""Contract tests through the required SDK's HTTP encode/decode boundary."""
 
 import asyncio
 import builtins
@@ -6,15 +6,17 @@ import json
 import os
 
 import pytest
+import httpx2
+import typesafe_sdk
 
 from chatsnack import Question, Sampler
 
 
 @pytest.fixture
 def sdk_transport(monkeypatch):
-    """Use the real optional client against an in-memory HTTP transport."""
-    sdk = pytest.importorskip('typesafe_sdk')
-    httpx = pytest.importorskip('httpx2')
+    """Use the real client against an in-memory HTTP transport."""
+    sdk = typesafe_sdk
+    httpx = httpx2
     clients = []
     original = sdk.AsyncTypeSafeClient
 
@@ -104,20 +106,18 @@ async def test_sdk_client_closes_on_cancellation(sdk_transport):
     assert clients[0].is_closed
 
 
-def test_optional_sdk_is_only_required_for_evaluation(monkeypatch, tmp_path):
+def test_authoring_does_not_import_provider_sdk(monkeypatch, tmp_path):
     original = builtins.__import__
 
     def without_sdk(name, *args, **kwargs):
         if name == 'typesafe_sdk':
-            raise ImportError('not installed')
+            raise AssertionError('Authoring must not import the provider SDK')
         return original(name, *args, **kwargs)
 
     monkeypatch.setattr(builtins, '__import__', without_sdk)
     sampler = Sampler(name='Offline', data='hi', questions=['Good?'])
     sampler.save(tmp_path / 'Offline.yml')
     assert sampler.compile()['state'] == 'hi'
-    with pytest.raises(ImportError, match=r'chatsnack\[typesafe\]'):
-        sampler.ask()
 
 
 @pytest.mark.skipif(os.getenv('CHATSNACK_RUN_TYPESAFE_LIVE') != '1', reason='opt-in paid TypeSafe contract')

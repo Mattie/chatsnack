@@ -4,8 +4,8 @@ chatsnack is the easiest Python library for rapid development with OpenAI's Chat
 
 [Documentation site](https://mattie.github.io/chatsnack/)
 
-For typed judgments over existing data, use [Samplers and reusable Questions](docs/guides/samplers.md)
-with the optional `chatsnack[typesafe]` extra.
+For typed judgments over existing data, use [Samplers and reusable Questions](docs/guides/samplers.md),
+included with chatsnack 0.9.0.
 
 ![chatsnack features](/docs/chatsnack_features_smaller.jpg)
 ## Setup

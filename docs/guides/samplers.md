@@ -3,8 +3,9 @@
 A `Sampler` asks focused questions about existing data. Every `ask()` returns a
 `Sample`, with typed answers, the evaluated inputs, and model/usage information.
 
-Install `pip install "chatsnack[typesafe]"` and set `TYPESAFE_API_KEY` in your
-environment or local `.env`. Ordinary Chat use needs no TypeSafe dependency.
+Install `pip install chatsnack` (0.9.0 or later) and set `TYPESAFE_API_KEY` in your
+environment or local `.env`. TypeSafe support is included. The key is needed when
+you evaluate a Sampler; authoring and saving definitions require no credentials.
 
 ## Something crunchy
 

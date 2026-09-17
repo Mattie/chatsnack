@@ -29,10 +29,13 @@ the new questions retain their ordinary filling behavior after reload.
 
 ## Execution and composition
 
-One async preparation/evaluation pipeline backs sync and async methods. Optional
+One async preparation/evaluation pipeline backs sync and async methods. Lazy
 TypeSafe SDK import, retry handling, and per-call client cleanup live in a small
 provider adapter. No Chat adapter or model capability-table changes are required.
 Compilation is advanced inspection and may execute dependency fillings.
+
+TypeSafe is a standard dependency in 0.9.0, so the introductory examples work
+after an ordinary chatsnack install. Credentials are required only for evaluation.
 
 Typed whole-value resolution complements the existing string formatter. Named
 result fillings expose choice/score/confidence and require explicit answer names.

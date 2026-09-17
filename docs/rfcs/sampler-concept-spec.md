@@ -686,7 +686,7 @@ The likely implementation can stay layered:
 
 1. Add `Question`, `SamplerParams`, `Sampler`, and answer models.
 2. Compile inferred questions and `data` into the TypeSafe request.
-3. Add sync and async provider execution with optional TypeSafe SDK support.
+3. Add sync and async provider execution with TypeSafe SDK support included by default.
 4. Add snapclass persistence and concise Sampler/Question YAML formatting.
 5. Add exact `{question.name}` typed filling resolution.
 6. Add `Sampler.from_sample()` with resolved snapshot semantics.

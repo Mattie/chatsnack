@@ -522,10 +522,9 @@ files = [
 name = "msgspec"
 version = "0.21.1"
 description = "A fast serialization and validation library, with builtin support for JSON, MessagePack, YAML, and TOML."
-optional = true
+optional = false
 python-versions = ">=3.10"
 groups = ["main"]
-markers = "extra == \"typesafe\""
 files = [
     {file = "msgspec-0.21.1-cp310-cp310-macosx_10_9_x86_64.whl", hash = "sha256:72d9cd03241b8b2edb2e12dcc66c500fa480d8cbd71a8bac105809d468882064"},
     {file = "msgspec-0.21.1-cp310-cp310-macosx_11_0_arm64.whl", hash = "sha256:ed2ab278200e743a1d2610a4e0c8fc74f6cecb8548544cdec43f927bd9265238"},
@@ -1007,10 +1006,9 @@ files = [
 name = "tenacity"
 version = "9.1.4"
 description = "Retry code until it succeeds"
-optional = true
+optional = false
 python-versions = ">=3.10"
 groups = ["main"]
-markers = "extra == \"typesafe\""
 files = [
     {file = "tenacity-9.1.4-py3-none-any.whl", hash = "sha256:6095a360c919085f28c6527de529e76a06ad89b23659fa881ae0649b867a9d55"},
     {file = "tenacity-9.1.4.tar.gz", hash = "sha256:adb31d4c263f2bd041081ab33b498309a57c77f9acf2db65aadf0898179cf93a"},
@@ -1049,10 +1047,9 @@ files = [
 name = "typesafe-sdk"
 version = "0.6.0"
 description = "Python SDK for TypeSafe AI API."
-optional = true
+optional = false
 python-versions = ">=3.10"
 groups = ["main"]
-markers = "extra == \"typesafe\""
 files = [
     {file = "typesafe_sdk-0.6.0-py3-none-any.whl", hash = "sha256:21559d5558e95a7ee008d0a044a60bb5bb2d3b1ec426fe158a7f37af35ba3232"},
     {file = "typesafe_sdk-0.6.0.tar.gz", hash = "sha256:78540639bde10a56d378f35690264799c00d1ffd7c0fa56b27838d0aa1a4bb34"},
@@ -1215,9 +1212,8 @@ examples = ["Flask", "questionary", "rich"]
 flask = ["Flask"]
 questionary = ["questionary"]
 rich = ["rich"]
-typesafe = ["typesafe-sdk"]
 
 [metadata]
 lock-version = "2.1"
 python-versions = "^3.11"
-content-hash = "1e5ba48b6f6e2fb3a512f99627483c3d9dfe59e35b8039291c75540142de1d60"
+content-hash = "6f4742b70e19d34d1ed2bab836fe86f968daf3088ea7221c605e77f336020ef0"

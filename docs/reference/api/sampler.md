@@ -104,4 +104,4 @@ Verified on 2026-09-17 against TypeSafe's [HTTP API](https://docs.typesafe.ai/ap
 [structured question entries](https://docs.typesafe.ai/primitives/advanced.md),
 [async Python client](https://docs.typesafe.ai/sdk/python/api/clients/async/client.md),
 and [retry policy](https://docs.typesafe.ai/sdk/python/api/retries.md).
-The optional SDK dependency is `typesafe-sdk>=0.6.0,<0.7.0`.
+Chatsnack 0.9.0 includes `typesafe-sdk>=0.6.0,<0.7.0` as a standard dependency.

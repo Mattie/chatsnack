@@ -1,15 +1,12 @@
-"""Optional Jev SDK boundary; no provider imports during authoring or loading."""
+"""Jev SDK boundary; defer provider imports until evaluation."""
 
 import os
 
 
 async def evaluate(request, params):
     """Submit one compiled evaluation with SDK-owned retries and scoped cleanup."""
-    try:
-        from typesafe_sdk import AsyncTypeSafeClient, RetryPolicy
-        import msgspec
-    except ImportError as exc:
-        raise ImportError('Sampler evaluation requires pip install "chatsnack[typesafe]"') from exc
+    from typesafe_sdk import AsyncTypeSafeClient, RetryPolicy
+    import msgspec
     options = {key: getattr(params, key) for key in ('timeout', 'base_url')
                if getattr(params, key) is not None}
     if params.api_key_env is not None:
