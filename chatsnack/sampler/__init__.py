@@ -22,11 +22,6 @@ def _sync(coro):
     """Run in notebooks and drain task-completion cleanup before returning."""
     try:
         return asyncio.run(coro)
-    except RuntimeError as exc:
-        if 'asyncio.run() cannot be called from a running event loop' in str(exc):
-            coro.close()
-            raise RuntimeError('Use the async Sampler method from an active event loop') from None
-        raise
     finally:
         # nest_asyncio stops as soon as the task finishes. AnyIO's worker-stop
         # callbacks need another loop turn, including when provider work fails.

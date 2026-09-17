@@ -283,90 +283,71 @@ async def resolve_fillings_a(
     Accepts text.Name, chat.Name, question.Name, and sampler.Name.answer.field.
     Question and Sampler leaves retain their value types. Existing text/chat
     results and opaque namespace overrides keep their established behavior.
+    Saved assets use the same callbacks as Chat and share Sampler evaluations
+    for this invocation.
     """
     from .sampler.composition import expansion_scope
     async with expansion_scope():
-        return await _resolve_fillings_a(references, variables=variables,
-                                        allow_chat=allow_chat, allow_sampler=allow_sampler)
+        if variables is None:
+            variables = {}
+        if not isinstance(variables, Mapping):
+            raise TypeError("variables must be a mapping")
+        if not isinstance(allow_chat, bool):
+            raise TypeError("allow_chat must be a bool")
+        if not isinstance(allow_sampler, bool):
+            raise TypeError("allow_sampler must be a bool")
 
+        requested: list[str] = []
+        seen: set[str] = set()
+        for reference in references:
+            if not _is_static_filling_reference(reference):
+                raise ValueError(
+                    "filling references must be static text.Name or chat.Name values, question.Name, or sampler.Name.answer.field"
+                )
+            if reference not in seen:
+                requested.append(reference)
+                seen.add(reference)
 
-async def _resolve_fillings_a(
-    references: Iterable[str],
-    *,
-    variables: Mapping[str, Any] | None = None,
-    allow_chat: bool = False,
-    allow_sampler: bool = False,
-) -> dict[str, dict[str, Any]]:
-    """Resolve known static Text and Chat references with the main formatter.
-
-    ``references`` must contain static ``text.Name`` or ``chat.Name`` values.
-    Explicit values in the matching ``variables`` namespace are returned as
-    opaque data. Saved assets expand through the same callbacks used by
-    :meth:`Chat.ask_a`. Missing requested assets are omitted after any required
-    Chat authority check. Chat fillings, including transitive ones, require
-    explicit authority for this invocation.
-    """
-
-    if variables is None:
-        variables = {}
-    if not isinstance(variables, Mapping):
-        raise TypeError("variables must be a mapping")
-    if not isinstance(allow_chat, bool):
-        raise TypeError("allow_chat must be a bool")
-    if not isinstance(allow_sampler, bool):
-        raise TypeError("allow_sampler must be a bool")
-
-    requested: list[str] = []
-    seen: set[str] = set()
-    for reference in references:
-        if not _is_static_filling_reference(reference):
-            raise ValueError(
-                "filling references must be static text.Name or chat.Name values, question.Name, or sampler.Name.answer.field"
-            )
-        if reference not in seen:
-            requested.append(reference)
-            seen.add(reference)
-
-    ordinary_variables = {
-        key: value for key, value in variables.items() if key not in {"text", "chat", "question", "sampler"}
-    }
-    resolved: dict[str, dict[str, Any]] = {}
-    state_token = _active_resolver.set(_ResolverState(allow_chat=allow_chat, allow_sampler=allow_sampler))
-    chain_token = _active_chain.set(())
-    try:
-        for reference in requested:
-            vendor, name = reference.split(".", 1)
-            namespace = resolved.setdefault(vendor, {})
-            explicit = _explicit_filling(variables, vendor, name)
-            if explicit is not _MISSING:
-                namespace[name] = explicit
-                continue
-
-            try:
-                if vendor in {'question', 'sampler'}:
-                    namespace[name] = await aformatter.async_expand_field(
-                        reference, (), filling_machine(ordinary_variables))
-                else:
-                    namespace[name] = await aformatter.async_format_mapping(
-                        "{" + reference + "}", filling_machine(ordinary_variables))
-            except _MissingFilling as error:
-                if error.reference == reference and len(error.chain) == 1:
+        ordinary_variables = {
+            key: value for key, value in variables.items() if key not in {"text", "chat", "question", "sampler"}
+        }
+        resolved: dict[str, dict[str, Any]] = {}
+        state_token = _active_resolver.set(_ResolverState(allow_chat=allow_chat, allow_sampler=allow_sampler))
+        chain_token = _active_chain.set(())
+        try:
+            for reference in requested:
+                vendor, name = reference.split(".", 1)
+                namespace = resolved.setdefault(vendor, {})
+                explicit = _explicit_filling(variables, vendor, name)
+                if explicit is not _MISSING:
+                    namespace[name] = explicit
                     continue
-                raise FillingError(
-                    _with_chain(
-                        f"could not resolve {error.reference}",
-                        error.chain,
-                    )
-                ) from None
-            except FillingError:
-                raise
-            except Exception:
-                raise FillingError(f"could not resolve {reference}") from None
-    finally:
-        _active_chain.reset(chain_token)
-        _active_resolver.reset(state_token)
 
-    return resolved
+                try:
+                    if vendor in {'question', 'sampler'}:
+                        namespace[name] = await aformatter.async_expand_field(
+                            reference, (), filling_machine(ordinary_variables))
+                    else:
+                        namespace[name] = await aformatter.async_format_mapping(
+                            "{" + reference + "}", filling_machine(ordinary_variables))
+                except _MissingFilling as error:
+                    if error.reference == reference and len(error.chain) == 1:
+                        continue
+                    raise FillingError(
+                        _with_chain(
+                            f"could not resolve {error.reference}",
+                            error.chain,
+                        )
+                    ) from None
+                except FillingError:
+                    raise
+                except Exception:
+                    raise FillingError(f"could not resolve {reference}") from None
+        finally:
+            _active_chain.reset(chain_token)
+            _active_resolver.reset(state_token)
+
+        return resolved
 
 
 def _explicit_filling(
