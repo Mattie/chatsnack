@@ -19,7 +19,7 @@ _UNSET = object()
 
 
 def _sync(coro):
-    """Use the same notebook-compatible event-loop bridge as Chat."""
+    """Run in notebooks and drain task-completion cleanup before returning."""
     try:
         return asyncio.run(coro)
     except RuntimeError as exc:
@@ -27,6 +27,10 @@ def _sync(coro):
             coro.close()
             raise RuntimeError('Use the async Sampler method from an active event loop') from None
         raise
+    finally:
+        # nest_asyncio stops as soon as the task finishes. AnyIO's worker-stop
+        # callbacks need another loop turn, including when provider work fails.
+        asyncio.run(asyncio.sleep(0))
 
 
 @snapclass('samplers/{self.name}.yml', stash=CHATSNACK_ROOT, manual=True, init=False,

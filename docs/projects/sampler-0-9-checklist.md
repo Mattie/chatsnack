@@ -29,7 +29,12 @@ returns a Sample; `.answer` and `.question` are its first existing collection it
   evaluation reports the required extra.
 - Extra-enabled wheel: SDK 0.6.0 request/response decoding, notebook sync bridge,
   alias identity, and client cleanup pass with an in-memory HTTP transport.
-- The paid live contract is opt-in via `CHATSNACK_RUN_TYPESAFE_LIVE=1` and was not run.
+- The paid live contract is opt-in via `CHATSNACK_RUN_TYPESAFE_LIVE=1`.
+  Verified against the live provider on 2026-09-17: 1 passed in 1.76s.
+  The first live run exposed pending AnyIO worker-stop callbacks after synchronous
+  execution. The sync bridge now drains completion callbacks; subprocess regression
+  tests verify clean exit on success/failure in ordinary and notebook-style calls.
+  Follow-up focused validation: 43 passed, 1 opt-in test skipped.
 - Poetry reports existing metadata deprecations; package checks and builds succeed.
 
 ## Deferred
