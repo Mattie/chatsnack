@@ -91,6 +91,7 @@ nav:
       - guides/yaml-and-assets.md
       - OpenAI-compatible providers: guides/providers.md
       - guides/fillings.md
+      - Samplers and Questions: guides/samplers.md
       - guides/utensils.md
   - Examples:
       - examples/index.md
@@ -101,6 +102,7 @@ nav:
       - Chat: reference/api/chat.md
       - Text: reference/api/text.md
       - Fillings: reference/api/fillings.md
+      - Samplers: reference/api/sampler.md
       - Utensils: reference/api/utensils.md
       - Packs: reference/api/packs.md
   - Philosophy: philosophy.md

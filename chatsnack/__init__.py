@@ -93,6 +93,7 @@ from .defaults import CHATSNACK_ASSETS, CHATSNACK_BASE_DIR, CHATSNACK_LOGS_DIR, 
 from .assets import ChatFile
 from .asynchelpers import aformatter
 from .chat import Chat, Text, ChatParams
+from .sampler import Sampler, Question, Sample, SamplerParams, Answer, YesNoAnswer, ChoiceAnswer, ScoreAnswer
 from . import packs
 from .utensil import utensil, get_all_utensils, get_openai_tools, UtensilGroup, HostedUtensil
 from .runtime import ApplyPatchCall, CallUsage, ResponseUsage, UsageCounts
@@ -166,5 +167,8 @@ _chat_name_query_expansion._chatsnack_reserves_chat_after_lookup = True
 # default snack vendors
 snack_catalog.add_filling("text", _text_name_expansion)
 snack_catalog.add_filling("chat", _chat_name_query_expansion)
+from .sampler.composition import question_filling, sampler_filling
+snack_catalog.add_filling("question", question_filling)
+snack_catalog.add_filling("sampler", sampler_filling)
 
 logger.trace("chatsnack loaded")

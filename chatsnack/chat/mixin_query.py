@@ -534,6 +534,13 @@ class ChatQueryMixin(ChatMessagesMixin, ChatParamsMixin):
         return json.dumps(new_messages)
      
     async def _build_final_prompt(self, additional_vars = {}):
+        """Share named Sampler evaluations across this prompt's message fillings."""
+        from ..sampler.composition import expansion_scope
+        async with expansion_scope():
+            return await self._build_final_prompt_in_scope(additional_vars)
+
+    async def _build_final_prompt_in_scope(self, additional_vars):
+        """Format messages inside the caller's expansion lifetime."""
         promptvars = {}
         promptvars.update(additional_vars)
         token = active_filling_stash.set(self.snapshot_lookup_stash if hasattr(self, "snapshot_lookup_stash") else None)
