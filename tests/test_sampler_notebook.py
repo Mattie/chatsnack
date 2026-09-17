@@ -8,7 +8,7 @@ from tests.features.test_sampler import evaluations
 
 
 def test_introductory_notebook_cells(tmp_path, monkeypatch, evaluations):
-    notebook = Path(__file__).resolve().parents[1] / 'notebooks/SamplingWithChatsnack.ipynb'
+    notebook = Path(__file__).resolve().parents[1] / 'notebooks/TastySamplersWithChatsnack.ipynb'
     monkeypatch.setenv('CHATSNACK_BASE_DIR', str(tmp_path))
     monkeypatch.chdir(tmp_path)
 

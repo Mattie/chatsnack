@@ -14,7 +14,7 @@ returns a Sample; `.answer` and `.question` are its first existing collection it
 - [x] Fillings: typed Questions, named results, expansion-local reuse and authority.
   Tests cover repeated reads, separate bindings/stashes, cycles, cancellation, and the resolver's 16-call budget.
 - [x] Notebook and guides: simple → durable → composable.
-  `SamplingWithChatsnack.ipynb` executes offline in a dedicated test, checking the actual saved YAML.
+  `TastySamplersWithChatsnack.ipynb` executes offline in a dedicated test, checking the actual saved YAML.
 - [x] Validation: offline contracts, optional live test, compatibility, package/docs builds.
   Strict MkDocs build, Poetry lock check, wheel/sdist builds, and fresh wheel installs with and without the extra pass.
 - [x] Critical review and 0.9.0 version preparation.
