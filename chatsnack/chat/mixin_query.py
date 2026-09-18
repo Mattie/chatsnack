@@ -755,10 +755,12 @@ class ChatQueryMixin(ChatMessagesMixin, ChatParamsMixin):
                 and isinstance(getattr(prompter, "runtime", None), ResponsesWebSocketAdapter)
             )
             try:
+                submitted_messages = []
                 response = await prompter._cleaned_chat_completion(
                     prompt,
                     track_continuation=track_continuation,
                     _call_usage_ledger=_call_usage_ledger,
+                    _submitted_messages_out=submitted_messages,
                     **kwargs,
                 )
             except BaseException:
@@ -769,7 +771,8 @@ class ChatQueryMixin(ChatMessagesMixin, ChatParamsMixin):
                 _submitted_runtime_out.append(getattr(prompter, "runtime", None))
             if temporary_websocket_runtime and not track_continuation:
                 await prompter.runtime.close_session_a()
-            return prompt, response
+            prepared_prompt = json.dumps(submitted_messages[0]) if submitted_messages else prompt
+            return prepared_prompt, response
 
     def _runtime_supports_continuation(self) -> bool:
         runtime = getattr(self, "runtime", None)
@@ -929,6 +932,7 @@ class ChatQueryMixin(ChatMessagesMixin, ChatParamsMixin):
         prompt,
         track_continuation: bool = False,
         _call_usage_ledger=None,
+        _submitted_messages_out=None,
         **kwargs,
     ):
         # if there's no model specified, use the default
@@ -983,9 +987,15 @@ class ChatQueryMixin(ChatMessagesMixin, ChatParamsMixin):
                 _call_usage_ledger.record(normalized)
             if track_continuation:
                 await self._prepare_response_history(normalized)
-            # Cache only histories whose complete ancestry is present locally.
+            # Resolution turns file-object temp paths into stable file IDs, so
+            # assess the submitted history again before caching its ancestry.
+            cacheable_ancestry = not (
+                request_kwargs.get("extra_body") or request_kwargs.get("conversation")
+                or callable(getattr(sdk, "api_key", None))
+                or self._has_unresolved_attachment_paths(messages)
+            )
             entries = getattr(normalized, "messages", None)
-            if (track_continuation and entries is not None and local_ancestry
+            if (track_continuation and entries is not None and cacheable_ancestry
                     and (not request_kwargs.get("previous_response_id") or verified)
                     and normalized.metadata.get("response_id")):
                 prefix = messages + entries_to_bridge(entries)
@@ -994,6 +1004,8 @@ class ChatQueryMixin(ChatMessagesMixin, ChatParamsMixin):
                     "prefix_length": len(prefix), "fingerprint": prefix_fingerprint(prefix),
                     "binding": binding, "stored": request_kwargs.get("store") is True,
                 }
+            if _submitted_messages_out is not None:
+                _submitted_messages_out.append(messages)
             response = normalized
             if track_continuation:
                 self._set_last_runtime_metadata(self._normalize_runtime_metadata(normalized))

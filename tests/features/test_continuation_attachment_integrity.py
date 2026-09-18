@@ -2,6 +2,7 @@
 
 import base64
 from contextlib import nullcontext
+import io
 import json
 from pathlib import Path
 
@@ -81,6 +82,49 @@ async def test_resolved_attachment_reference_keeps_the_stored_shortcut():
 
     assert requests[1]["previous_response_id"] == "resp_1"
     assert len(requests[1]["input"]) == 1
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("store", [True, False], ids=["stored", "stateless"])
+async def test_file_object_attachment_becomes_a_durable_continuation_reference(monkeypatch, store):
+    """A file object's deleted upload temp path must never enter returned history."""
+    requests, uploads = [], []
+    attachment = io.BytesIO(b"portable attachment bytes")
+    attachment.name = "notes.txt"
+
+    def respond(request):
+        """Capture the submitted history without contacting a provider."""
+        requests.append(json.loads(request.content))
+        return _response(request, len(requests))
+
+    async def upload(file_path, **kwargs):
+        """Return a stable provider reference for the materialized file object."""
+        path = Path(file_path)
+        uploads.append((path, path.read_bytes()))
+        return "file_portable"
+
+    async with openai.AsyncOpenAI(api_key="offline", http_client=httpx.AsyncClient(
+        transport=httpx.MockTransport(respond),
+    )) as sdk:
+        source = Chat(params=ChatParams(runtime="responses", model="test-model", responses={"store": store}))
+        source.ai.aclient = sdk
+        monkeypatch.setattr(source.ai, "upload_file_async", upload)
+        continued = await source.chat_a("Read this.", files=[attachment])
+
+        assert continued.get_messages()[0]["files"] == [{
+            "file_id": "file_portable", "filename": "notes.txt",
+        }]
+        assert not uploads[0][0].exists()
+
+        await continued.chat_a("Summarize it.")
+
+    assert [content for _, content in uploads] == [b"portable attachment bytes"]
+    if store:
+        assert requests[1]["previous_response_id"] == "resp_1"
+        assert len(requests[1]["input"]) == 1
+    else:
+        assert "previous_response_id" not in requests[1]
+        assert requests[1]["input"][0]["content"][1]["file_id"] == "file_portable"
 
 
 @pytest.mark.parametrize("capture_failure", ["storage-error", "invalid-image", "invalid-base64", "data-uri"])

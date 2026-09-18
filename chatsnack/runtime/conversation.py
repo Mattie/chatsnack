@@ -303,7 +303,7 @@ def prefix_fingerprint(messages):
 
 
 def _adjacent_tool_results(messages):
-    """Place available results after their CC call without merging assistant data.
+    """Place matched results after their CC call and omit orphaned outputs.
 
     Responses may interleave commentary with calls. Reordering only the projected
     results satisfies CC's exchange ordering and leaves the saved transcript intact.
@@ -311,6 +311,8 @@ def _adjacent_tool_results(messages):
     ordered, moved = [], set()
     for index, message in enumerate(messages):
         if index in moved:
+            continue
+        if message.get("role") == "tool":
             continue
         ordered.append(message)
         if message.get("role") != "assistant":
@@ -441,10 +443,15 @@ def project_chat_completions(messages):
                     content = [{"type": "text", "text": content}] if content else []
                 message["content"] = content + parts
         projected.append(message)
+    ordered = _adjacent_tool_results(projected)
+    if sum(message.get("role") == "tool" for message in ordered) < sum(
+        message.get("role") == "tool" for message in projected
+    ):
+        omitted.add("orphaned tool output")
     if omitted:
         warnings.warn(
             "Chat Completions omits provider-only history (" + ", ".join(sorted(omitted))
             + "); the Chat's stored messages are preserved.",
             UserWarning, stacklevel=3,
         )
-    return _adjacent_tool_results(projected)
+    return ordered

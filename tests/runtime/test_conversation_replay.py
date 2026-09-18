@@ -347,6 +347,35 @@ def test_cc_projection_accepts_explicit_null_tool_calls():
     assert project_chat_completions(messages) == messages
 
 
+def test_cc_projection_omits_orphaned_tool_outputs_without_changing_history():
+    """Only outputs claimed by an earlier projected call reach Chat Completions."""
+    from copy import deepcopy
+    from chatsnack.runtime.conversation import project_chat_completions
+
+    call = {"id": "call_1", "type": "function",
+            "function": {"name": "lookup", "arguments": "{}"}}
+    messages = [
+        {"role": "user", "content": "Look it up."},
+        {"role": "tool", "tool_call_id": "call_1", "content": "too early"},
+        {"role": "assistant", "content": None, "tool_calls": [call]},
+        {"role": "assistant", "content": "Checking."},
+        {"role": "tool", "tool_call_id": "call_1", "content": "valid result"},
+        {"role": "provider_item", "content": {
+            "type": "function_call_output", "call_id": "missing", "output": "orphan",
+        }},
+        {"role": "assistant", "content": "Done."},
+    ]
+    original = deepcopy(messages)
+
+    with pytest.warns(UserWarning, match="orphaned tool output"):
+        projected = project_chat_completions(messages)
+
+    assert projected == [
+        messages[0], messages[2], messages[4], messages[3], messages[6],
+    ]
+    assert messages == original
+
+
 def test_incomplete_image_retains_explicit_null_result():
     """An absent image result is still a meaningful provider field."""
     adapter = ResponsesAdapter(SimpleNamespace())
