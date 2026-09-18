@@ -162,7 +162,14 @@ async def test_goal_websocket_apply_patch_continuation_sends_only_the_output(mon
         "Edit only files the workspace permits.",
         utensils=[utensil.apply_patch(execute=execute)],
     )
-    completions = iter([_patch_completion(), _final_completion()])
+    patch_response = _patch_completion()
+    patch_call = patch_response.message.tool_calls[0]
+    patch_response.messages = [{"provider_item": {
+        "type": "apply_patch_call", "id": patch_call.item_id,
+        "call_id": patch_call.id, "status": patch_call.status,
+        **patch_call.payload, **patch_call.provider_extras,
+    }}]
+    completions = iter([patch_response, _final_completion()])
     requests = []
 
     async def create_completion_a(adapter, messages, **kwargs):

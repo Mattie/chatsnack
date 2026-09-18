@@ -1,6 +1,7 @@
 from typing import Any, Dict, List, Optional
 
 from .model_advisories import warn_model_options
+from .conversation import project_chat_completions
 from .types import (
     NormalizedAssistantMessage,
     NormalizedCompletionResult,
@@ -128,14 +129,14 @@ class ChatCompletionsAdapter:
         kwargs.pop("profile", None)
         kwargs = self._strip_responses_keys(kwargs)
         create = self._get_chat_completions_create(kwargs)
-        response = create(messages=messages, **kwargs)
+        response = create(messages=project_chat_completions(messages), **kwargs)
         return self._normalize_completion(response)
 
     async def create_completion_a(self, messages: List[Dict[str, Any]], **kwargs: Any) -> NormalizedCompletionResult:
         kwargs.pop("profile", None)
         kwargs = self._strip_responses_keys(kwargs)
         create = self._get_chat_completions_create(kwargs, async_mode=True)
-        response = await create(messages=messages, **kwargs)
+        response = await create(messages=project_chat_completions(messages), **kwargs)
         return self._normalize_completion(response)
 
     def _build_completed_event(self, index: int, text: str, finish_reason: Optional[str], model: Optional[str], usage: Optional[Dict[str, Any]]):
@@ -175,7 +176,7 @@ class ChatCompletionsAdapter:
         kwargs = self._strip_responses_keys(kwargs)
         kwargs["stream"] = True
         create = self._get_chat_completions_create(kwargs)
-        response_gen = create(messages=messages, **kwargs)
+        response_gen = create(messages=project_chat_completions(messages), **kwargs)
 
         index = 0
         full_text = ""
@@ -205,7 +206,7 @@ class ChatCompletionsAdapter:
         kwargs = self._strip_responses_keys(kwargs)
         kwargs["stream"] = True
         create = self._get_chat_completions_create(kwargs, async_mode=True)
-        response_gen = await create(messages=messages, **kwargs)
+        response_gen = await create(messages=project_chat_completions(messages), **kwargs)
 
         index = 0
         full_text = ""

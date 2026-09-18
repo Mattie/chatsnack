@@ -1,5 +1,9 @@
 # Phase 3 Responses YAML Checklist
 
+The [conversation history checklist](conversation-fidelity-checklist.md) supersedes
+the original message-field export gates below. Ordinary saves now retain message
+metadata and separate provider items; export flags still govern response-level state.
+
 Primary RFC: [phase-3-responses-yaml-rfc.md](../rfcs/phase-3-responses-yaml-rfc.md)
 
 Use this as the running punch list for Phase 3. Check things off, leave short notes, and say what somebody can actually do now. The goal is to keep the YAML work easy to follow without making people dig through the full RFC every time.

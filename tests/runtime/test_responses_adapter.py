@@ -215,7 +215,8 @@ def test_normalizes_assistant_text_tool_calls_usage_model_status_and_metadata():
     assert result.model == "gpt-4.1"
     assert result.usage == {"total_tokens": 12}
     assert result.metadata["response_id"] == "resp_abc"
-    assert result.metadata["assistant_phase"] == "completed"
+    assert result.metadata["assistant_phase"] is None
+    assert result.metadata["response_status"] == "completed"
     assert result.metadata["provider_extras"]["status"] == "completed"
 
 
@@ -584,7 +585,7 @@ def test_sequential_calls_allow_manual_continuation_with_metadata_round_trip():
     assert second.usage == {"total_tokens": 2}
 
 
-def test_continuation_previous_response_id_uses_incremental_suffix_not_full_replay():
+def test_verified_continuation_uses_incremental_suffix_not_full_replay():
     captured = {}
 
     def create(**kwargs):
@@ -602,6 +603,7 @@ def test_continuation_previous_response_id_uses_incremental_suffix_not_full_repl
         ],
         model="gpt-4.1",
         previous_response_id="resp_prev",
+        _continuation_prefix_length=2,
         store=True,
     )
 
@@ -616,7 +618,7 @@ def test_continuation_previous_response_id_uses_incremental_suffix_not_full_repl
     ]
 
 
-def test_continuation_with_tool_followup_keeps_only_tool_outputs_after_latest_assistant():
+def test_verified_continuation_keeps_tool_outputs_after_cached_prefix():
     captured = {}
 
     def create(**kwargs):
@@ -640,6 +642,7 @@ def test_continuation_with_tool_followup_keeps_only_tool_outputs_after_latest_as
         ],
         model="gpt-4.1",
         previous_response_id="resp_prev",
+        _continuation_prefix_length=2,
     )
 
     assert captured["input"] == [

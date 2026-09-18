@@ -70,6 +70,24 @@ def _tool_call(name):
     )
 
 
+@pytest.mark.asyncio
+async def test_completed_response_usage_survives_local_history_preparation_failure(monkeypatch):
+    """A provider response counts even when subsequent local asset work fails."""
+    runtime = _SequenceRuntime([_completion("done", {"input_tokens": 3, "output_tokens": 2,
+                                                   "total_tokens": 5}, response_id="resp_done")])
+    chat = Chat(runtime=runtime)
+
+    async def fail_preparation(self, response):
+        raise RuntimeError("local capture failed")
+
+    monkeypatch.setattr(Chat, "_prepare_response_history", fail_preparation)
+    with pytest.raises(RuntimeError, match="local capture failed") as failure:
+        await chat.chat_a("hello")
+    assert chat.last_call_usage.response_count == 1
+    assert chat.last_call_usage.total.total_tokens == 5
+    assert failure.value.last_call_usage is chat.last_call_usage
+
+
 @utensil
 def aggregate_usage_snack_lookup(name: str) -> str:
     """Look up a snack for the aggregate-usage acceptance story."""

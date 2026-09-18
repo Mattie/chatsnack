@@ -32,6 +32,7 @@ from .chat.turns import (
     NormalizedTurn,
 )
 from .compact_tools import parse_tools_authoring, serialize_tools_authoring, split_tools_for_params, reconstruct_tool_order
+from .runtime.conversation import compact_message
 
 
 _ASSET_REFERENCE = re.compile(r"^sha256:[0-9a-f]{64}$")
@@ -69,7 +70,7 @@ def _normalize_message_on_load(msg):
         return msg
 
     # For tool and include, no normalization needed.
-    if role in ("tool", "include"):
+    if role in ("tool", "include", "reasoning", "tool_call", "provider_item"):
         return msg
 
     # Move unknown fields into provider_extras on expanded turns.
@@ -117,32 +118,13 @@ def _should_collapse_to_scalar(content_dict, fidelity):
     for key in content_dict:
         if key == "text":
             continue
-        if key == "provider_extras":
-            if fidelity in ("continuation", "diagnostic"):
-                return False
-            continue
-        if key == "encrypted_content":
-            if fidelity != "authoring":
-                return False
-            continue
         return False
     return True
 
 
 def _apply_fidelity_gate(content_dict, fidelity):
-    """Remove fields that the selected fidelity mode does not emit."""
-    gated = {}
-    for key, value in content_dict.items():
-        if value is None:
-            continue
-        # provider_extras only in continuation/diagnostic
-        if key == "provider_extras" and fidelity not in ("continuation", "diagnostic"):
-            continue
-        # encrypted_content may be dropped in authoring
-        if key == "encrypted_content" and fidelity == "authoring":
-            continue
-        gated[key] = value
-    return gated
+    """Keep message data at every export level, including explicit null values."""
+    return dict(content_dict)
 
 
 def _normalize_message_on_save(msg, fidelity):
@@ -150,12 +132,13 @@ def _normalize_message_on_save(msg, fidelity):
     
     - system role is always the canonical key (developer never emitted)
     - expanded blocks get canonical field ordering
-    - scalar collapse when only text remains after fidelity gating
-    - empty canonical fields are omitted
+    - scalar collapse when the block contains only text
+    - omit known empty metadata/defaults; preserve opaque and authored values
     """
     if not isinstance(msg, dict) or len(msg) == 0:
         return msg
 
+    msg = compact_message(msg)
     role = next(iter(msg))
     content = msg[role]
 
@@ -163,17 +146,8 @@ def _normalize_message_on_save(msg, fidelity):
     if role == DEVELOPER_ALIAS:
         role = CANONICAL_SYSTEM_ROLE
 
-    # System turns are text-only after normalization.
-    if role == CANONICAL_SYSTEM_ROLE:
-        if isinstance(content, dict):
-            text_val = content.get("text")
-            if text_val is None:
-                logger.warning("Expanded system message missing 'text' field; emitting empty string")
-            return {role: text_val or ""}
-        return {role: content}
-
     # Tool and include pass through unchanged.
-    if role in ("tool", "include"):
+    if role in ("tool", "include", "reasoning", "tool_call", "provider_item"):
         return {role: content}
 
     # Scalar content stays scalar.
@@ -360,7 +334,11 @@ class YAML(formatters.FileFormatter):
                 return [filter_none_values(v) for v in data]
             else:
                 return data
+        messages = data.get("messages") if isinstance(data, dict) else None
         data = filter_none_values(data)
+        if messages is not None:
+            # Explicit nulls inside recorded items must survive import/export.
+            data["messages"] = messages
 
         # Phase 3: canonical roles, field ordering, fidelity gating on save.
         data = _normalize_data_on_save(data)

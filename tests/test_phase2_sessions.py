@@ -612,17 +612,13 @@ def test_chat_with_websocket_duplicate_provider_tool_call_executes_once(monkeypa
     monkeypatch.setattr(ResponsesWebSocketAdapter, "_stream_async_request", fake_stream_completion_a)
     result = chat.chat("How many calories in popcorn?")
 
-    assistant_tool_turns = [
-        m for m in result.messages
-        if "assistant" in m and isinstance(m["assistant"], dict) and m["assistant"].get("tool_calls")
-    ]
+    assistant_tool_turns = [m for m in result.messages if "tool_call" in m]
     tool_turns = [m for m in result.messages if "tool" in m]
 
     assert result.response == "Popcorn has 100 calories!"
     assert call_count["n"] == 2
     assert len(assistant_tool_turns) == 1
-    assert len(assistant_tool_turns[0]["assistant"]["tool_calls"]) == 1
-    assert assistant_tool_turns[0]["assistant"]["tool_calls"][0]["id"] == "call_abc"
+    assert assistant_tool_turns[0]["tool_call"]["call_id"] == "call_abc"
     assert len(tool_turns) == 1
     assert tool_turns[0]["tool"]["tool_call_id"] == "call_abc"
 
@@ -734,10 +730,7 @@ def test_chat_with_websocket_duplicate_invalid_provider_tool_call_errors_once(mo
     monkeypatch.setattr(ResponsesWebSocketAdapter, "_stream_async_request", fake_stream_completion_a)
     result = chat.chat("How many calories in popcorn?")
 
-    assistant_tool_turns = [
-        m for m in result.messages
-        if "assistant" in m and isinstance(m["assistant"], dict) and m["assistant"].get("tool_calls")
-    ]
+    assistant_tool_turns = [m for m in result.messages if "tool_call" in m]
     tool_turns = [m for m in result.messages if "tool" in m]
     error_turns = [
         m for m in tool_turns
@@ -747,6 +740,6 @@ def test_chat_with_websocket_duplicate_invalid_provider_tool_call_errors_once(mo
     assert result.response == "done"
     assert call_count["n"] == 2
     assert len(assistant_tool_turns) == 1
-    assert len(assistant_tool_turns[0]["assistant"]["tool_calls"]) == 1
+    assert assistant_tool_turns[0]["tool_call"]["call_id"] == "call_bad"
     assert len(tool_turns) == 1
     assert len(error_turns) == 1

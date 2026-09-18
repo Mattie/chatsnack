@@ -198,8 +198,8 @@ def test_default_runtime_selection_uses_responses_family(chat, monkeypatch):
     assert chat.ask() == "legacy-shape"
 
 
-def test_profile_forwarded_to_adapter_via_submit(chat, monkeypatch):
-    """profile set in ChatParams must be forwarded to adapter.create_completion_a."""
+def test_profile_defaults_applied_before_adapter_submission(chat, monkeypatch):
+    """Continuation validation and the adapter must see the same effective options."""
     captured_kwargs = {}
 
     async def fake_create_completion_a(messages, **kwargs):
@@ -212,8 +212,8 @@ def test_profile_forwarded_to_adapter_via_submit(chat, monkeypatch):
 
     chat.ask()
 
-    assert "profile" in captured_kwargs
-    assert captured_kwargs["profile"] == profile
+    assert "profile" not in captured_kwargs
+    assert captured_kwargs["temperature"] == 0.7
 
 
 @pytest.mark.asyncio
@@ -271,6 +271,7 @@ def test_chat_continuation_injects_previous_response_id_and_persists_metadata(ch
         if len(calls) == 1:
             return SimpleNamespace(
                 message=SimpleNamespace(content="first", tool_calls=[]),
+                messages=[{"assistant": "first"}],
                 usage={"total_tokens": 11},
                 metadata={
                     "response_id": "resp_1",
@@ -416,6 +417,7 @@ async def test_chat_a_tool_recursion_preserves_runtime_continuation_metadata(cha
 
     async def fake_create_completion_a(self, messages, **kwargs):
         captured["previous_response_id"] = kwargs.get("previous_response_id")
+        captured["messages"] = messages
         return SimpleNamespace(
             message=SimpleNamespace(content="final", tool_calls=[]),
             usage={"total_tokens": 20},
@@ -432,7 +434,8 @@ async def test_chat_a_tool_recursion_preserves_runtime_continuation_metadata(cha
 
     output = await chat.chat_a()
 
-    assert captured["previous_response_id"] == "resp_tool"
+    assert captured["previous_response_id"] is None
+    assert [m["role"] for m in captured["messages"]] == ["user", "assistant", "tool"]
     assert output._last_runtime_metadata["response_id"] == "resp_follow_up"
     assert output._last_runtime_metadata["assistant_phase"] == "completed"
 
