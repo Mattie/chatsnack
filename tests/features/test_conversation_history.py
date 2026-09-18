@@ -14,12 +14,16 @@ from ruamel.yaml import YAML
 
 
 @pytest.mark.parametrize("loaded", [False, True])
+@pytest.mark.parametrize("content_omitted", [False, True])
 @pytest.mark.parametrize("metadata", [{"refusal": "blocked"}, {"provider_extras": {"future": None}}])
-def test_imported_null_assistant_preserves_metadata_without_inventing_text(tmp_path, loaded, metadata):
+def test_imported_null_assistant_preserves_metadata_without_inventing_text(tmp_path, loaded, content_omitted, metadata):
     """Null dialogue stays separate from metadata and recorded refusal content."""
     from chatsnack.runtime.conversation import project_chat_completions
     chat = Chat()
-    chat.add_messages_json(json.dumps([{"role": "assistant", "content": None, **metadata}]))
+    item = {"role": "assistant", **metadata}
+    if not content_omitted:
+        item["content"] = None
+    chat.add_messages_json(json.dumps([item]))
     if loaded:
         path = tmp_path / "refusal.yml"
         chat.save(str(path))

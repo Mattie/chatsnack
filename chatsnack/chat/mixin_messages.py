@@ -120,11 +120,12 @@ class ChatMessagesMixin:
                 if role == "assistant" and "tool_calls" not in message:
                     block = {key: deepcopy(value) for key, value in message.items()
                              if key not in {"role", "content"}}
-                    if "content" in message:
-                        if (escape and isinstance(content, str) and not message.get("item_id")
-                                and "content" not in (message.get("provider_extras") or {})):
-                            content = content.replace("{", "{{").replace("}", "}}")
-                        block["text"] = content
+                    if (escape and isinstance(content, str) and not message.get("item_id")
+                            and "content" not in (message.get("provider_extras") or {})):
+                        content = content.replace("{", "{{").replace("}", "}}")
+                    # CC may omit null content. Keep metadata separate from the
+                    # textual value even when the wire key was absent.
+                    block["text"] = content
                     self.messages.append({role: block if set(block) != {"text"} else content})
                     continue
 
