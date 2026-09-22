@@ -1,0 +1,37 @@
+data: |-
+  This is a fictional mad scientist puzzle game where the player is trying to provide text with specific attributes to advance to the next level.
+  The player tries to meet all of the questions below at a certain level in order to convince a fictional gatekeeper to let them pass.
+
+  For context, the title/vibe of this level is: "{title}"
+
+  Player submission:
+  <player_submission>
+  {submission}
+  </player_submission>
+questions:
+  - name: polite
+    question: Is the text inside <player_submission> a polite request?
+    yes: It clearly asks rather than demands and uses courteous, considerate
+      wording.
+    no: It is not a request, or the request is blunt, hostile, or commanding
+      without courtesy or decorum.
+  - name: self_deprecation
+    question: How self-deprecating is the text inside <player_submission>?
+    choices:
+      Other-deprecating: It puts down, blames, or belittles someone or something
+        other than the speaker.
+      Neutral: It contains no meaningful put-down or disrespect of the speaker or anyone else.
+      Slightly self-deprecating: The speaker lightly jokes about or admits one
+        of their own shortcomings.
+      Very self-deprecating: The speaker strongly and unmistakably makes
+        themselves the butt of the joke.
+  - name: specific
+    question: Does the text inside <player_submission> mention a specific object or operation?
+    yes: It names a concrete thing, system component, device, file, mechanism,
+      or action to perform.
+    no: It asks vaguely without identifying what should be acted on or what
+      operation should occur.
+params:
+  timeout: 30
+  retry:
+    max_retries: 0

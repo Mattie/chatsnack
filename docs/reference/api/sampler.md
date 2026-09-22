@@ -43,6 +43,21 @@ classes are excluded. The SDK owns retry execution.
 it, the SDK uses `TYPESAFE_API_KEY`. `base_url` selects an alternate endpoint;
 otherwise the SDK honors `TYPESAFE_BASE_URL` and its default endpoint.
 
+## Client lifetime
+
+Like `Chat`, a reusable `Sampler` opens its synchronous provider client lazily and
+retains it across `ask()` calls. Call `sampler.close()` when a long-running
+synchronous application shuts down. `ask_a()` creates and closes a scoped async
+client for each evaluation so event-loop-bound transports are never retained on the
+Sampler. `close_a()` remains the async-compatible way to close any retained sync
+client when code uses both execution styles.
+
+Changing `model` for one call reuses the existing connection because the model is
+part of the request. Call-time `timeout`, `retry`, `base_url`, or `api_key_env`
+settings use a scoped client for that call. They do not replace the Sampler's
+authored synchronous connection. If authored connection settings change after a
+synchronous evaluation, close the Sampler before evaluating with the new settings.
+
 ## Request inspection
 
 `compile()` and `compile_a()` return the resolved `state`, `model`, and `questions`

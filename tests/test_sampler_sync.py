@@ -12,18 +12,16 @@ import pytest
 def test_sync_sampler_releases_worker_threads(nested, fail, tmp_path):
     script = textwrap.dedent(f'''
         import asyncio
-        import anyio
         from chatsnack import Sampler
         from chatsnack.sampler import provider
 
-        async def evaluate(request, params):
-            await anyio.to_thread.run_sync(lambda: None)
+        def evaluate(request, params):
             if {fail!r}:
                 raise ValueError('provider failed')
             return dict(model='fake', usage=dict(input_tokens=1, output_tokens=1),
                         answers={{'_question_0': dict(type='noul', noul=.8)}})
 
-        provider.evaluate = evaluate
+        provider.evaluate_sync = evaluate
         def ask():
             try:
                 sample = Sampler(data='popcorn').ask('Crunchy?')

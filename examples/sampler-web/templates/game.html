@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>chatsnack · mad hacker</title>
+<meta name="description" content="{{ social_description }}">
+<meta name="theme-color" content="#07100b">
+<link rel="canonical" href="{{ social_url }}">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="chatsnack">
+<meta property="og:title" content="Mad Hacker — a chatsnack puzzle game">
+<meta property="og:description" content="{{ social_description }}">
+<meta property="og:url" content="{{ social_url }}">
+<meta property="og:image" content="{{ social_image }}">
+<meta property="og:image:secure_url" content="{{ social_image }}">
+<meta property="og:image:type" content="image/png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="Mad Hacker terminal with a glowing monocled guardian and five security signals">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="Mad Hacker — a chatsnack puzzle game">
+<meta name="twitter:description" content="{{ social_description }}">
+<meta name="twitter:image" content="{{ social_image }}">
+<link rel="stylesheet" href="{{ url_for('static', filename='game.css', v=asset_version) }}">
+<link rel="stylesheet" href="{{ url_for('static', filename='game-pocket.css', v=asset_version) }}">
+</head>
+<body>
+<main class="apparatus">
+<header class="masthead"><div class="identity"><a href="https://github.com/Mattie/chatsnack" class="identity"><span>chatsnack</span></a><h1>mad hacker</h1></div><p class="header-guide"><strong>Your job is to bypass each security checkpoint by typing a message to the guardian.</strong> Every guardian requires you to word things a specific way or you cannot move forward. Once you learn what they like to hear, feel free to change up your text completely so you can match all requirements at once. Try different phrasings to uncover what they may be after.</p><div id="debug-panel" class="debug-panel" hidden><span>DEBUG BUS</span><button id="debug-reveal" type="button">Reveal goals</button><button id="debug-unlock" type="button">Unlock levels</button></div><button id="start-over" type="button">START OVER</button></header>
+<section class="console">
+<section class="housing entry"><div class="plate-head"><h2 id="level-title">LEVEL 01 / FRONT SECURITY DESK</h2><span id="attempt">RUN 000</span><nav id="levels" class="power" aria-label="Experiment levels"></nav></div><form id="experiment"><label id="phrase-label" for="phrase">REQUEST</label><div class="command"><textarea id="phrase" rows="2" maxlength="2000" spellcheck="false" autocomplete="off" autofocus placeholder="This gate requires your text to be analyzed to see if it meets the requirements."></textarea><button id="analyze" type="submit">ANALYZE<br>TEXT</button></div></form><p class="transmission">ENTER the right phrase to proceed. All submissions will be ANALYZED carefully.</p></section>
+<div id="statusline" class="statusline"><div class="status-copy"><p id="status" role="status" aria-live="polite"></p><p id="discovery-status" class="discovery-status" aria-live="polite" hidden></p></div><div id="analysis-scope" class="analysis-scope" role="img" aria-label="Analyzer idle"><span class="analysis-scope-idle"></span><span class="analysis-scope-sweep"></span><svg viewBox="0 0 400 70" preserveAspectRatio="none" aria-hidden="true"><path class="analysis-scope-flat" d="M0 35H400"/><path class="analysis-scope-wave" d="M0 35h26l8-6 7 19 9-41 10 55 9-28 10 1h32l9-15 9 31 10-16h33l8-6 7 19 9-41 10 55 9-28 10 1h32l9-15 9 31 10-16h34l8-6 7 19 9-41 10 55 9-28 10 1h32"/></svg><span id="analysis-scope-run">RUN 000</span></div><span id="progress">0 / 5 TARGETS</span><section id="victory" class="victory" hidden aria-live="polite"><span class="lamp"></span><div><h2>ACCESS GRANTED</h2><p id="victory-copy"></p></div><button id="restart">CONTINUE</button></section></div>
+<aside class="guardian-cabinet" aria-label="Current level gatekeeper"><div class="guardian-glass"><img id="guardian-portrait" data-static-root="{{ url_for('static', filename='') }}" src="{{ url_for('static', filename='guardian-pulse.png') }}" alt="Skeptical monocle face drawn in a green phosphor pulse trace"></div><div class="guardian-dials" aria-hidden="true"><i></i><span>BOOT / <b id="guardian-level">01</b></span><i></i></div><div class="guardian-foot"><span>GATEKEEPER</span><span aria-hidden="true">▥▥▥▥</span></div></aside>
+</section>
+<section id="instruments" class="instruments" aria-label="Criteria" aria-busy="false"></section>
+<section class="attempt-log" aria-labelledby="log-title"><div class="log-head"><h2 id="log-title">ACCESS LOG</h2><span id="log-count">0 RECORDS</span></div><ol id="history"><li class="log-empty">No commands granted access.</li></ol></section>
+<footer><span>chatsnack / Sampler powered</span><a href="/lab">Open the language lab ↗</a><span id="model">AWAITING INPUT</span></footer>
+</main><script id="config" type="application/json">{{ {'configured': configured, 'levels': levels, 'unlocked': unlocked, 'assetVersion': asset_version} | tojson }}</script><script type="module" src="{{ url_for('static', filename='game.js', v=asset_version) }}"></script>
+</body></html>

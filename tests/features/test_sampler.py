@@ -13,7 +13,7 @@ def evaluations(monkeypatch):
     """Record the SDK boundary while returning deterministic mixed answers."""
     calls = []
 
-    async def evaluate(request, params):
+    def response(request, params):
         calls.append((request, params))
         answers = {}
         for key, question in reversed(list(request['questions'].items())):
@@ -31,7 +31,14 @@ def evaluations(monkeypatch):
         return dict(model='jev-test', answers=answers,
                     usage=dict(input_tokens=12, output_tokens=3))
 
+    def evaluate_sync(request, params):
+        return response(request, params)
+
+    async def evaluate(request, params):
+        return response(request, params)
+
     monkeypatch.setattr('chatsnack.sampler.provider.evaluate', evaluate)
+    monkeypatch.setattr('chatsnack.sampler.provider.evaluate_sync', evaluate_sync)
     return calls
 
 
@@ -367,20 +374,20 @@ def test_invalid_question_rejected_before_evaluation(question, evaluations):
      'usage': {'input_tokens': 1, 'output_tokens': 1}},
 ])
 def test_malformed_response_is_not_a_plausible_answer(response, monkeypatch):
-    async def bad(request, params):
+    def bad(request, params):
         return response
-    monkeypatch.setattr('chatsnack.sampler.provider.evaluate', bad)
+    monkeypatch.setattr('chatsnack.sampler.provider.evaluate_sync', bad)
     with pytest.raises(ValueError):
         Sampler(data='hi').ask('Good?')
 
 
 def test_ties_and_provider_choice_are_preserved(monkeypatch):
-    async def tied(request, params):
+    def tied(request, params):
         return dict(model='jev', usage=dict(input_tokens=0, output_tokens=0), answers={
             'binary': dict(type='noul', noul=0.5),
             'choice': dict(type='choice', choice='b', probabilities={'a': .9, 'b': .1}, confidence=.44),
             'score': dict(type='score', score=.7, probabilities={'1': .5, '0': .5}, confidence=.22)})
-    monkeypatch.setattr('chatsnack.sampler.provider.evaluate', tied)
+    monkeypatch.setattr('chatsnack.sampler.provider.evaluate_sync', tied)
     sample = Sampler(data='hi').ask(questions=[Question(name='binary', question='Q'),
         Question(name='choice', question='Q', choices=['a', 'b']),
         Question(name='score', question='Q', levels=[{'first': {}}, {'second': []}])])
@@ -389,6 +396,36 @@ def test_ties_and_provider_choice_are_preserved(monkeypatch):
     assert sample.answers['choice'].score == .1
     assert sample.answers['score'].choice == 'first'
     assert sample.answers['score'].score == .7
+
+
+def test_provider_probability_rounding_is_accepted_and_preserved(monkeypatch):
+    choices = [f'hue-{index}' for index in range(12)]
+    probabilities = dict.fromkeys(choices, .08)
+
+    def rounded(request, params):
+        return dict(model='jev', usage=dict(input_tokens=0, output_tokens=0), answers={
+            'hue': dict(type='choice', choice=choices[0], probabilities=probabilities,
+                        confidence=.5)})
+    monkeypatch.setattr('chatsnack.sampler.provider.evaluate_sync', rounded)
+    answer = Sampler(data='hi').ask(
+        Question(name='hue', question='Hue?', choices=choices)
+    ).answer
+    assert answer.choice == choices[0]
+    assert answer.probabilities == probabilities
+    assert sum(answer.probabilities.values()) == pytest.approx(.96)
+
+
+def test_materially_incomplete_probability_distribution_is_rejected(monkeypatch):
+    def incomplete(request, params):
+        return dict(model='jev', usage=dict(input_tokens=0, output_tokens=0), answers={
+            'hue': dict(type='choice', choice='red',
+                        probabilities={'red': .33, 'green': .33, 'blue': .31},
+                        confidence=.5)})
+    monkeypatch.setattr('chatsnack.sampler.provider.evaluate_sync', incomplete)
+    with pytest.raises(ValueError, match='sum to one'):
+        Sampler(data='hi').ask(
+            Question(name='hue', question='Hue?', choices=['red', 'green', 'blue'])
+        )
 
 
 def test_structured_content_and_sample_as_new_data(evaluations):

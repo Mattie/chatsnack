@@ -1,0 +1,358 @@
+params:
+  timeout: 30
+  retry:
+    max_retries: 0
+data: |-
+  The object or concept described in phrase_to_pixel_icon will be depicted as a tiny 3-column by 4-row pixel icon.
+  <phrase_to_pixel_icon>
+  {input}
+  </phrase_to_pixel_icon>
+questions:
+  - name: pixel_01_h
+    question: >-
+      Hue: For pixel art of the phrase_to_pixel_icon, what hue family should dominate in the top-left pixel of a 3-column by 4-row icon?
+      (TOP ROW, LEFTMOST PIXEL)
+    choices:
+      red: Red, centered near 0 degrees.
+      orange: Orange, centered near 30 degrees.
+      yellow: Yellow, centered near 60 degrees.
+      chartreuse: Chartreuse, centered near 90 degrees.
+      green: Green, centered near 120 degrees.
+      spring: Spring green, centered near 150 degrees.
+      cyan: Cyan, centered near 180 degrees.
+      azure: Azure, centered near 210 degrees.
+      blue: Blue, centered near 240 degrees.
+      violet: Violet, centered near 270 degrees.
+      magenta: Magenta, centered near 300 degrees.
+      rose: Rose, centered near 330 degrees.
+  - name: pixel_01_s
+    question: >-
+      Saturation: For pixel art of the phrase_to_pixel_icon, should the top-left pixel be vividly saturated rather than muted, for this specific 3-column by 4-row icon?
+      (TOP ROW, LEFTMOST PIXEL)
+    yes: Yes, vivid color saturation.
+    no: No, muted color saturation.
+  - name: pixel_01_v
+    question: >-
+      Brightness: For pixel art of the phrase_to_pixel_icon, should the top-left pixel be bright rather than dark, for this specific 3-column by 4-row icon?
+      (TOP ROW, LEFTMOST PIXEL)
+    yes: Yes, high brightness.
+    no: No, dark or black.
+  - name: pixel_02_h
+    question: >-
+      Hue: For pixel art of the phrase_to_pixel_icon, what hue family should dominate in the top-center pixel of a 3-column by 4-row icon?
+      (TOP ROW, CENTER PIXEL)
+    choices:
+      red: Red, centered near 0 degrees.
+      orange: Orange, centered near 30 degrees.
+      yellow: Yellow, centered near 60 degrees.
+      chartreuse: Chartreuse, centered near 90 degrees.
+      green: Green, centered near 120 degrees.
+      spring: Spring green, centered near 150 degrees.
+      cyan: Cyan, centered near 180 degrees.
+      azure: Azure, centered near 210 degrees.
+      blue: Blue, centered near 240 degrees.
+      violet: Violet, centered near 270 degrees.
+      magenta: Magenta, centered near 300 degrees.
+      rose: Rose, centered near 330 degrees.
+  - name: pixel_02_s
+    question: >-
+      Saturation: For pixel art of the phrase_to_pixel_icon, should the top-center pixel be vividly saturated rather than muted, for this specific 3-column by 4-row icon?
+      (TOP ROW, CENTER PIXEL)
+    yes: Yes, vivid color saturation.
+    no: No, muted color saturation.
+  - name: pixel_02_v
+    question: >-
+      Brightness: For pixel art of the phrase_to_pixel_icon, should the top-center pixel be bright rather than dark, for this specific 3-column by 4-row icon?
+      (TOP ROW, CENTER PIXEL)
+    yes: Yes, high brightness.
+    no: No, dark or black.
+  - name: pixel_03_h
+    question: >-
+      Hue: For pixel art of the phrase_to_pixel_icon, what hue family should dominate in the top-right pixel of a 3-column by 4-row icon?
+      (TOP ROW, RIGHTMOST PIXEL)
+    choices:
+      red: Red, centered near 0 degrees.
+      orange: Orange, centered near 30 degrees.
+      yellow: Yellow, centered near 60 degrees.
+      chartreuse: Chartreuse, centered near 90 degrees.
+      green: Green, centered near 120 degrees.
+      spring: Spring green, centered near 150 degrees.
+      cyan: Cyan, centered near 180 degrees.
+      azure: Azure, centered near 210 degrees.
+      blue: Blue, centered near 240 degrees.
+      violet: Violet, centered near 270 degrees.
+      magenta: Magenta, centered near 300 degrees.
+      rose: Rose, centered near 330 degrees.
+  - name: pixel_03_s
+    question: >-
+      Saturation: For pixel art of the phrase_to_pixel_icon, should the top-right pixel be vividly saturated rather than muted, for this specific 3-column by 4-row icon?
+      (TOP ROW, RIGHTMOST PIXEL)
+    yes: Yes, vivid color saturation.
+    no: No, muted color saturation.
+  - name: pixel_03_v
+    question: >-
+      Brightness: For pixel art of the phrase_to_pixel_icon, should the top-right pixel be bright rather than dark, for this specific 3-column by 4-row icon?
+      (TOP ROW, RIGHTMOST PIXEL)
+    yes: Yes, high brightness.
+    no: No, dark or black.
+  - name: pixel_04_h
+    question: >-
+      Hue: For pixel art of the phrase_to_pixel_icon, what hue family should dominate in the leftmost pixel of the second row of a 3-column by 4-row icon?
+      (SECOND ROW, LEFTMOST PIXEL)
+    choices:
+      red: Red, centered near 0 degrees.
+      orange: Orange, centered near 30 degrees.
+      yellow: Yellow, centered near 60 degrees.
+      chartreuse: Chartreuse, centered near 90 degrees.
+      green: Green, centered near 120 degrees.
+      spring: Spring green, centered near 150 degrees.
+      cyan: Cyan, centered near 180 degrees.
+      azure: Azure, centered near 210 degrees.
+      blue: Blue, centered near 240 degrees.
+      violet: Violet, centered near 270 degrees.
+      magenta: Magenta, centered near 300 degrees.
+      rose: Rose, centered near 330 degrees.
+  - name: pixel_04_s
+    question: >-
+      Saturation: For pixel art of the phrase_to_pixel_icon, should the leftmost pixel of the second row be vividly saturated rather than muted, for this specific 3-column by 4-row icon?
+      (SECOND ROW, LEFTMOST PIXEL)
+    yes: Yes, vivid color saturation.
+    no: No, muted color saturation.
+  - name: pixel_04_v
+    question: >-
+      Brightness: For pixel art of the phrase_to_pixel_icon, should the leftmost pixel of the second row be bright rather than dark, for this specific 3-column by 4-row icon?
+      (SECOND ROW, LEFTMOST PIXEL)
+    yes: Yes, high brightness.
+    no: No, dark or black.
+  - name: pixel_05_h
+    question: >-
+      Hue: For pixel art of the phrase_to_pixel_icon, what hue family should dominate in the center pixel of the second row of a 3-column by 4-row icon?
+      (SECOND ROW, CENTER PIXEL)
+    choices:
+      red: Red, centered near 0 degrees.
+      orange: Orange, centered near 30 degrees.
+      yellow: Yellow, centered near 60 degrees.
+      chartreuse: Chartreuse, centered near 90 degrees.
+      green: Green, centered near 120 degrees.
+      spring: Spring green, centered near 150 degrees.
+      cyan: Cyan, centered near 180 degrees.
+      azure: Azure, centered near 210 degrees.
+      blue: Blue, centered near 240 degrees.
+      violet: Violet, centered near 270 degrees.
+      magenta: Magenta, centered near 300 degrees.
+      rose: Rose, centered near 330 degrees.
+  - name: pixel_05_s
+    question: >-
+      Saturation: For pixel art of the phrase_to_pixel_icon, should the center pixel of the second row be vividly saturated rather than muted, for this specific 3-column by 4-row icon?
+      (SECOND ROW, CENTER PIXEL)
+    yes: Yes, vivid color saturation.
+    no: No, muted color saturation.
+  - name: pixel_05_v
+    question: >-
+      Brightness: For pixel art of the phrase_to_pixel_icon, should the center pixel of the second row be bright rather than dark, for this specific 3-column by 4-row icon?
+      (SECOND ROW, CENTER PIXEL)
+    yes: Yes, high brightness.
+    no: No, dark or black.
+  - name: pixel_06_h
+    question: >-
+      Hue: For pixel art of the phrase_to_pixel_icon, what hue family should dominate in the rightmost pixel of the second row of a 3-column by 4-row icon?
+      (SECOND ROW, RIGHTMOST PIXEL)
+    choices:
+      red: Red, centered near 0 degrees.
+      orange: Orange, centered near 30 degrees.
+      yellow: Yellow, centered near 60 degrees.
+      chartreuse: Chartreuse, centered near 90 degrees.
+      green: Green, centered near 120 degrees.
+      spring: Spring green, centered near 150 degrees.
+      cyan: Cyan, centered near 180 degrees.
+      azure: Azure, centered near 210 degrees.
+      blue: Blue, centered near 240 degrees.
+      violet: Violet, centered near 270 degrees.
+      magenta: Magenta, centered near 300 degrees.
+      rose: Rose, centered near 330 degrees.
+  - name: pixel_06_s
+    question: >-
+      Saturation: For pixel art of the phrase_to_pixel_icon, should the rightmost pixel of the second row be vividly saturated rather than muted, for this specific 3-column by 4-row icon?
+      (SECOND ROW, RIGHTMOST PIXEL)
+    yes: Yes, vivid color saturation.
+    no: No, muted color saturation.
+  - name: pixel_06_v
+    question: >-
+      Brightness: For pixel art of the phrase_to_pixel_icon, should the rightmost pixel of the second row be bright rather than dark, for this specific 3-column by 4-row icon?
+      (SECOND ROW, RIGHTMOST PIXEL)
+    yes: Yes, high brightness.
+    no: No, dark or black.
+  - name: pixel_07_h
+    question: >-
+      Hue: For pixel art of the phrase_to_pixel_icon, what hue family should dominate in the leftmost pixel of the third row of a 3-column by 4-row icon?
+      (THIRD ROW, LEFTMOST PIXEL)
+    choices:
+      red: Red, centered near 0 degrees.
+      orange: Orange, centered near 30 degrees.
+      yellow: Yellow, centered near 60 degrees.
+      chartreuse: Chartreuse, centered near 90 degrees.
+      green: Green, centered near 120 degrees.
+      spring: Spring green, centered near 150 degrees.
+      cyan: Cyan, centered near 180 degrees.
+      azure: Azure, centered near 210 degrees.
+      blue: Blue, centered near 240 degrees.
+      violet: Violet, centered near 270 degrees.
+      magenta: Magenta, centered near 300 degrees.
+      rose: Rose, centered near 330 degrees.
+  - name: pixel_07_s
+    question: >-
+      Saturation: For pixel art of the phrase_to_pixel_icon, should the leftmost pixel of the third row be vividly saturated rather than muted, for this specific 3-column by 4-row icon?
+      (THIRD ROW, LEFTMOST PIXEL)
+    yes: Yes, vivid color saturation.
+    no: No, muted color saturation.
+  - name: pixel_07_v
+    question: >-
+      Brightness: For pixel art of the phrase_to_pixel_icon, should the leftmost pixel of the third row be bright rather than dark, for this specific 3-column by 4-row icon?
+      (THIRD ROW, LEFTMOST PIXEL)
+    yes: Yes, high brightness.
+    no: No, dark or black.
+  - name: pixel_08_h
+    question: >-
+      Hue: For pixel art of the phrase_to_pixel_icon, what hue family should dominate in the center pixel of the third row of a 3-column by 4-row icon?
+      (THIRD ROW, CENTER PIXEL)
+    choices:
+      red: Red, centered near 0 degrees.
+      orange: Orange, centered near 30 degrees.
+      yellow: Yellow, centered near 60 degrees.
+      chartreuse: Chartreuse, centered near 90 degrees.
+      green: Green, centered near 120 degrees.
+      spring: Spring green, centered near 150 degrees.
+      cyan: Cyan, centered near 180 degrees.
+      azure: Azure, centered near 210 degrees.
+      blue: Blue, centered near 240 degrees.
+      violet: Violet, centered near 270 degrees.
+      magenta: Magenta, centered near 300 degrees.
+      rose: Rose, centered near 330 degrees.
+  - name: pixel_08_s
+    question: >-
+      Saturation: For pixel art of the phrase_to_pixel_icon, should the center pixel of the third row be vividly saturated rather than muted, for this specific 3-column by 4-row icon?
+      (THIRD ROW, CENTER PIXEL)
+    yes: Yes, vivid color saturation.
+    no: No, muted color saturation.
+  - name: pixel_08_v
+    question: >-
+      Brightness: For pixel art of the phrase_to_pixel_icon, should the center pixel of the third row be bright rather than dark, for this specific 3-column by 4-row icon?
+      (THIRD ROW, CENTER PIXEL)
+    yes: Yes, high brightness.
+    no: No, dark or black.
+  - name: pixel_09_h
+    question: >-
+      Hue: For pixel art of the phrase_to_pixel_icon, what hue family should dominate in the rightmost pixel of the third row of a 3-column by 4-row icon?
+      (THIRD ROW, RIGHTMOST PIXEL)
+    choices:
+      red: Red, centered near 0 degrees.
+      orange: Orange, centered near 30 degrees.
+      yellow: Yellow, centered near 60 degrees.
+      chartreuse: Chartreuse, centered near 90 degrees.
+      green: Green, centered near 120 degrees.
+      spring: Spring green, centered near 150 degrees.
+      cyan: Cyan, centered near 180 degrees.
+      azure: Azure, centered near 210 degrees.
+      blue: Blue, centered near 240 degrees.
+      violet: Violet, centered near 270 degrees.
+      magenta: Magenta, centered near 300 degrees.
+      rose: Rose, centered near 330 degrees.
+  - name: pixel_09_s
+    question: >-
+      Saturation: For pixel art of the phrase_to_pixel_icon, should the rightmost pixel of the third row be vividly saturated rather than muted, for this specific 3-column by 4-row icon?
+      (THIRD ROW, RIGHTMOST PIXEL)
+    yes: Yes, vivid color saturation.
+    no: No, muted color saturation.
+  - name: pixel_09_v
+    question: >-
+      Brightness: For pixel art of the phrase_to_pixel_icon, should the rightmost pixel of the third row be bright rather than dark, for this specific 3-column by 4-row icon?
+      (THIRD ROW, RIGHTMOST PIXEL)
+    yes: Yes, high brightness.
+    no: No, dark or black.
+  - name: pixel_10_h
+    question: >-
+      Hue: For pixel art of the phrase_to_pixel_icon, what hue family should dominate in the bottom-left pixel of a 3-column by 4-row icon?
+      (BOTTOM ROW, LEFTMOST PIXEL)
+    choices:
+      red: Red, centered near 0 degrees.
+      orange: Orange, centered near 30 degrees.
+      yellow: Yellow, centered near 60 degrees.
+      chartreuse: Chartreuse, centered near 90 degrees.
+      green: Green, centered near 120 degrees.
+      spring: Spring green, centered near 150 degrees.
+      cyan: Cyan, centered near 180 degrees.
+      azure: Azure, centered near 210 degrees.
+      blue: Blue, centered near 240 degrees.
+      violet: Violet, centered near 270 degrees.
+      magenta: Magenta, centered near 300 degrees.
+      rose: Rose, centered near 330 degrees.
+  - name: pixel_10_s
+    question: >-
+      Saturation: For pixel art of the phrase_to_pixel_icon, should the bottom-left pixel be vividly saturated rather than muted, for this specific 3-column by 4-row icon?
+      (BOTTOM ROW, LEFTMOST PIXEL)
+    yes: Yes, vivid color saturation.
+    no: No, muted color saturation.
+  - name: pixel_10_v
+    question: >-
+      Brightness: For pixel art of the phrase_to_pixel_icon, should the bottom-left pixel be bright rather than dark, for this specific 3-column by 4-row icon?
+      (BOTTOM ROW, LEFTMOST PIXEL)
+    yes: Yes, high brightness.
+    no: No, dark or black.
+  - name: pixel_11_h
+    question: >-
+      Hue: For pixel art of the phrase_to_pixel_icon, what hue family should dominate in the bottom-center pixel of a 3-column by 4-row icon?
+      (BOTTOM ROW, CENTER PIXEL)
+    choices:
+      red: Red, centered near 0 degrees.
+      orange: Orange, centered near 30 degrees.
+      yellow: Yellow, centered near 60 degrees.
+      chartreuse: Chartreuse, centered near 90 degrees.
+      green: Green, centered near 120 degrees.
+      spring: Spring green, centered near 150 degrees.
+      cyan: Cyan, centered near 180 degrees.
+      azure: Azure, centered near 210 degrees.
+      blue: Blue, centered near 240 degrees.
+      violet: Violet, centered near 270 degrees.
+      magenta: Magenta, centered near 300 degrees.
+      rose: Rose, centered near 330 degrees.
+  - name: pixel_11_s
+    question: >-
+      Saturation: For pixel art of the phrase_to_pixel_icon, should the bottom-center pixel be vividly saturated rather than muted, for this specific 3-column by 4-row icon?
+      (BOTTOM ROW, CENTER PIXEL)
+    yes: Yes, vivid color saturation.
+    no: No, muted color saturation.
+  - name: pixel_11_v
+    question: >-
+      Brightness: For pixel art of the phrase_to_pixel_icon, should the bottom-center pixel be bright rather than dark, for this specific 3-column by 4-row icon?
+      (BOTTOM ROW, CENTER PIXEL)
+    yes: Yes, high brightness.
+    no: No, dark or black.
+  - name: pixel_12_h
+    question: >-
+      Hue: For pixel art of the phrase_to_pixel_icon, what hue family should dominate in the bottom-right pixel of a 3-column by 4-row icon?
+      (BOTTOM ROW, RIGHTMOST PIXEL)
+    choices:
+      red: Red, centered near 0 degrees.
+      orange: Orange, centered near 30 degrees.
+      yellow: Yellow, centered near 60 degrees.
+      chartreuse: Chartreuse, centered near 90 degrees.
+      green: Green, centered near 120 degrees.
+      spring: Spring green, centered near 150 degrees.
+      cyan: Cyan, centered near 180 degrees.
+      azure: Azure, centered near 210 degrees.
+      blue: Blue, centered near 240 degrees.
+      violet: Violet, centered near 270 degrees.
+      magenta: Magenta, centered near 300 degrees.
+      rose: Rose, centered near 330 degrees.
+  - name: pixel_12_s
+    question: >-
+      Saturation: For pixel art of the phrase_to_pixel_icon, should the bottom-right pixel be vividly saturated rather than muted, for this specific 3-column by 4-row icon?
+      (BOTTOM ROW, RIGHTMOST PIXEL)
+    yes: Yes, vivid color saturation.
+    no: No, muted color saturation.
+  - name: pixel_12_v
+    question: >-
+      Brightness: For pixel art of the phrase_to_pixel_icon, should the bottom-right pixel be bright rather than dark, for this specific 3-column by 4-row icon?
+      (BOTTOM ROW, RIGHTMOST PIXEL)
+    yes: Yes, high brightness.
+    no: No, dark or black.

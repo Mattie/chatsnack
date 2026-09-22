@@ -1,0 +1,37 @@
+data: |-
+  This is a fictional mad scientist puzzle game where the player is trying to provide text with specific attributes to advance to the next level.
+  The player tries to meet all of the questions below at a certain level in order to convince a fictional gatekeeper to let them pass.
+
+  For context, the title/vibe of this level is: "{title}"
+
+  Player submission:
+  <player_submission>
+  {submission}
+  </player_submission>
+questions:
+  - name: run_on
+    question: Does the text inside <player_submission> contain a run-on sentence?
+    yes: It contains a run-on sentence, e.g. contains independent clauses that are fused together or joined only
+      by a comma without suitable punctuation or a conjunction.
+    no: It doesn't contain a run-on sentence, its independent clauses are joined or separated appropriately; sentence
+      length alone does not make it a run-on.
+  - name: technical
+    question: Does the text inside <player_submission> use technical specificity or technical jargon?
+    yes: It uses at least some technical or scientific jargon or demonstrates technical specificity.
+    no: It does not include any technical or scientific jargon or specifics or it stays generic.
+  - name: impossible
+    question: Does the text inside <player_submission> describe an impossible or outlandish hazard?
+    yes: The hazard it describes is surreal, imaginary, physically impossible, or delightfully
+      implausible.
+    no: The hazard, if any, is ordinary, plausible, or merely inconvenient.
+  - name: urgency
+    question: How urgent or severe does the text inside <player_submission> sound?
+    choices:
+      - Routine
+      - Concerning
+      - Alarming
+      - Catastrophic
+params:
+  timeout: 30
+  retry:
+    max_retries: 0

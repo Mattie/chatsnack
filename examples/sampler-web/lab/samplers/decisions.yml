@@ -1,0 +1,14 @@
+params:
+  timeout: 30
+  retry:
+    max_retries: 0
+data: "{input}"
+questions:
+  - name: decision
+    question: Is the proposed decision explicit?
+  - name: evidence
+    question: Is it supported with relevant evidence?
+  - name: tradeoffs
+    question: Does it acknowledge meaningful tradeoffs?
+  - name: ready
+    question: Is this ready for a decision-maker to act on?

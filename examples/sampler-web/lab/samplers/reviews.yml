@@ -1,0 +1,22 @@
+params:
+  timeout: 30
+  retry:
+    max_retries: 0
+data: "{input}"
+questions:
+  - name: sentiment
+    question: What is the overall sentiment?
+    choices:
+      - positive
+      - mixed
+      - negative
+  - name: recovery
+    question: Does this call for a direct service recovery response?
+  - name: specific
+    question: Does the review identify a specific, actionable problem?
+  - name: urgency
+    question: How urgent is follow-up?
+    levels:
+      - low
+      - normal
+      - high

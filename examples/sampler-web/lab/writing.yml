@@ -1,0 +1,41 @@
+label: Writing
+title: "Analyze your writing:"
+description: Explore the grammar, style, and personality of a passage.
+placeholder: Paste an email, announcement, or tricky message…
+sample: Per my last email, I just want to make sure we're aligned on the deliverables. Happy to hop on a call if that's easier for you!
+sampler: lab/samplers/writing.yml
+labels:
+  tone: Tone
+  grammar: Proper grammar
+  spelling: Clean spelling
+  punctuation: Clean punctuation
+  prepositions: Ending a sentence with a preposition
+  fragments: Sentence fragments
+  runons: Run-on sentences
+  passive: Passive voice
+  slang: Slang
+  jargon: Jargon
+  contractions: Contractions
+  cliches: Clichés
+  readable: Easy to follow on the first read
+  concise: Gets to the point without taking the scenic route
+  details: Concrete details instead of vague hand-waving
+  variety: Varied sentence structures
+  clear: Clear next step
+  human: Sounds conversational rather than formulaic
+  reply: Gives you something to reply to
+  hedging: "Perhaps, maybe, sort of: hedging"
+  repetition: Repeats itself unnecessarily
+  imagery: You can practically see, hear, or taste it
+  corporate: Could this meeting have been three plain words?
+  passive_aggressive: Sounds polite. Is absolutely furious.
+  main_character: Main-character energy
+  twist: Wait… was that a plot twist?
+  poetry: Accidentally wandered into a poem
+  meme: Someone could turn this into a meme
+  late_night: Has the energy of a 2 a.m. text
+  trailer: Would a movie-trailer narrator say this?
+  outlandish: Mentions something somewhat insane
+  haiku: Haiku
+  sonnet: Sonnet
+  shakespearean: Shakespearean

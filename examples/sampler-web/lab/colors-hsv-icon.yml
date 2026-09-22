@@ -1,0 +1,6 @@
+label: HSV Icon
+title: Twelve-pixel icon
+description: Build a tiny 3-column by 4-row icon that makes a word recognizable through color and placement.
+placeholder: Type an object, symbol, creature, place, or short phrase…
+sample: White cloud in the top left, the sun is shining in the upper right, and the grass is green. The middle shows a brick house with the sky behind it.
+sampler: lab/samplers/colors-hsv-icon.yml

@@ -1,0 +1,16 @@
+label: Code
+title: Code character
+description: Paste a function or file and get a fast read on its craft.
+placeholder: Paste code in any language…
+sample: |-
+  def total(items):
+      # Add each item price after applying its discount.
+      return sum(item.price * (1 - item.discount) for item in items)
+sampler: lab/samplers/code.yml
+labels:
+  syntax: Syntax correctness
+  experience: Apparent experience
+  comments: Useful comments
+  readable: Readability
+  maintainable: Maintainability
+  risk: Defect risk

@@ -1,0 +1,24 @@
+title: Sentient Door
+label: ARGUMENT
+briefing: The door has trust issues and excellent hearing.
+guardian:
+  file: guardian-keyhole-cyclops.png
+  alt: Suspicious keyhole-eyed door drawn in a green phosphor pulse trace
+sampler: samplers/level-05.yml
+criteria:
+  - question: sentence
+    label: Simple words
+    target: 0.75
+    visible: true
+  - question: logic
+    label: Sound logic
+    target: 0.75
+  - question: empathy
+    label: Empathy toward the door/machine
+    target: 0.65
+  - question: stakes
+    label: Meaningful stakes
+    target: 0.65
+  - question: persuasion
+    label: Door persuasive
+    target: Somewhat Convinced

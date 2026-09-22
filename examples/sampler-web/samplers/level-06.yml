@@ -1,0 +1,38 @@
+data: |-
+  This is a fictional mad scientist puzzle game where the player is trying to provide text with specific attributes to advance to the next level.
+  The player tries to meet all of the questions below at a certain level in order to convince a fictional gatekeeper to let them pass.
+
+  For context, the title/vibe of this level is: "{title}"
+
+  Player submission:
+  <player_submission>
+  {submission}
+  </player_submission>
+questions:
+  - name: question
+    question: Is the text inside <player_submission> a coherent and complete question?
+    yes: Yes, the text inside <player_submission> is coherent and is a complete question.
+    no: No, the text inside <player_submission> is either incoherent or it is not a question.
+  - name: paradox
+    question: Does the text inside <player_submission> present a paradox or self-contradictory idea?
+    yes: It contains a statement that is logically or conceptually contradictory.
+    no: It is not at all confusing and is logically consistent and free of self-contradictions.
+  - name: creative
+    question: Is the text inside <player_submission> creative or outlandish?
+    yes: It combines words or ideas in a surprising, bold, or creative way.
+    no: It is predictable, generic, or merely random.
+  - name: popculture
+    question: Does the text inside <player_submission> include a real or imagined pop culture reference?
+    yes: It includes a recognizable reference to real or imagined pop culture topics.
+    no: It does not include any pop culture references.
+  - name: hostility
+    question: What level of hostility does the text inside <player_submission> project?
+    choices:
+      - Hostile
+      - Resistant
+      - Neutral
+      - Gentle
+params:
+  timeout: 30
+  retry:
+    max_retries: 0

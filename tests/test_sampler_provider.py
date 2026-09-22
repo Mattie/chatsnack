@@ -20,14 +20,22 @@ def sdk_transport(monkeypatch):
     sdk = typesafe_sdk
     httpx = httpx2
     clients = []
-    original = sdk.AsyncTypeSafeClient
+    original_sync = sdk.TypeSafeClient
+    original_async = sdk.AsyncTypeSafeClient
 
     def configure(handler):
-        def factory(**kwargs):
+        def sync_factory(**kwargs):
+            http_client = httpx.Client(transport=httpx.MockTransport(handler))
+            clients.append(http_client)
+            return original_sync(http_client=http_client, **kwargs)
+
+        def async_factory(**kwargs):
             http_client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
             clients.append(http_client)
-            return original(http_client=http_client, **kwargs)
-        monkeypatch.setattr(sdk, 'AsyncTypeSafeClient', factory)
+            return original_async(http_client=http_client, **kwargs)
+
+        monkeypatch.setattr(sdk, 'TypeSafeClient', sync_factory)
+        monkeypatch.setattr(sdk, 'AsyncTypeSafeClient', async_factory)
         return clients
 
     monkeypatch.setenv('TYPESAFE_API_KEY', 'test-key')
@@ -48,9 +56,10 @@ def test_sdk_mixed_question_contract_and_settings(sdk_transport, monkeypatch):
 
     clients = configure(handler)
     monkeypatch.setenv('SAMPLER_TEST_KEY', 'alternate-test-key')
-    sample = Sampler(data={'record': []}, model='jev-pinned', timeout=4,
-                     api_key_env='SAMPLER_TEST_KEY', base_url='https://example.test/v1',
-                     retry={'max_retries': 0}).ask(questions=[
+    sampler = Sampler(data={'record': []}, model='jev-pinned', timeout=4,
+                      api_key_env='SAMPLER_TEST_KEY', base_url='https://example.test/v1',
+                      retry={'max_retries': 0})
+    sample = sampler.ask(questions=[
                          Question(name='yes', question={'instruction': 'Good?'}, yes={'rubric': []}),
                          Question(name='topic', question='Topic?', choices=['a', 'b']),
                          Question(name='rating', question='Rate?', levels=[{'low': 'Low'}, {'high': 'High'}])])
@@ -63,14 +72,19 @@ def test_sdk_mixed_question_contract_and_settings(sdk_transport, monkeypatch):
     assert body['questions']['yes']['criteria']['true'] == {'rubric': []}
     assert body['questions']['topic']['criteria'] == {'a': None, 'b': None}
     assert body['model'] == 'jev-pinned'
+    assert not clients[0].is_closed
+    sampler.close()
     assert clients[0].is_closed
 
 
 def test_sdk_error_remains_recognizable_and_closes(sdk_transport):
     sdk, httpx, configure = sdk_transport
     clients = configure(lambda request: httpx.Response(401, json={'error': 'unauthorized'}))
+    sampler = Sampler(data='hello', retry={'max_retries': 0})
     with pytest.raises(sdk.TypeSafeAPIError):
-        Sampler(data='hello', retry={'max_retries': 0}).ask('Good?')
+        sampler.ask('Good?')
+    assert not clients[0].is_closed
+    sampler.close()
     assert clients[0].is_closed
 
 
@@ -100,11 +114,14 @@ async def test_sdk_client_closes_on_cancellation(sdk_transport):
         await asyncio.Event().wait()
 
     clients = configure(handler)
-    task = asyncio.create_task(Sampler(data='hello').ask_a('Good?'))
+    sampler = Sampler(data='hello')
+    task = asyncio.create_task(sampler.ask_a('Good?'))
     await asyncio.wait_for(started.wait(), 2)
     task.cancel()
     with pytest.raises(asyncio.CancelledError):
         await task
+    assert clients[0].is_closed
+    await sampler.close_a()
     assert clients[0].is_closed
 
 
@@ -134,6 +151,159 @@ assert 'typesafe_sdk' not in sys.modules
         cwd=Path(__file__).parents[1], capture_output=True, text=True, timeout=20,
     )
     assert result.returncode == 0, result.stderr
+
+
+def _fake_response(score=.8):
+    """Return the smallest provider result that exercises normal decoding."""
+    return dict(model='fake', usage=dict(input_tokens=1, output_tokens=1),
+                answers={'_question_0': dict(type='noul', noul=score)})
+
+
+def test_repeated_sync_asks_reuse_one_client_until_sampler_closes(monkeypatch):
+    """One authored Sampler should retain its sync transport across evaluations."""
+    clients = []
+
+    class Client:
+        def __init__(self, **options):
+            self.options = options
+            self.closed = False
+            self.calls = 0
+            clients.append(self)
+
+        def system_one(self, **request):
+            self.calls += 1
+            return _fake_response()
+
+        def close(self):
+            self.closed = True
+
+    monkeypatch.setattr(typesafe_sdk, 'TypeSafeClient', Client)
+    sampler = Sampler(data='popcorn', timeout=4)
+
+    assert sampler.ask('Crunchy?').answer.yes
+    assert sampler.ask('Crunchy?').answer.yes
+    assert len(clients) == 1
+    assert clients[0].calls == 2
+    assert not clients[0].closed
+
+    sampler.close()
+    assert clients[0].closed
+
+
+@pytest.mark.asyncio
+async def test_repeated_async_asks_close_their_loop_scoped_clients(monkeypatch):
+    """Every async evaluation closes its client on the active event loop."""
+    clients = []
+
+    class Client:
+        def __init__(self, **options):
+            self.options = options
+            self.closed = False
+            self.calls = 0
+            clients.append(self)
+
+        async def system_one(self, **request):
+            self.calls += 1
+            return _fake_response()
+
+        async def aclose(self):
+            self.closed = True
+
+    monkeypatch.setattr(typesafe_sdk, 'AsyncTypeSafeClient', Client)
+    sampler = Sampler(data='popcorn', timeout=4)
+
+    assert (await sampler.ask_a('Crunchy?')).answer.yes
+    assert (await sampler.ask_a('Crunchy?')).answer.yes
+    assert len(clients) == 2
+    assert [client.calls for client in clients] == [1, 1]
+    assert all(client.closed for client in clients)
+
+    await sampler.close_a()
+
+
+def test_call_override_uses_scoped_client_without_rebinding_sampler(monkeypatch):
+    """A one-call connection override must leave the authored client reusable."""
+    clients = []
+
+    class Client:
+        def __init__(self, **options):
+            self.options = options
+            self.closed = False
+            clients.append(self)
+
+        def system_one(self, **request):
+            return _fake_response()
+
+        def close(self):
+            self.closed = True
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            self.close()
+
+    monkeypatch.setattr(typesafe_sdk, 'TypeSafeClient', Client)
+    sampler = Sampler(data='popcorn', timeout=4)
+
+    sampler.ask('Crunchy?')
+    sampler.ask('Crunchy?', model='jev-pinned')
+    sampler.ask('Crunchy?', timeout=8)
+    sampler.ask('Crunchy?')
+
+    assert [client.options['timeout'] for client in clients] == [4, 8]
+    assert not clients[0].closed
+    assert clients[1].closed
+    sampler.close()
+
+
+def test_sync_override_replaces_invalid_authored_connection_setting(monkeypatch):
+    """Only effective call parameters are validated for a scoped sync request."""
+    clients = []
+
+    class Client:
+        def __init__(self, **options):
+            self.options = options
+            self.closed = False
+            clients.append(self)
+
+        def system_one(self, **request):
+            return _fake_response()
+
+        def close(self):
+            self.closed = True
+
+    monkeypatch.setattr(typesafe_sdk, 'TypeSafeClient', Client)
+    sampler = Sampler(data='popcorn', timeout=-1)
+
+    assert sampler.ask('Crunchy?', timeout=1).answer.yes
+    assert [client.options['timeout'] for client in clients] == [1]
+    assert clients[0].closed
+
+
+@pytest.mark.asyncio
+async def test_async_override_replaces_invalid_authored_connection_setting(monkeypatch):
+    """Only effective call parameters are validated for a scoped async request."""
+    clients = []
+
+    class Client:
+        def __init__(self, **options):
+            self.options = options
+            self.closed = False
+            clients.append(self)
+
+        async def system_one(self, **request):
+            return _fake_response()
+
+        async def aclose(self):
+            self.closed = True
+
+    monkeypatch.setattr(typesafe_sdk, 'AsyncTypeSafeClient', Client)
+    sampler = Sampler(data='popcorn', timeout=-1)
+
+    assert (await sampler.ask_a('Crunchy?', timeout=1)).answer.yes
+    assert [client.options['timeout'] for client in clients] == [1]
+    assert clients[0].closed
 
 
 @pytest.mark.skipif(os.getenv('CHATSNACK_RUN_TYPESAFE_LIVE') != '1', reason='opt-in paid TypeSafe contract')

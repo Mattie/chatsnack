@@ -1,0 +1,18 @@
+params:
+  timeout: 30
+  retry:
+    max_retries: 0
+data: "{input}"
+questions:
+  - name: position
+    question: How is this item positioned for its category?
+    choices:
+      value: Inexpensive or value-led
+      everyday: Typical mid-market price
+      premium: Expensive or premium
+  - name: supported
+    question: Do the ingredients and serving details support that positioning?
+  - name: specific
+    question: Is the product description concrete and specific?
+  - name: tempting
+    question: Would the description make the intended customer curious?

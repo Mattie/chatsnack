@@ -10,6 +10,7 @@ from snapclass import snapclass
 from ..defaults import CHATSNACK_ROOT
 from ..fillings import active_filling_stash
 from . import provider
+from .client import _SamplerClient, connection_signature
 from .models import (Answer, ChoiceAnswer, NamedSequence, Question, Sample, SamplerParams,
                      SampleUsage, ScoreAnswer, YesNoAnswer, decode, json_value,
                      _FILLING_FORMAT_METACHARACTERS)
@@ -57,6 +58,7 @@ class Sampler(Asset):
         if not isinstance(expand, bool):
             raise ValueError('expand must be Boolean')
         self.expand = expand
+        self._provider_clients = _SamplerClient(copy.deepcopy(self.params))
         self.__post_init__()
 
     @property
@@ -105,7 +107,25 @@ class Sampler(Asset):
 
     def ask(self, question=_UNSET, **kwargs):
         """Evaluate inline or saved questions and return a Sample in every case."""
-        return _sync(self.ask_a(question, **kwargs))
+        return _sync(self._ask_sync(question, **kwargs))
+
+    async def _ask_sync(self, question=_UNSET, *, questions=_UNSET, data=_UNSET,
+                        model=_UNSET, timeout=_UNSET, retry=_UNSET, base_url=_UNSET,
+                        api_key_env=_UNSET, **fillings):
+        """Resolve asynchronously, then submit through this Sampler's sync SDK client."""
+        from .composition import expansion_scope
+        async with expansion_scope():
+            request, resolved, params = await self._prepare(
+                question, questions, data, fillings, model=model, timeout=timeout,
+                retry=retry, base_url=base_url, api_key_env=api_key_env)
+            authored = SamplerParams(**ParamsSerializer.to_preserialization_data(self.params))
+            if connection_signature(params) == connection_signature(authored):
+                clients = self._bind_authored_client(authored)
+                with provider.use_sync_client(lambda: clients.client):
+                    response = provider.evaluate_sync(request, params)
+            else:
+                response = provider.evaluate_sync(request, params)
+            return decode(request['state'], resolved, list(request['questions']), response)
 
     async def ask_a(self, question=_UNSET, *, questions=_UNSET, data=_UNSET,
                     model=_UNSET, timeout=_UNSET, retry=_UNSET, base_url=_UNSET,
@@ -118,6 +138,23 @@ class Sampler(Asset):
                 retry=retry, base_url=base_url, api_key_env=api_key_env)
             response = await provider.evaluate(request, params)
             return decode(request['state'], resolved, list(request['questions']), response)
+
+    def _bind_authored_client(self, authored):
+        """Bind the lazy sync client after effective parameters have been validated."""
+        if not hasattr(self, '_provider_clients'):
+            self._provider_clients = _SamplerClient(copy.deepcopy(authored))
+        self._provider_clients.bind(authored)
+        return self._provider_clients
+
+    def close(self):
+        """Close the retained sync provider client opened by this Sampler."""
+        if hasattr(self, '_provider_clients'):
+            self._provider_clients.close()
+
+    async def close_a(self):
+        """Close the retained sync provider client from async code."""
+        if hasattr(self, '_provider_clients'):
+            await self._provider_clients.close_a()
 
     def compile(self, question=_UNSET, **kwargs):
         """Inspect a request; executable dependency fillings may still run."""

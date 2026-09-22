@@ -1,0 +1,11 @@
+label: Decisions
+title: Decision check
+description: Pressure-test a short proposal before it reaches the room.
+placeholder: Paste a proposal, decision memo, or recommendation…
+sample: Move weekly releases to Tuesday mornings. Support coverage is highest then, rollback owners are available, and the last six Friday incidents took longer to resolve.
+sampler: lab/samplers/decisions.yml
+labels:
+  decision: Clear decision
+  evidence: Relevant evidence
+  tradeoffs: Acknowledges tradeoffs
+  ready: Ready for action

@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>chatsnack - Sampler Lab Example</title>
+<link rel="stylesheet" href="{{ url_for('static', filename='main.css', v='hsv-icon') }}">
+</head>
+<body>
+<header>
+<div class="brand-lockup"><a class="brand" href="https://github.com/Mattie/chatsnack">chatsnack</a><span class="brand-subtitle">Sampler Lab Example</span></div>
+<nav id="tabs" aria-label="Examples"></nav>
+<div class="header-tools">
+<button id="help" aria-pressed="false">Help</button>
+</div>
+</header>
+<main>
+<section class="editor"><div><h1 id="title"></h1><p id="guidance" hidden></p></div>
+<label class="input"><span class="sr-only">Content to evaluate</span><textarea id="input" maxlength="20000" spellcheck="false"></textarea></label>
+<div class="actions"><button id="sample">Sample</button><button id="retry" hidden>Retry</button></div></section>
+<p id="status" role="status" aria-live="polite"></p>
+<section class="results" aria-label="Evaluation results" aria-busy="false">
+<div id="writing-results" hidden></div>
+<div id="color-results" hidden></div>
+<table id="result-table"><thead><tr><th scope="col">Question</th><th scope="col">Answer</th><th scope="col">Confidence</th></tr></thead><tbody id="results"></tbody></table>
+<p id="empty">Results appear here.</p></section>
+<p id="help-note" hidden>Text is sent to TypeSafe automatically after you pause. Model judgments are estimates; code experience describes the snippet’s apparent craft. Confidence expresses the model’s certainty.</p>
+</main>
+<script id="config" type="application/json">{{ {'demos': demos, 'configured': configured} | tojson }}</script>
+<script type="module" src="{{ url_for('static', filename='main.js', v='hsv-icon') }}"></script>
+</body></html>
