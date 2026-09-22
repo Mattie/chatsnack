@@ -554,26 +554,29 @@ class ChatQueryMixin(ChatMessagesMixin, ChatParamsMixin):
         return json.dumps(new_messages)
      
     async def _build_final_prompt(self, additional_vars = {}):
-        promptvars = {}
-        promptvars.update(additional_vars)
-        token = active_filling_stash.set(self.snapshot_lookup_stash if hasattr(self, "snapshot_lookup_stash") else None)
-        try:
-            # format the prompt text with the passed-in variables as well as doing internal expansion
-            active_template_vars = _active_template_vars.get()
-            if active_template_vars is not None and active_template_vars[0] is self:
-                promptvars = dict(active_template_vars[1])
-                prompt = await self._gather_format_mapping(
-                    aformatter.async_format_mapping,
-                    filling_machine(promptvars),
-                )
-            else:
-                prompt = await self._gather_format(
-                    aformatter.async_format,
-                    **filling_machine(promptvars),
-                )
-            return prompt
-        finally:
-            active_filling_stash.reset(token)
+        """Share named Sampler evaluations across this prompt's message fillings."""
+        from ..sampler.composition import expansion_scope
+        async with expansion_scope():
+            promptvars = {}
+            promptvars.update(additional_vars)
+            token = active_filling_stash.set(self.snapshot_lookup_stash if hasattr(self, "snapshot_lookup_stash") else None)
+            try:
+                # format the prompt text with the passed-in variables as well as doing internal expansion
+                active_template_vars = _active_template_vars.get()
+                if active_template_vars is not None and active_template_vars[0] is self:
+                    promptvars = dict(active_template_vars[1])
+                    prompt = await self._gather_format_mapping(
+                        aformatter.async_format_mapping,
+                        filling_machine(promptvars),
+                    )
+                else:
+                    prompt = await self._gather_format(
+                        aformatter.async_format,
+                        **filling_machine(promptvars),
+                    )
+                return prompt
+            finally:
+                active_filling_stash.reset(token)
 
     def _build_completion_request_kwargs(self) -> Dict[str, object]:
         """Build provider-facing kwargs for one completion request."""

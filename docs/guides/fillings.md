@@ -65,8 +65,8 @@ This keeps the authoring surface small while still enabling multi-step prompt pr
 ## Resolve fillings directly
 
 External assemblers such as Catsnack sometimes know the finite set of static
-`text.Name` and `chat.Name` references they need before building a prompt. They
-can resolve that set directly:
+`text.Name`, `chat.Name`, `question.Name`, and named Sampler result references
+they need before building a prompt. They can resolve that set directly:
 
 ```python
 from chatsnack import resolve_fillings_a
@@ -77,20 +77,24 @@ print(resolved["text"]["SnackExplosion"])
 
 Direct resolution follows these rules:
 
-- Explicit values in `variables["text"]` or `variables["chat"]` take priority
-  for the requested names without loading a saved asset.
+- Explicit values in the matching `variables["text"]`, `variables["chat"]`,
+  `variables["question"]`, or `variables["sampler"]` namespace take priority for
+  the requested names without loading a saved asset.
 - Saved assets expand through the same formatter and filling callbacks used by
-  `Chat.ask_a()`, including nested Text and Chat fillings.
+  ordinary Chat and Sampler calls. A `question.Name` result remains a typed
+  Question; `sampler.Name.answer.choice`, `.score`, and `.confidence` return the
+  corresponding named result field.
 - Saved chat references require `allow_chat=True` before `chatsnack` makes a model
   call. This also applies when saved Text or Chat assets contain a chat filling.
-- Missing requested Text names are omitted. Chat authority is checked before
-  Chatsnack looks up a requested Chat; once authorized, a missing Chat is also
-  omitted. A missing transitive dependency stops the requested filling from
+- Saved Sampler result references independently require `allow_sampler=True`.
+  Equivalent result fields share one evaluation during that resolver call.
+- Missing directly requested assets are omitted after any required authority
+  check. A missing transitive dependency stops the requested filling from
   resolving.
 - Inserted values remain plain data. `chatsnack` does not scan them for more
   filling references.
-- Fixed resolver-only bounds cap recursive depth, filling expansions, and Chat
-  filling invocations. They do not change ordinary Chat expansion.
+- Fixed resolver-only bounds cap recursive depth, filling expansions, Chat calls,
+  and Sampler evaluations. They do not change ordinary Chat or Sampler expansion.
 
 See the [Fillings API reference](../reference/api/fillings.md) for the signature
 and errors.
