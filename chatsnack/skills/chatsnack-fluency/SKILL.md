@@ -1,21 +1,22 @@
 ---
 name: chatsnack-fluency
-description: Tips, tricks, and chatsnackian prompt composition patterns for YAML-first chat assets, text fillings, chat fillings, includes, generated ChatFiles, thin runtime loaders, and utensils. Use when building or reviewing chatsnack projects, graphical prompt builders, dynamic prompt systems, agentic coding prompts, game-master style agents, benchmark prompt morphs, context aggregation flows, reusable prompt fragments, or consumer code that is tempted to render prompts through private chatsnack hooks such as _build_final_prompt.
+description: Chatsnackian patterns for YAML-first Chat and Sampler assets, reusable Questions, fillings, includes, generated ChatFiles, thin runtime loaders, and utensils. Use when building or reviewing chatsnack prompts, typed judgments, prompt builders, dynamic prompt systems, or consumer code that is tempted to render prompts through private chatsnack hooks.
 ---
 
 # Chatsnack Fluency
 
-This is a fluency pack, not a workflow. Use it to think like a chatsnackian: prompts are authored assets, placeholders are sockets, fillings are composition, and runtime code is the small adapter that brings data and tools to the chat.
+This is a fluency pack, not a workflow. Use it to think like a chatsnackian: prompts and judgments are authored assets, placeholders are sockets, fillings are composition, and runtime code supplies data and tools at evaluation time.
 
 Read `references/pattern-atlas.md` for larger copyable examples.
 
 ## Think Like A Chatsnackian
 
-- Keep the `Chat` as the unit of thought. A prompt is not just a string; it is conversation state with identity.
+- Use `Chat` for conversation, prose generation, and continued work; use `Sampler` to ask focused, typed questions about existing data. Both are authored assets with identity.
 - Prefer YAML-first prompt assets for stable behavior. If another agent should understand or edit it, it probably belongs in YAML.
-- Treat `{name}`, `{text.Name}`, and `{chat.Name}` as live connections. Do not render them early just to glue strings together.
+- Treat `{name}`, `{text.Name}`, `{chat.Name}`, `{question.Name}`, and named `{sampler.SnackCheck.crunchy.choice}` fillings as live connections. Do not render them early just to glue strings together.
 - Let `Text` hold reusable language: policies, voices, rubrics, output contracts, style guides, safety notes, table rules.
 - Let saved `Chat` assets hold reusable behavior: a planner, critic, scene seeder, summarizer, classifier, benchmark base, handoff reader.
+- Let saved `Question` assets hold reusable judgment criteria and saved `Sampler` assets hold the data and questions to evaluate together.
 - Let `include` bring in message-shaped context: prior transcripts, house rules, examples, handoffs, side-chat selections.
 - Let `utensils=[...]` bring capabilities. The model gets named tools; Python stays Python.
 - Let a continued chat keep generated outputs. Its `.images` are the image results; its `.files` contain every returned file, including those images.
@@ -31,6 +32,9 @@ When a prompt feels dynamic, name the changing part:
 | user-provided value | ordinary filling like `{task}` |
 | reusable prose | `{text.OutputContract}` |
 | generated prep content | `{chat.SceneSeed}` |
+| reusable judgment rubric | `Question(name="crunchy", question="Is this crunchy?")` or `{question.crunchy}` |
+| typed judgment over data | `Sampler(data="{snack}").ask(...)` |
+| judgment inside prose | `{sampler.SnackCheck.crunchy.choice}` in a Chat |
 | prior conversation or handoff | `include: PriorThread` |
 | selectable side context | save a narrow chat, then `include` it |
 | callable capability | `utensils=[save_note, search_docs]` |
@@ -38,8 +42,27 @@ When a prompt feels dynamic, name the changing part:
 | generated or cited file | call `.chat()`, then use the continued chat's `.files` |
 | external fragment catalog | custom filling namespace, after `Text` and `Chat` stop being enough |
 | persistent behavior | named YAML `Chat` asset |
+| persistent evaluation | named YAML `Sampler` asset with named Questions |
 
-For canvas or whiteboard UIs, these map naturally to nodes: chat node, text node, transcript node, file context node, side-chat node, utensil node, and runtime filling node. The final prompt should still be a composed chat asset, not a pre-rendered blob.
+For canvas or whiteboard UIs, these map naturally to chat, sampler, question, text, transcript, file context, utensil, and runtime filling nodes. Keep the authored assets available for inspection instead of reducing them to pre-rendered strings.
+
+## Sampler Results Stay Typed
+
+`Sampler.ask()` and `ask_a()` always return a `Sample`. `sample.answer` is the first existing answer (`sample.answers[0]`); `sample.question` is the first existing question (`sample.questions[0]`). For several questions, use explicit names so reordering does not change what code reads:
+
+```python
+from chatsnack import Question, Sampler
+
+review = Sampler(
+    data="{snack}",
+    questions=[Question(name="crunchy", question="Is this crunchy?")],
+)
+sample = review.ask(snack="popcorn")
+if sample.answers["crunchy"].yes:
+    ...
+```
+
+Use `.yes` or `.no` for yes/no answers and `.choice`, `.score`, or `.confidence` when those values fit the task. A Chat can consume one named result from a saved Sampler without putting provider calls in application glue. Use `Sampler.from_sample(sample)` to repeat the resolved inputs later; a new evaluation may produce a different answer. See the [Sampler guide](https://mattie.github.io/chatsnack/guides/samplers/) for question kinds, YAML persistence, replay, and execution settings.
 
 ## YAML-First Tricks
 
