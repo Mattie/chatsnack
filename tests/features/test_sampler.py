@@ -362,17 +362,20 @@ def test_ties_and_provider_choice_are_preserved(monkeypatch):
 
 
 def test_provider_probability_rounding_is_accepted_and_preserved(monkeypatch):
+    choices = [f'hue-{index}' for index in range(12)]
+    probabilities = dict.fromkeys(choices, .08)
+
     def rounded(request, params):
         return dict(model='jev', usage=dict(input_tokens=0, output_tokens=0), answers={
-            'hue': dict(type='choice', choice='red',
-                        probabilities={'red': .33, 'green': .33, 'blue': .33},
+            'hue': dict(type='choice', choice=choices[0], probabilities=probabilities,
                         confidence=.5)})
     monkeypatch.setattr('chatsnack.sampler.provider.evaluate_sync', rounded)
     answer = Sampler(data='hi').ask(
-        Question(name='hue', question='Hue?', choices=['red', 'green', 'blue'])
+        Question(name='hue', question='Hue?', choices=choices)
     ).answer
-    assert answer.choice == 'red'
-    assert answer.probabilities == {'red': .33, 'green': .33, 'blue': .33}
+    assert answer.choice == choices[0]
+    assert answer.probabilities == probabilities
+    assert sum(answer.probabilities.values()) == pytest.approx(.96)
 
 
 def test_materially_incomplete_probability_distribution_is_rejected(monkeypatch):

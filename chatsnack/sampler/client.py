@@ -54,9 +54,11 @@ class _SamplerClient:
 
     @property
     def aclient(self):
-        """Return the async SDK client, constructing it on first use."""
+        """Return the async SDK client, constructing it once across callers."""
         if self._aclient is None:
-            self._aclient = provider.create_async_client(self._params)
+            with self._lock:
+                if self._aclient is None:
+                    self._aclient = provider.create_async_client(self._params)
         return self._aclient
 
     def close(self):

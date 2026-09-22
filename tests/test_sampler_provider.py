@@ -2,8 +2,10 @@
 
 import asyncio
 import builtins
+from concurrent.futures import ThreadPoolExecutor
 import json
 import os
+import time
 
 import pytest
 import httpx2
@@ -204,6 +206,28 @@ async def test_repeated_async_asks_reuse_one_client_until_sampler_closes(monkeyp
 
     await sampler.close_a()
     assert clients[0].closed
+
+
+def test_concurrent_async_client_access_constructs_once(monkeypatch):
+    """Concurrent callers must not overwrite and leak a second async client."""
+    from chatsnack.sampler.client import _SamplerClient
+    from chatsnack.sampler.models import SamplerParams
+
+    created = []
+
+    def create(params):
+        time.sleep(.02)  # Give every worker time to observe an unguarded None.
+        client = object()
+        created.append(client)
+        return client
+
+    monkeypatch.setattr('chatsnack.sampler.provider.create_async_client', create)
+    clients = _SamplerClient(SamplerParams())
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        observed = list(pool.map(lambda _: clients.aclient, range(16)))
+
+    assert len(created) == 1
+    assert all(client is created[0] for client in observed)
 
 
 def test_call_override_uses_scoped_client_without_rebinding_sampler(monkeypatch):
