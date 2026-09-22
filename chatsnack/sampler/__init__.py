@@ -135,12 +135,8 @@ class Sampler(Asset):
             request, resolved, params = await self._prepare(
                 question, questions, data, fillings, model=model, timeout=timeout,
                 retry=retry, base_url=base_url, api_key_env=api_key_env)
-            clients = self._bind_authored_client()
-            if connection_signature(params) == clients.signature:
-                with provider.use_async_client(lambda: clients.aclient):
-                    response = await provider.evaluate(request, params)
-            else:
-                response = await provider.evaluate(request, params)
+            self._bind_authored_client()
+            response = await provider.evaluate(request, params)
             return decode(request['state'], resolved, list(request['questions']), response)
 
     def _bind_authored_client(self):
@@ -153,12 +149,12 @@ class Sampler(Asset):
         return self._provider_clients
 
     def close(self):
-        """Close any sync or async provider clients opened by this Sampler."""
+        """Close the retained sync provider client opened by this Sampler."""
         if hasattr(self, '_provider_clients'):
             self._provider_clients.close()
 
     async def close_a(self):
-        """Close any provider clients opened by this Sampler from async code."""
+        """Close the retained sync provider client from async code."""
         if hasattr(self, '_provider_clients'):
             await self._provider_clients.close_a()
 

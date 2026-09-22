@@ -19,8 +19,8 @@ const game=new Experiment(config.levels,config.configured,async(level,text)=>{
  try{data=await response.json();}catch{throw new Error("The analyzer couldn't complete the readings. Press Enter to retry.");}
  if(!response.ok)throw new Error(data.error||"The analyzer couldn't complete the readings. Press Enter to retry.");
  return data;
-},()=>{},()=>Date.now(),async token=>{
- const response=await fetch('/api/game/accept',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({token})});
+},()=>{},()=>Date.now(),async(token,text)=>{
+ const response=await fetch('/api/game/accept',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({token,text})});
  if(!response.ok)throw new Error('The accepted solution could not be recorded.');
 });
 const savedProgress=readProgress();

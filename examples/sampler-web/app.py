@@ -6,7 +6,7 @@ import json
 import os
 import secrets
 from hashlib import sha256
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from importlib.util import module_from_spec, spec_from_file_location
 from pathlib import Path
 from threading import Lock
@@ -60,6 +60,7 @@ load_dotenv(HERE / ".env")
 app = Flask(__name__, template_folder=str(HERE / "templates"), static_folder=str(HERE / "static"))
 app.secret_key = _load_or_create_session_secret()
 app.config.update(
+    PERMANENT_SESSION_LIFETIME=timedelta(days=30),
     SESSION_COOKIE_HTTPONLY=True,
     SESSION_COOKIE_SAMESITE="Lax",
     SESSION_COOKIE_SECURE=os.getenv("MAD_HACKER_HOSTED") == "1",
@@ -70,6 +71,7 @@ SOLUTION_LOG_DIR = HERE / ".local" / "solutions"
 
 def _game_player_id():
     """Give each browser an opaque identity for independent game sessions."""
+    session.permanent = True
     player_id = session.get("game_player_id")
     if not isinstance(player_id, str):
         player_id = secrets.token_urlsafe(18)
@@ -87,7 +89,7 @@ def _append_solution(record):
             stream.write(line + '\n')
 
 
-def _accept_game_progress(token):
+def _accept_game_progress(token, text=None):
     """Commit only the pending result identified by the browser's current token."""
     accepted = session.get('game_accepted')
     if isinstance(accepted, dict) and token == accepted.get('token'):
@@ -95,6 +97,14 @@ def _accept_game_progress(token):
     pending = session.get('game_pending')
     if not pending or token != pending['token']:
         return False, False
+    solution = pending.get('solution')
+    if pending['won']:
+        if not isinstance(text, str):
+            return False, False
+        submitted = text.strip()
+        if sha256(submitted.encode('utf-8')).hexdigest() != pending.get('solution_digest'):
+            return False, False
+        solution = dict(solution, text=submitted)
     session.pop('game_pending', None)
     session['game_knowledge'] = pending['knowledge']
     logged = False
@@ -104,7 +114,7 @@ def _accept_game_progress(token):
             max(session.get('game_unlocked', 0), pending['level_index'] + 1),
         )
         try:
-            _append_solution(pending['solution'])
+            _append_solution(solution)
             logged = True
         except OSError as exc:
             app.logger.warning("Mad Hacker solution log failed (%s)", type(exc).__name__)
@@ -221,11 +231,11 @@ def game_readings():
             'knowledge': knowledge,
             'level_index': level_index,
             'won': won,
+            'solution_digest': sha256(text.encode('utf-8')).hexdigest() if won else None,
             'solution': {
                 'recorded_at': datetime.now(timezone.utc).isoformat().replace('+00:00', 'Z'),
                 'level': level['id'],
                 'title': level['title'],
-                'text': text,
                 'model': evaluation.get('model', ''),
                 'readings': evaluation['readings'],
             } if won else None,
@@ -242,9 +252,10 @@ def game_readings():
 def accept_game_progress():
     """Commit and log the winning response the browser retained as current."""
     body = request.get_json(silent=True)
-    if not isinstance(body, dict) or not isinstance(body.get('token'), str):
-        return jsonify(error="Send a progress token."), 400
-    accepted, logged = _accept_game_progress(body['token'])
+    if (not isinstance(body, dict) or not isinstance(body.get('token'), str) or
+            not isinstance(body.get('text'), str)):
+        return jsonify(error="Send a progress token and phrase."), 400
+    accepted, logged = _accept_game_progress(body['token'], body['text'])
     if not accepted:
         return jsonify(error="That reading is no longer current."), 409
     return jsonify(accepted=True, solutionLogged=logged)

@@ -249,7 +249,7 @@ export class Experiment {
     if(typeof data.progressToken==='string'){
      this.pendingAcceptance=data.progressToken;
      this.changed();
-     await this.accept(data.progressToken);
+     await this.accept(data.progressToken,submitted);
     }
     this.completeCurrentLevel(submitted,met);
    }
@@ -270,7 +270,7 @@ export class Experiment {
   if(!token||this.loading||!this.won)return false;
   this.loading=true;this.error='';this.failedText='';this.changed();
   try{
-   await this.accept(token);
+   await this.accept(token,this.text.trim());
    if(token!==this.pendingAcceptance||!this.won)return false;
    const met=this.readings.map((reading,i)=>readingMeets(this.rules[i],reading));
    this.completeCurrentLevel(this.text.trim(),met);return true;

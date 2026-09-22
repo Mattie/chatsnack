@@ -6,7 +6,6 @@ import os
 
 
 _sync_client = ContextVar('sampler_sync_client', default=None)
-_async_client = ContextVar('sampler_async_client', default=None)
 
 
 def _client_options(params):
@@ -32,7 +31,7 @@ def create_sync_client(params):
 
 
 def create_async_client(params):
-    """Construct the lazy async SDK client for a reusable Sampler."""
+    """Construct a scoped async SDK client for one evaluation."""
     from typesafe_sdk import AsyncTypeSafeClient
     return AsyncTypeSafeClient(**_client_options(params))
 
@@ -45,16 +44,6 @@ def use_sync_client(client):
         yield
     finally:
         _sync_client.reset(token)
-
-
-@contextmanager
-def use_async_client(client):
-    """Make one Sampler-owned async client visible to the provider boundary."""
-    token = _async_client.set(client)
-    try:
-        yield
-    finally:
-        _async_client.reset(token)
 
 
 def _builtins(response):
@@ -78,12 +67,7 @@ def evaluate_sync(request, params):
 
 
 async def evaluate(request, params):
-    """Submit asynchronously, retaining an activated client or scoping a standalone one."""
-    client = _async_client.get()
-    if client is not None:
-        if callable(client):
-            client = client()
-        return _builtins(await client.system_one(**request))
+    """Submit asynchronously and close the client on the active event loop."""
     client = create_async_client(params)
     try:
         return _builtins(await client.system_one(**request))

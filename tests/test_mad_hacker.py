@@ -5,6 +5,7 @@ import shutil
 import sys
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
+from hashlib import sha256
 from pathlib import Path
 from threading import Barrier, Event, Lock
 import pytest
@@ -137,6 +138,15 @@ def test_homepage_assigns_distinct_opaque_player_ids(client):
     assert len(second_id) >= 20
 
 
+def test_homepage_uses_a_persistent_game_session_cookie(client):
+    response = client.get('/')
+
+    cookie = response.headers['Set-Cookie']
+    assert 'Expires=' in cookie
+    with client.session_transaction() as state:
+        assert state.permanent is True
+
+
 def test_local_session_secret_survives_process_restarts(monkeypatch, tmp_path):
     monkeypatch.delenv('MAD_HACKER_SECRET_KEY', raising=False)
     path = tmp_path / 'runtime' / 'session-secret'
@@ -204,7 +214,7 @@ def test_progress_and_unlocks_are_isolated_by_browser_session(client, monkeypatc
     result = client.post('/api/game', json={'level': level['id'], 'text': 'winning request'})
     assert result.status_code == 200
     assert client.post('/api/game/accept', json={
-        'token': result.json['progressToken'],
+        'token': result.json['progressToken'], 'text': 'winning request',
     }).status_code == 200
     assert other.post('/api/game', json={'level': '02', 'text': 'still locked'}).status_code == 403
 
@@ -344,8 +354,12 @@ def test_server_rejects_locked_levels_and_unlocks_the_next_after_a_win(client, m
     assert calls == []
     first = client.post('/api/game', json={'level':'01', 'text':'winning request'})
     assert first.status_code == 200
+    accepted = client.post('/api/game/accept', json={
+        'token': first.json['progressToken'], 'text': 'winning request',
+    })
+    assert accepted.status_code == 200
     assert client.post('/api/game', json={
-        'level':'02', 'text':'next circuit', 'accepted':first.json['progressToken'],
+        'level':'02', 'text':'next circuit',
     }).status_code == 200
     assert calls == ['01', '02']
 
@@ -495,6 +509,7 @@ def test_current_winning_solution_is_appended_to_its_level_log(client, monkeypat
 
     accepted = client.post('/api/game/accept', json={
         'token': result.json['progressToken'],
+        'text': 'Please open the hatch; I forgot how it works.',
     })
     assert accepted.status_code == 200
     assert accepted.json == {'accepted': True, 'solutionLogged': True}
@@ -511,10 +526,42 @@ def test_current_winning_solution_is_appended_to_its_level_log(client, monkeypat
 
     duplicate = client.post('/api/game/accept', json={
         'token': result.json['progressToken'],
+        'text': 'Please open the hatch; I forgot how it works.',
     })
     assert duplicate.status_code == 200
     assert duplicate.json == {'accepted': True, 'solutionLogged': True}
     assert len(path.read_text(encoding='utf-8').splitlines()) == 1
+
+
+def test_winning_phrase_is_verified_without_entering_the_session_cookie(client, monkeypatch):
+    level = game.LEVELS[0]
+    monkeypatch.setattr(game, 'evaluate_level', lambda level_id, text: {
+        'readings': [
+            {'id': rule['id'], 'value': rule['target']}
+            for rule in level['rules']
+        ],
+        'model': 'fake-large-phrase',
+    })
+    phrase = ''.join(chr(0x1000 + index) for index in range(2000))
+
+    result = client.post('/api/game', json={'level': '01', 'text': phrase})
+
+    assert result.status_code == 200
+    assert len(result.headers['Set-Cookie'].encode('ascii')) < 4093
+    with client.session_transaction() as state:
+        assert 'text' not in state['game_pending']['solution']
+        assert state['game_pending']['solution_digest'] == sha256(
+            phrase.encode('utf-8'),
+        ).hexdigest()
+
+    rejected = client.post('/api/game/accept', json={
+        'token': result.json['progressToken'], 'text': phrase + 'changed',
+    })
+    assert rejected.status_code == 409
+    accepted = client.post('/api/game/accept', json={
+        'token': result.json['progressToken'], 'text': phrase,
+    })
+    assert accepted.status_code == 200
 
 
 def test_concurrent_solution_writes_remain_complete_json_lines(client):
@@ -552,7 +599,7 @@ def test_nonwinning_readings_are_never_logged(client, monkeypatch):
     })
     result = client.post('/api/game', json={'level': '01', 'text': 'No.'})
     accepted = client.post('/api/game/accept', json={
-        'token': result.json['progressToken'],
+        'token': result.json['progressToken'], 'text': 'No.',
     })
     assert accepted.status_code == 200
     assert accepted.json == {'accepted': True, 'solutionLogged': False}

@@ -22,7 +22,7 @@ if sample.answer.yes:
 
 Use `await sampler.ask_a(...)` for async code. Both methods always return a Sample.
 
-A reusable Sampler also keeps its provider connection ready for the next call:
+A reusable Sampler keeps its synchronous provider connection ready for the next call:
 
 ```python
 judge = Sampler(questions=["Is this crunchy?"])
@@ -31,10 +31,10 @@ second = judge.ask(data="a potato chip")
 judge.close()
 ```
 
-Use `await judge.close_a()` after async evaluations. Short scripts can finish
-normally; long-running applications should close their Samplers during shutdown.
-One-call endpoint, credential, timeout, and retry overrides stay isolated from the
-Sampler's reusable authored connection.
+Call `close()` when a long-running synchronous application shuts down. `ask_a()`
+uses a scoped async client and closes it after each evaluation, so it does not keep
+an event-loop-bound connection on the Sampler. One-call endpoint, credential,
+timeout, and retry overrides stay isolated from the reusable synchronous connection.
 
 ## Keep a useful question
 

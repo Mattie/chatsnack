@@ -78,7 +78,8 @@ changes levels.
 
 For local launches, the app creates an ignored `.local/session-secret` file so
 signed sessions survive process restarts. Set `MAD_HACKER_SECRET_KEY` to use an
-explicit deployment secret instead.
+explicit deployment secret instead. Game sessions remain valid for 30 days so
+browser-restored levels retain their matching server authorization.
 
 `levels.yml` lists the level IDs in progression order. Each ID loads a matching
 file such as `levels/level-03.yml`, which owns that level's title, guardian,

@@ -45,16 +45,18 @@ otherwise the SDK honors `TYPESAFE_BASE_URL` and its default endpoint.
 
 ## Client lifetime
 
-Like `Chat`, a reusable `Sampler` opens provider clients lazily and retains them
-across calls. `ask()` owns a synchronous TypeSafe client; `ask_a()` owns an async
-client. Call `sampler.close()` from synchronous applications or
-`await sampler.close_a()` from async applications during shutdown.
+Like `Chat`, a reusable `Sampler` opens its synchronous provider client lazily and
+retains it across `ask()` calls. Call `sampler.close()` when a long-running
+synchronous application shuts down. `ask_a()` creates and closes a scoped async
+client for each evaluation so event-loop-bound transports are never retained on the
+Sampler. `close_a()` remains the async-compatible way to close any retained sync
+client when code uses both execution styles.
 
 Changing `model` for one call reuses the existing connection because the model is
 part of the request. Call-time `timeout`, `retry`, `base_url`, or `api_key_env`
 settings use a scoped client for that call. They do not replace the Sampler's
-authored connection. If authored connection settings change after evaluation,
-close the Sampler before evaluating with the new settings.
+authored synchronous connection. If authored connection settings change after a
+synchronous evaluation, close the Sampler before evaluating with the new settings.
 
 ## Request inspection
 

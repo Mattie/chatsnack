@@ -9,8 +9,8 @@ returns a Sample; `.answer` and `.question` are its first existing collection it
   Inline, stored, and batch calls return Sample; aliases preserve identity and named lookup survives reordering.
 - [x] Provider execution: included SDK, async/sync parity, decoding and cleanup.
   Real SDK HTTP contracts run with deterministic transports, including retries, errors, and cancellation.
-  Reusable Samplers now retain lazy sync/async clients like Chat; explicit close methods
-  release them, while call-time connection overrides remain scoped to one evaluation.
+  Reusable Samplers retain a lazy synchronous client like Chat; async evaluations use
+  loop-scoped clients that close after each call, while connection overrides remain scoped.
 - [x] Persistence and replay: explicit writes, preserved authoring forms, literal reconstruction.
   Live references, embedded values, custom stashes, and Sample-valued follow-ups survive save/load.
 - [x] Fillings: typed Questions, named results, expansion-local reuse and authority.

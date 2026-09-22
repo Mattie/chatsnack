@@ -172,17 +172,17 @@ test('only a current response becomes the next accepted progress token',async()=
 });
 test('only a current winning response is acknowledged for disk logging',async()=>{
  let now=0;const requests=[],accepted=[];
- const g=new Experiment(LEVELS,true,()=>new Promise(resolve=>requests.push({resolve})),()=>{},()=>now,async token=>accepted.push(token));
+ const g=new Experiment(LEVELS,true,()=>new Promise(resolve=>requests.push({resolve})),()=>{},()=>now,async(token,text)=>accepted.push([token,text]));
  g.edit('winning phrase');const win=g.analyze();requests[0].resolve({...reading(),progressToken:'winning-token'});await win;
- assert.deepEqual(accepted,['winning-token']);
+ assert.deepEqual(accepted,[['winning-token','winning phrase']]);
 
  now+=3000;g.advance();g.edit('stale winner');const stale=g.analyze();g.edit('newer text');requests[1].resolve({...reading(),progressToken:'stale-token'});await stale;
- assert.deepEqual(accepted,['winning-token']);
+ assert.deepEqual(accepted,[['winning-token','winning phrase']]);
 });
 test('failed progress acknowledgement stays pending and retries without another evaluation',async()=>{
  const requests=[],accepted=[];
- const original=new Experiment(LEVELS,true,()=>new Promise(resolve=>requests.push({resolve})),()=>{},()=>0,async token=>{
-  accepted.push(token);throw new Error('The accepted solution could not be recorded.');
+ const original=new Experiment(LEVELS,true,()=>new Promise(resolve=>requests.push({resolve})),()=>{},()=>0,async(token,text)=>{
+  accepted.push([token,text]);throw new Error('The accepted solution could not be recorded.');
  });
  original.edit('winning phrase');const win=original.analyze();
  requests[0].resolve({...reading(),progressToken:'winning-token'});await win;
@@ -194,11 +194,11 @@ test('failed progress acknowledgement stays pending and retries without another 
  assert.equal(saved.pending.token,'winning-token');assert.equal(saved.pending.levelId,'04');
 
  const providerCalls=[],retryTokens=[];
- const restored=new Experiment(LEVELS,true,(...args)=>providerCalls.push(args),()=>{},()=>0,async token=>retryTokens.push(token));
+ const restored=new Experiment(LEVELS,true,(...args)=>providerCalls.push(args),()=>{},()=>0,async(token,text)=>retryTokens.push([token,text]));
  assert.equal(restored.restoreProgress(saved),true);
  assert.equal(restored.awaitingAcceptance,true);assert.equal(restored.canRetry,true);assert.equal(restored.accessGranted,false);
  assert.equal(await restored.retryAcceptance(),true);
- assert.deepEqual(providerCalls,[]);assert.deepEqual(retryTokens,['winning-token']);
+ assert.deepEqual(providerCalls,[]);assert.deepEqual(retryTokens,[['winning-token','winning phrase']]);
  assert.equal(restored.pendingAcceptance,null);assert.equal(restored.accessGranted,true);
  assert.equal(restored.history.length,1);assert.ok(restored.completed['04']);
 });
