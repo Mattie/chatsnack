@@ -172,6 +172,8 @@ class Sampler(Asset):
                     content = {k: await resolve_value(v, fillings) if k != 'name' else v
                                for k, v in content.items()}
                 resolved.append(Question(**content))
+            for question in resolved:
+                question._validate_name()
             names = [q.name for q in resolved if q.name is not None]
             if len(set(names)) != len(names):
                 raise ValueError('Duplicate question names')

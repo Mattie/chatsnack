@@ -86,8 +86,8 @@ print(sample.answers["sweetness"].score)
 ```
 
 Named access remains stable when you reorder questions. All collections retain
-authored order; unnamed questions are available by position. Names must be unique
-within a batch. Empty batches are rejected.
+authored order; unnamed questions are available by position. Names must be
+nonempty strings without dots and unique within a batch. Empty batches are rejected.
 
 Every answer has `choice`, `score`, `probabilities`, and `confidence`:
 

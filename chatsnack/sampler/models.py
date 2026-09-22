@@ -62,8 +62,7 @@ class Question(Asset):
             isinstance(instructions, str) and not instructions.strip()
         ):
             raise ValueError('A question needs nonempty instructions')
-        if self.name is not None and (not isinstance(self.name, str) or not self.name.strip()):
-            raise ValueError('Question names must be nonempty strings')
+        self._validate_name()
         if self.choices is not None and self.levels is not None:
             raise ValueError('A question cannot have both choices and levels')
         if self.kind != 'noul' and (self.yes is not None or self.no is not None):
@@ -89,6 +88,13 @@ class Question(Asset):
             names, descriptions = self.score_levels()
             result['criteria'] = descriptions
         return result
+
+    def _validate_name(self):
+        """Reject names that cannot safely identify a compiled or filled answer."""
+        if self.name is not None and (
+            not isinstance(self.name, str) or not self.name.strip() or '.' in self.name
+        ):
+            raise ValueError('Question names must be nonempty strings without dots')
 
     def score_levels(self):
         """Keep stable authored names alongside Jev's ordered level descriptions."""

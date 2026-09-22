@@ -106,6 +106,13 @@ def test_batch_requires_a_collection_and_unique_names(evaluations):
     assert not evaluations
 
 
+@pytest.mark.parametrize('name', [['unhashable'], 'ambiguous.answer'])
+def test_question_names_fail_preflight_before_mapping_or_filling(name, evaluations):
+    with pytest.raises(ValueError, match='Question names must be nonempty strings without dots'):
+        Sampler(data='hi').ask(Question(name=name, question='Good?'))
+    assert not evaluations
+
+
 def saved_sampler(name='SnackCheck', **kwargs):
     """Small saved fixture with a named answer suitable for composition."""
     return Sampler(name=name, data=kwargs.pop('data', '{snack}'),

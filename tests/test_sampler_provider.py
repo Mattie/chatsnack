@@ -1,9 +1,11 @@
 """Contract tests through the required SDK's HTTP encode/decode boundary."""
 
 import asyncio
-import builtins
 import json
 import os
+import subprocess
+import sys
+from pathlib import Path
 
 import pytest
 import httpx2
@@ -106,18 +108,32 @@ async def test_sdk_client_closes_on_cancellation(sdk_transport):
     assert clients[0].is_closed
 
 
-def test_authoring_does_not_import_provider_sdk(monkeypatch, tmp_path):
-    original = builtins.__import__
+def test_authoring_does_not_import_provider_sdk(tmp_path):
+    script = r'''
+import builtins
+from pathlib import Path
+import sys
 
-    def without_sdk(name, *args, **kwargs):
-        if name == 'typesafe_sdk':
-            raise AssertionError('Authoring must not import the provider SDK')
-        return original(name, *args, **kwargs)
+original = builtins.__import__
 
-    monkeypatch.setattr(builtins, '__import__', without_sdk)
-    sampler = Sampler(name='Offline', data='hi', questions=['Good?'])
-    sampler.save(tmp_path / 'Offline.yml')
-    assert sampler.compile()['state'] == 'hi'
+def without_sdk(name, *args, **kwargs):
+    if name == 'typesafe_sdk' or name.startswith('typesafe_sdk.'):
+        raise AssertionError('Authoring must not import the provider SDK')
+    return original(name, *args, **kwargs)
+
+builtins.__import__ = without_sdk
+from chatsnack import Sampler
+
+sampler = Sampler(name='Offline', data='hi', questions=['Good?'])
+sampler.save(Path(sys.argv[1]) / 'Offline.yml')
+assert sampler.compile()['state'] == 'hi'
+assert 'typesafe_sdk' not in sys.modules
+'''
+    result = subprocess.run(
+        [sys.executable, '-c', script, str(tmp_path)],
+        cwd=Path(__file__).parents[1], capture_output=True, text=True, timeout=20,
+    )
+    assert result.returncode == 0, result.stderr
 
 
 @pytest.mark.skipif(os.getenv('CHATSNACK_RUN_TYPESAFE_LIVE') != '1', reason='opt-in paid TypeSafe contract')

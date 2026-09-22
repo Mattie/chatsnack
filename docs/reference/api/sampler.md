@@ -54,6 +54,9 @@ Structured instructions, criteria, and data remain structured. Choice lists
 compile to null descriptions; Score level names are retained locally while the
 ordered descriptions go to Jev.
 
+Explicit Question names must be nonempty strings without dots. Dots delimit the
+saved Sampler, answer name, and result field in named result fillings.
+
 ## Advanced resolver
 
 ```python
