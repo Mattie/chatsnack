@@ -199,7 +199,7 @@ sample.questions["department"]
 sample.answers["department"].choice
 ```
 
-Names are optional. Explicit names must be nonempty strings without dots and unique within one Sample; dots delimit the saved Sampler, answer name, and result field in result fillings. An unnamed question remains available by position. This works for every question kind because `.choice` is universal: it returns `"yes"` or `"no"` for yes/no, an option key for Choice, and the selected level name for Score.
+Names are optional. Explicit names must be nonempty strings without filling metacharacters (`.`, `[`, `]`, `{`, `}`, `!`, or `:`) and unique within one Sample; those characters delimit or modify named result fillings. An unnamed question remains available by position. This works for every question kind because `.choice` is universal: it returns `"yes"` or `"no"` for yes/no, an option key for Choice, and the selected level name for Score.
 
 TypeSafe returns answers in a map keyed by question ID. The adapter should rebuild both collections from the submitted question order rather than relying on response-object order. It may generate private provider IDs for unnamed questions, but those IDs do not become authored names.
 

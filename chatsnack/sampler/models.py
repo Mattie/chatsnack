@@ -13,6 +13,9 @@ from ..defaults import CHATSNACK_ROOT
 from .persistence import Asset, AssetYAML, ValueSerializer
 
 
+_QUESTION_NAME_METACHARACTERS = frozenset('.[]{}!:')
+
+
 def json_value(value):
     """Copy JSON content without coercing keys, opaque objects, or nonfinite numbers."""
     if value is None or isinstance(value, (str, bool, int)):
@@ -92,9 +95,12 @@ class Question(Asset):
     def _validate_name(self):
         """Reject names that cannot safely identify a compiled or filled answer."""
         if self.name is not None and (
-            not isinstance(self.name, str) or not self.name.strip() or '.' in self.name
+            not isinstance(self.name, str) or not self.name.strip()
+            or any(char in self.name for char in _QUESTION_NAME_METACHARACTERS)
         ):
-            raise ValueError('Question names must be nonempty strings without dots')
+            raise ValueError(
+                'Question names must be nonempty strings without filling metacharacters .[]{}!:'
+            )
 
     def score_levels(self):
         """Keep stable authored names alongside Jev's ordered level descriptions."""

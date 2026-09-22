@@ -106,9 +106,12 @@ def test_batch_requires_a_collection_and_unique_names(evaluations):
     assert not evaluations
 
 
-@pytest.mark.parametrize('name', [['unhashable'], 'ambiguous.answer'])
+@pytest.mark.parametrize('name', [
+    ['unhashable'], 'ambiguous.answer', 'indexed[answer]', 'braced{answer}',
+    'converted!answer', 'formatted:answer',
+])
 def test_question_names_fail_preflight_before_mapping_or_filling(name, evaluations):
-    with pytest.raises(ValueError, match='Question names must be nonempty strings without dots'):
+    with pytest.raises(ValueError, match='Question names must be nonempty strings without filling metacharacters'):
         Sampler(data='hi').ask(Question(name=name, question='Good?'))
     assert not evaluations
 
@@ -133,6 +136,19 @@ async def test_goal_result_fillings_share_one_evaluation_across_chat_messages(tm
     await chat._build_final_prompt({'snack': 'apple'})
     assert len(evaluations) == 2
     assert evaluations[-1][0]['state'] == 'apple'
+
+
+@pytest.mark.asyncio
+async def test_named_result_fillings_accept_non_formatter_punctuation(tmp_path, monkeypatch, evaluations):
+    monkeypatch.setenv('CHATSNACK_BASE_DIR', str(tmp_path))
+    Sampler(name='SnackCheck', data='popcorn', questions=[
+        Question(name='well-approved', question='Good?'),
+    ]).save()
+    values = await resolve_fillings_a(
+        ['sampler.SnackCheck.well-approved.choice'], allow_sampler=True,
+    )
+    assert values['sampler']['SnackCheck.well-approved.choice'] == 'yes'
+    assert len(evaluations) == 1
 
 
 @pytest.mark.asyncio
