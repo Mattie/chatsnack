@@ -31,7 +31,7 @@ if(!restoredProgress&&Number.isInteger(config.unlocked)&&config.unlocked>0)game.
 let lastStoredProgress='';
 function persistProgress(){
  const progress=game.exportProgress();
- if(!Object.keys(progress.completed).length){clearStoredProgress();lastStoredProgress='';return;}
+ if(!Object.keys(progress.completed).length&&!progress.pending){clearStoredProgress();lastStoredProgress='';return;}
  const serialized=JSON.stringify(progress);
  if(serialized===lastStoredProgress)return;
  try{localStorage.setItem(progressKey,serialized);lastStoredProgress=serialized;}catch{}
@@ -97,9 +97,9 @@ function render(){
  pocketSignals.begin(level.id);
  const activity=currentAnalysisActivity();
  const discoveries=game.takeDiscoveries(),discoveryByIndex=new Map(discoveries.map(discovery=>[discovery.index,discovery]));
- const newlyWon=game.won&&!wasWon;
+ const newlyWon=game.accessGranted&&!wasWon;
  document.body.classList.toggle('busy',activity.active);
- el('statusline').classList.toggle('granted',game.won);
+ el('statusline').classList.toggle('granted',game.accessGranted);
  if(debug){
   el('debug-reveal').disabled=game.loading||game.debugReveal;
   el('debug-reveal').textContent=game.debugReveal?'Goals revealed':'Reveal goals';
@@ -117,18 +117,18 @@ function render(){
  el('instruments').classList.toggle('stale',!!game.readings&&!game.current);
  el('phrase').disabled=game.inputLocked;
  const canSubmit=game.canAnalyze()||game.canRetry;
- el('analyze').disabled=game.inputLocked?false:activity.active||!config.configured||!canSubmit;
- el('analyze').classList.toggle('continue',game.inputLocked);
- el('analyze').textContent=game.inputLocked?'CONTINUE':activity.active?'ANALYZING…':game.canRetry?'RETRY ▶':'ANALYZE\nTEXT';
+ el('analyze').disabled=game.accessGranted?false:activity.active||!config.configured||!canSubmit;
+ el('analyze').classList.toggle('continue',game.accessGranted);
+ el('analyze').textContent=game.accessGranted?'CONTINUE':activity.active?'ANALYZING…':game.canRetry?'RETRY ▶':'ANALYZE\nTEXT';
  el('attempt').textContent='RUN '+String(game.attempts).padStart(3,'0');
  syncAnalysisScope(activity);
  el('status').textContent=!config.configured?'Set TYPESAFE_API_KEY on the server, then reload.':
   activity.active?'Sampling the unknown…':game.error||
-  (game.won?'ACCESS GRANTED. The next circuit is live.':game.readings&&!game.current?'Input changed. Analyze to take a new reading.':game.current?'Reading complete. Adjust the phrase and try again.':level.briefing);
+  (game.accessGranted?'ACCESS GRANTED. The next circuit is live.':game.readings&&!game.current?'Input changed. Analyze to take a new reading.':game.current?'Reading complete. Adjust the phrase and try again.':level.briefing);
  el('status').setAttribute('role',game.error&&!activity.active?'alert':'status');
  const passed=game.current?rules.filter((rule,i)=>readingMeets(rule,game.readings[i])).length:0;
  el('progress').textContent=passed+' / '+rules.length+' TARGETS';el('model').textContent=game.model||'AWAITING INPUT';
- el('victory').hidden=!game.won;el('victory-copy').textContent='All '+rules.length+' readings align. Level '+level.id+' complete.';
+ el('victory').hidden=!game.accessGranted;el('victory-copy').textContent='All '+rules.length+' readings align. Level '+level.id+' complete.';
  el('restart').textContent=game.levelIndex===game.levels.length-1?'NEW GAME':'CONTINUE TO LEVEL '+game.levels[game.levelIndex+1].id;
 
  el('levels').replaceChildren();
@@ -188,7 +188,7 @@ function render(){
  });
  pocketSignals.schedule();
  playDiscoveryFeedback(discoveries);
- wasWon=game.won;
+ wasWon=game.accessGranted;
  if(newlyWon)requestAnimationFrame(()=>el('analyze').focus());
 
  el('log-count').textContent=game.history.length+' '+(game.history.length===1?'RECORD':'RECORDS');el('history').replaceChildren();
@@ -245,7 +245,7 @@ if(debug){
 }
 function submitAnalysis(withBeep=false){if(!game.canAnalyze()&&!game.canRetry)return;if(withBeep)submissionBeep();queueAnalysis(true);}
 function continueLevel(){if(game.advance()){syncInput();el('phrase').focus();return true;}return false;}
-el('experiment').addEventListener('submit',event=>{event.preventDefault();if(game.inputLocked)continueLevel();else submitAnalysis();});
+el('experiment').addEventListener('submit',event=>{event.preventDefault();if(game.awaitingAcceptance)submitAnalysis();else if(game.inputLocked)continueLevel();else submitAnalysis();});
 let audioContext;
 function submissionBeep(){
  try{const AudioContext=window.AudioContext||window.webkitAudioContext;if(!AudioContext)return;audioContext ||= new AudioContext();const now=audioContext.currentTime,gain=audioContext.createGain();gain.gain.setValueAtTime(.0001,now);gain.gain.exponentialRampToValueAtTime(.055,now+.012);gain.gain.exponentialRampToValueAtTime(.0001,now+.34);gain.connect(audioContext.destination);[[116,'square',0],[233,'sawtooth',.055],[466,'square',.115]].forEach(([frequency,type,delay])=>{const oscillator=audioContext.createOscillator();oscillator.type=type;oscillator.frequency.setValueAtTime(frequency,now+delay);oscillator.frequency.exponentialRampToValueAtTime(frequency*.72,now+delay+.18);oscillator.connect(gain);oscillator.start(now+delay);oscillator.stop(now+delay+.22);});}catch{}

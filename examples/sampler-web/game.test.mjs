@@ -179,6 +179,29 @@ test('only a current winning response is acknowledged for disk logging',async()=
  now+=3000;g.advance();g.edit('stale winner');const stale=g.analyze();g.edit('newer text');requests[1].resolve({...reading(),progressToken:'stale-token'});await stale;
  assert.deepEqual(accepted,['winning-token']);
 });
+test('failed progress acknowledgement stays pending and retries without another evaluation',async()=>{
+ const requests=[],accepted=[];
+ const original=new Experiment(LEVELS,true,()=>new Promise(resolve=>requests.push({resolve})),()=>{},()=>0,async token=>{
+  accepted.push(token);throw new Error('The accepted solution could not be recorded.');
+ });
+ original.edit('winning phrase');const win=original.analyze();
+ requests[0].resolve({...reading(),progressToken:'winning-token'});await win;
+
+ assert.equal(original.won,true);assert.equal(original.accessGranted,false);assert.equal(original.awaitingAcceptance,true);
+ assert.equal(original.inputLocked,true);assert.equal(original.canRetry,true);assert.equal(original.advance(),false);
+ assert.deepEqual(original.history,[]);assert.equal(original.completed['04'],undefined);
+ const saved=original.exportProgress();
+ assert.equal(saved.pending.token,'winning-token');assert.equal(saved.pending.levelId,'04');
+
+ const providerCalls=[],retryTokens=[];
+ const restored=new Experiment(LEVELS,true,(...args)=>providerCalls.push(args),()=>{},()=>0,async token=>retryTokens.push(token));
+ assert.equal(restored.restoreProgress(saved),true);
+ assert.equal(restored.awaitingAcceptance,true);assert.equal(restored.canRetry,true);assert.equal(restored.accessGranted,false);
+ assert.equal(await restored.retryAcceptance(),true);
+ assert.deepEqual(providerCalls,[]);assert.deepEqual(retryTokens,['winning-token']);
+ assert.equal(restored.pendingAcceptance,null);assert.equal(restored.accessGranted,true);
+ assert.equal(restored.history.length,1);assert.ok(restored.completed['04']);
+});
 test('failed current text can be retried unchanged after the one-second gate',async()=>{
  const {experiment:g,requests:r,advance}=setup();await g.analyze();assert.equal(r.length,0);g.edit('hello');g.configured=false;await g.analyze();assert.equal(r.length,0);
  g.configured=true;const run=g.analyze();r[0].reject(new Error('Try again.'));await run;

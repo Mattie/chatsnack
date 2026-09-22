@@ -15,6 +15,27 @@ from flask import Flask, jsonify, render_template, request, session
 from dotenv import load_dotenv
 
 HERE = Path(__file__).parent
+SESSION_SECRET_PATH = HERE / ".local" / "session-secret"
+
+
+def _load_or_create_session_secret(path=SESSION_SECRET_PATH):
+    """Keep local browser sessions valid across ordinary process restarts."""
+    configured = os.getenv("MAD_HACKER_SECRET_KEY")
+    if configured:
+        return configured
+    path.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        secret = path.read_text(encoding="utf-8").strip()
+    except FileNotFoundError:
+        secret = secrets.token_urlsafe(48)
+        try:
+            with path.open("x", encoding="utf-8", newline="\n") as stream:
+                stream.write(secret + "\n")
+        except FileExistsError:
+            secret = path.read_text(encoding="utf-8").strip()
+    if not secret:
+        raise RuntimeError(f"Session secret is empty: {path}")
+    return secret
 
 
 def _game_asset_version():
@@ -37,7 +58,7 @@ LAB_SPEC.loader.exec_module(LAB_MODULE)
 # Keep local credentials beside the example; explicit environment values win.
 load_dotenv(HERE / ".env")
 app = Flask(__name__, template_folder=str(HERE / "templates"), static_folder=str(HERE / "static"))
-app.secret_key = os.getenv("MAD_HACKER_SECRET_KEY") or os.urandom(32)
+app.secret_key = _load_or_create_session_secret()
 app.config.update(
     SESSION_COOKIE_HTTPONLY=True,
     SESSION_COOKIE_SAMESITE="Lax",
@@ -68,6 +89,9 @@ def _append_solution(record):
 
 def _accept_game_progress(token):
     """Commit only the pending result identified by the browser's current token."""
+    accepted = session.get('game_accepted')
+    if isinstance(accepted, dict) and token == accepted.get('token'):
+        return True, bool(accepted.get('solution_logged'))
     pending = session.get('game_pending')
     if not pending or token != pending['token']:
         return False, False
@@ -84,6 +108,10 @@ def _accept_game_progress(token):
             logged = True
         except OSError as exc:
             app.logger.warning("Mad Hacker solution log failed (%s)", type(exc).__name__)
+    session['game_accepted'] = {
+        'token': token,
+        'solution_logged': logged,
+    }
     return True, logged
 
 
@@ -112,7 +140,6 @@ def game():
     """Open the passphrase experiment while retaining this browser's progress."""
     _game_player_id()
     session.pop('game_debug', None)
-    session.pop('game_pending', None)
     saved_unlocked = session.get('game_unlocked', 0)
     unlocked = min(max(saved_unlocked, 0), len(GAME_MODULE.LEVELS) - 1) \
         if isinstance(saved_unlocked, int) else 0
@@ -135,6 +162,7 @@ def reset_game():
     session.pop('game_knowledge', None)
     session.pop('game_unlocked', None)
     session.pop('game_pending', None)
+    session.pop('game_accepted', None)
     return jsonify(reset=True)
 
 
@@ -165,6 +193,7 @@ def game_readings():
         session.pop('game_knowledge', None)
         session.pop('game_unlocked', None)
         session.pop('game_pending', None)
+        session.pop('game_accepted', None)
     # Commit only progress from a response the browser accepted as current.
     if isinstance(body.get('accepted'), str):
         _accept_game_progress(body['accepted'])

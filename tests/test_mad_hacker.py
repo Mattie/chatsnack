@@ -137,7 +137,26 @@ def test_homepage_assigns_distinct_opaque_player_ids(client):
     assert len(second_id) >= 20
 
 
-def test_homepage_retains_accepted_progress_but_drops_pending_and_debug_state(client):
+def test_local_session_secret_survives_process_restarts(monkeypatch, tmp_path):
+    monkeypatch.delenv('MAD_HACKER_SECRET_KEY', raising=False)
+    path = tmp_path / 'runtime' / 'session-secret'
+
+    first = web._load_or_create_session_secret(path)
+    second = web._load_or_create_session_secret(path)
+
+    assert first == second
+    assert path.read_text(encoding='utf-8').strip() == first
+
+
+def test_configured_session_secret_takes_precedence(monkeypatch, tmp_path):
+    monkeypatch.setenv('MAD_HACKER_SECRET_KEY', 'configured-secret')
+    path = tmp_path / 'session-secret'
+
+    assert web._load_or_create_session_secret(path) == 'configured-secret'
+    assert not path.exists()
+
+
+def test_homepage_retains_accepted_and_pending_progress_but_drops_debug_state(client):
     with client.session_transaction() as state:
         state['game_unlocked'] = 2
         state['game_knowledge'] = {'01': {'01-2': [2]}}
@@ -150,7 +169,7 @@ def test_homepage_retains_accepted_progress_but_drops_pending_and_debug_state(cl
     with client.session_transaction() as state:
         assert state['game_unlocked'] == 2
         assert state['game_knowledge'] == {'01': {'01-2': [2]}}
-        assert 'game_pending' not in state
+        assert state['game_pending'] == {'token': 'stale'}
         assert 'game_debug' not in state
 
 
@@ -159,6 +178,7 @@ def test_start_over_clears_server_progress(client):
         state['game_unlocked'] = 5
         state['game_knowledge'] = {'06': {'06-5': [3]}}
         state['game_pending'] = {'token': 'stale'}
+        state['game_accepted'] = {'token': 'accepted', 'solution_logged': True}
 
     response = client.post('/api/game/reset')
     assert response.status_code == 200
@@ -167,6 +187,7 @@ def test_start_over_clears_server_progress(client):
         assert 'game_unlocked' not in state
         assert 'game_knowledge' not in state
         assert 'game_pending' not in state
+        assert 'game_accepted' not in state
 
 
 def test_progress_and_unlocks_are_isolated_by_browser_session(client, monkeypatch):
@@ -443,7 +464,8 @@ def test_current_winning_solution_is_appended_to_its_level_log(client, monkeypat
     duplicate = client.post('/api/game/accept', json={
         'token': result.json['progressToken'],
     })
-    assert duplicate.status_code == 409
+    assert duplicate.status_code == 200
+    assert duplicate.json == {'accepted': True, 'solutionLogged': True}
     assert len(path.read_text(encoding='utf-8').splitlines()) == 1
 
 

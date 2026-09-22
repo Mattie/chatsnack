@@ -34,7 +34,7 @@ export class Experiment {
  constructor(levels,configured,send,changed,now=()=>Date.now(),accept=async()=>{}){
   this.initialLevels=copy(levels);this.levels=copy(levels);
   this.configured=configured;this.send=send;this.changed=changed;this.now=now;this.accept=accept;
-  this.loading=false;this.revision=0;this.nextAllowedAt=-Infinity;this.acceptedToken=null;this.serverResetPending=false;this.failedText='';
+  this.loading=false;this.revision=0;this.nextAllowedAt=-Infinity;this.acceptedToken=null;this.pendingAcceptance=null;this.serverResetPending=false;this.failedText='';
   this.debugReveal=false;this.debugUnlocked=false;this.newGame();
  }
  get level(){return this.levels[this.levelIndex];}
@@ -65,14 +65,14 @@ export class Experiment {
   if(this.loading)return false;
   if(pristine){
    this.levels=copy(this.debugReveal&&this.debugLevels?this.debugLevels:this.initialLevels);
-   this.acceptedToken=null;this.serverResetPending=true;
+   this.acceptedToken=null;this.pendingAcceptance=null;this.serverResetPending=true;
   }
   this.completed={};this.levelIndex=0;this.unlocked=this.debugUnlocked?this.levels.length-1:0;this.history=[];this.resetLevel();return true;
  }
  resetLevel(){
   if(this.loading)return false;
   this.text='';this.revision++;this.resultRevision=-1;this.readings=null;
-  this.lastAttemptedText='';this.failedText='';
+  this.lastAttemptedText='';this.failedText='';this.pendingAcceptance=null;
   this.revealed=this.rules.map(rule=>this.debugReveal||!!rule.visible);this.topCategory=this.rules.map(rule=>rule.categories?-1:0);
   this.categoryDiscoveries=this.rules.map(rule=>rule.categories?new Set():null);
   this.discoveries=[];
@@ -119,12 +119,16 @@ export class Experiment {
    unlocked=Math.min(this.levels.length-1,index+1);
   }
   const levelId=this.levelIndex<=unlocked?this.level.id:this.levels[unlocked].id;
-  return copy({version:1,levelId,unlocked,history:this.history,completed:this.completed});
+  const progress={version:1,levelId,unlocked,history:this.history,completed:this.completed};
+  if(this.pendingAcceptance&&this.won)progress.pending={
+   levelId:this.level.id,token:this.pendingAcceptance,snapshot:this.captureCompletedLevel(),
+  };
+  return copy(progress);
  }
  /** Restore valid player-earned progress while ignoring corrupt browser data. */
  restoreProgress(saved){
   if(!saved||saved.version!==1||!saved.completed||typeof saved.completed!=='object')return false;
-  this.levels=copy(this.initialLevels);this.completed={};
+  this.levels=copy(this.initialLevels);this.completed={};this.pendingAcceptance=null;
   for(const level of this.levels){
    const snapshot=saved.completed[level.id];
    if(!snapshot)break;
@@ -139,11 +143,17 @@ export class Experiment {
   }
   this.history=Array.isArray(saved.history)?copy(saved.history.filter(entry=>
    entry&&typeof entry.text==='string'&&this.completed[entry.level])):[];
+  const pending=saved.pending;
+  const pendingIndex=pending&&typeof pending.token==='string'&&pending.token&&pending.snapshot
+   ?this.levels.findIndex(level=>level.id===pending.levelId):-1;
   const requested=this.levels.findIndex(level=>level.id===saved.levelId);
-  const index=requested>=0&&requested<=this.unlocked?requested:this.unlocked;
+  const index=pendingIndex===this.unlocked?pendingIndex:
+   requested>=0&&requested<=this.unlocked?requested:this.unlocked;
   this.levelIndex=index;
   const completed=this.completed[this.level.id];
-  if(completed)this.restoreCompletedLevel(completed);else this.resetLevel();
+  if(completed)this.restoreCompletedLevel(completed);else if(pendingIndex===index&&this.restoreCompletedLevel(pending.snapshot)){
+   this.pendingAcceptance=pending.token;this.error='Access confirmation was interrupted. Retry to continue.';this.failedText=this.text.trim();
+  }else this.resetLevel();
   this.serverResetPending=false;this.acceptedToken=null;return true;
  }
  /** Resume at the server's last unlocked stage when this browser predates saved snapshots. */
@@ -163,13 +173,15 @@ export class Experiment {
  /** Allow direct selection of any authored level during local design work. */
  unlockAllLevels(){this.debugUnlocked=true;this.unlocked=this.levels.length-1;this.changed();return true;}
  advance(){
-  if(!this.won)return false;
+  if(!this.accessGranted)return false;
   if(this.levelIndex===this.levels.length-1)return this.newGame(true);
   return this.selectLevel(this.levelIndex+1);
  }
  edit(text){this.text=text;this.revision++;this.error='';this.failedText='';this.discoveries=[];this.changed();}
  get current(){return this.readings!==null&&this.resultRevision===this.revision;}
  get won(){return this.current&&this.rules.every((rule,i)=>readingMeets(rule,this.readings[i]));}
+ get awaitingAcceptance(){return !!this.pendingAcceptance&&this.won;}
+ get accessGranted(){return this.won&&!!this.completed[this.level.id];}
  get canRetry(){return !!this.error&&!!this.failedText&&this.failedText===this.text.trim();}
  /** Let the view freeze an accepted request until the player advances. */
  get inputLocked(){return this.won;}
@@ -181,6 +193,7 @@ export class Experiment {
  async analyze({retry=false}={}){
   const retrying=retry&&this.canRetry;
   if(this.loading||!this.configured||(!retrying&&!this.canAnalyze())||this.text.length>2000||this.waitMilliseconds>0)return;
+  if(retrying&&this.awaitingAcceptance)return this.retryAcceptance();
   this.nextAllowedAt=this.now()+1000;
   const level=this.level,submitted=this.text.trim();
   this.lastAttemptedText=submitted;
@@ -224,12 +237,35 @@ export class Experiment {
    });
    const met=ordered.map((reading,i)=>readingMeets(this.rules[i],reading));
    if(met.every(Boolean)){
-    this.history.push({level:level.id,run:this.attempts,text:submitted,met,labels:this.rules.map((rule,i)=>rule.categories&&!this.categoryView(i).title?'Unknown signal '+(i+1):rule.label)});
-    this.completed[level.id]=this.captureCompletedLevel();
-    this.unlocked=Math.min(this.levels.length-1,Math.max(this.unlocked,this.levelIndex+1));
-    if(typeof data.progressToken==='string')try{await this.accept(data.progressToken);}catch{}
+    if(typeof data.progressToken==='string'){
+     this.pendingAcceptance=data.progressToken;
+     this.changed();
+     await this.accept(data.progressToken);
+    }
+    this.completeCurrentLevel(submitted,met);
    }
   }catch(error){if(level===this.level&&submitted===this.text.trim()){this.error=error.message;this.failedText=submitted;}}
+  finally{this.loading=false;this.changed();}
+ }
+ /** Mark a winning reading durable only after its server acknowledgement succeeds. */
+ completeCurrentLevel(submitted,met){
+  const level=this.level;
+  this.history.push({level:level.id,run:this.attempts,text:submitted,met,labels:this.rules.map((rule,i)=>rule.categories&&!this.categoryView(i).title?'Unknown signal '+(i+1):rule.label)});
+  this.completed[level.id]=this.captureCompletedLevel();
+  this.unlocked=Math.min(this.levels.length-1,Math.max(this.unlocked,this.levelIndex+1));
+  this.pendingAcceptance=null;this.error='';this.failedText='';
+ }
+ /** Retry only the durable-progress handshake, without another provider evaluation. */
+ async retryAcceptance(){
+  const token=this.pendingAcceptance;
+  if(!token||this.loading||!this.won)return false;
+  this.loading=true;this.error='';this.failedText='';this.changed();
+  try{
+   await this.accept(token);
+   if(token!==this.pendingAcceptance||!this.won)return false;
+   const met=this.readings.map((reading,i)=>readingMeets(this.rules[i],reading));
+   this.completeCurrentLevel(this.text.trim(),met);return true;
+  }catch(error){this.error=error.message;this.failedText=this.text.trim();return false;}
   finally{this.loading=false;this.changed();}
  }
 }

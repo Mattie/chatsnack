@@ -76,6 +76,10 @@ the site. The signed browser session retains the corresponding server progress.
 **START OVER** clears both copies. Unfinished attempts still reset when the player
 changes levels.
 
+For local launches, the app creates an ignored `.local/session-secret` file so
+signed sessions survive process restarts. Set `MAD_HACKER_SECRET_KEY` to use an
+explicit deployment secret instead.
+
 `levels.yml` lists the level IDs in progression order. Each ID loads a matching
 file such as `levels/level-03.yml`, which owns that level's title, guardian,
 Sampler path, meter labels, targets, and reveal settings. Categorical targets use

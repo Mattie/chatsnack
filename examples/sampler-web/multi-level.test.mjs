@@ -107,7 +107,7 @@ test('debug controls reveal every goal and allow direct level selection',()=>{
 
 test('final victory action starts a clean game',()=>{
  const {game}=setup();game.levelIndex=5;game.unlocked=5;game.history=[{level:'06'}];game.readings=[{value:1}];game.resultRevision=game.revision;
- game.completed={'01':{}};
+ game.completed={'01':{},'06':game.captureCompletedLevel()};
  game.levels[0].rules[1].label='Previously decoded';game.levels[0].rules[1].target=2;game.acceptedToken='old-token';
  assert.equal(game.won,true);assert.equal(game.advance(),true);
  assert.equal(game.level.id,'01');assert.equal(game.unlocked,0);assert.deepEqual(game.history,[]);
