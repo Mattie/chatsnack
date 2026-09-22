@@ -331,6 +331,76 @@ judge = Chat("Judge the attached scorecard.").chat(files=[scorecard])
 
 A captured `ChatFile` can be read with `.read_bytes()`, copied with `.save_as()`, used as a path, or passed through `files=` or `images=`. Saved YAML keeps a compact `asset` reference rather than provider base64. Move the chatsnack data directory with the YAML when the local bytes need to travel too.
 
+## Tip 13: Save Judgments As Samplers And Questions
+
+Start with one question. `ask()` returns a `Sample`, so the short path stays short:
+
+```python
+from chatsnack import Sampler
+
+sample = Sampler(data="buttered popcorn").ask("Is this crunchy?")
+if sample.answer.yes:
+    print("Crunchy")
+```
+
+`sample.answer is sample.answers[0]` and `sample.question is sample.questions[0]` in every batch. Name answers when more than one question is involved:
+
+```python
+from chatsnack import Question, Sampler
+
+crunchy = Question(
+    name="crunchy",
+    question="Does the product description support calling it crunchy?",
+    yes="It describes a crisp texture, audible crunch, or brittle bite.",
+    no="It gives no evidence of a crunchy texture.",
+)
+crunchy.save()
+
+review = Sampler(
+    name="SnackCheck",
+    data="{snack}",
+    questions=[
+        "{question.crunchy}",
+        Question(name="sweet", question="Does it describe a sweet taste?"),
+    ],
+)
+review.save()
+sample = review.ask(snack="Kettle-popped corn with a brittle caramel shell.")
+print(sample.answers["crunchy"].yes, sample.answers["sweet"].yes)
+```
+
+The saved Sampler keeps the live reference and the embedded Question in their authored forms:
+
+```yaml
+data: "{snack}"
+questions:
+  - "{question.crunchy}"
+  - name: sweet
+    question: Does it describe a sweet taste?
+```
+
+Use the named judgment in a Chat that owns the writing:
+
+```python
+from chatsnack import Chat
+
+writer = Chat(
+    "Describe {snack} in one tempting sentence. "
+    "The saved review says crunchy={sampler.SnackCheck.crunchy.choice}. "
+    "Only call it crunchy when that answer is yes."
+)
+print(writer.ask(snack="Kettle-popped corn with a brittle caramel shell."))
+```
+
+If the evaluated input and questions should be reused literally, reconstruct them from the Sample:
+
+```python
+replay = Sampler.from_sample(sample)
+later = replay.ask()
+```
+
+Replay keeps what was evaluated; it does not promise the next model answer will match. See the [Sampler guide](https://mattie.github.io/chatsnack/guides/samplers/) for answer kinds, scores, confidence, and execution settings.
+
 ## Quick Smell Translations
 
 | Smell | Chatsnackian translation |
