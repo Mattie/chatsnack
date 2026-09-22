@@ -257,6 +257,55 @@ def test_call_override_uses_scoped_client_without_rebinding_sampler(monkeypatch)
     sampler.close()
 
 
+def test_sync_override_replaces_invalid_authored_connection_setting(monkeypatch):
+    """Only effective call parameters are validated for a scoped sync request."""
+    clients = []
+
+    class Client:
+        def __init__(self, **options):
+            self.options = options
+            self.closed = False
+            clients.append(self)
+
+        def system_one(self, **request):
+            return _fake_response()
+
+        def close(self):
+            self.closed = True
+
+    monkeypatch.setattr(typesafe_sdk, 'TypeSafeClient', Client)
+    sampler = Sampler(data='popcorn', timeout=-1)
+
+    assert sampler.ask('Crunchy?', timeout=1).answer.yes
+    assert [client.options['timeout'] for client in clients] == [1]
+    assert clients[0].closed
+
+
+@pytest.mark.asyncio
+async def test_async_override_replaces_invalid_authored_connection_setting(monkeypatch):
+    """Only effective call parameters are validated for a scoped async request."""
+    clients = []
+
+    class Client:
+        def __init__(self, **options):
+            self.options = options
+            self.closed = False
+            clients.append(self)
+
+        async def system_one(self, **request):
+            return _fake_response()
+
+        async def aclose(self):
+            self.closed = True
+
+    monkeypatch.setattr(typesafe_sdk, 'AsyncTypeSafeClient', Client)
+    sampler = Sampler(data='popcorn', timeout=-1)
+
+    assert (await sampler.ask_a('Crunchy?', timeout=1)).answer.yes
+    assert [client.options['timeout'] for client in clients] == [1]
+    assert clients[0].closed
+
+
 @pytest.mark.skipif(os.getenv('CHATSNACK_RUN_TYPESAFE_LIVE') != '1', reason='opt-in paid TypeSafe contract')
 def test_live_mixed_questions():
     sample = Sampler(data={'food': 'buttered popcorn'}).ask(questions=[

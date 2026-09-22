@@ -118,8 +118,9 @@ class Sampler(Asset):
             request, resolved, params = await self._prepare(
                 question, questions, data, fillings, model=model, timeout=timeout,
                 retry=retry, base_url=base_url, api_key_env=api_key_env)
-            clients = self._bind_authored_client()
-            if connection_signature(params) == clients.signature:
+            authored = SamplerParams(**ParamsSerializer.to_preserialization_data(self.params))
+            if connection_signature(params) == connection_signature(authored):
+                clients = self._bind_authored_client(authored)
                 with provider.use_sync_client(lambda: clients.client):
                     response = provider.evaluate_sync(request, params)
             else:
@@ -135,14 +136,11 @@ class Sampler(Asset):
             request, resolved, params = await self._prepare(
                 question, questions, data, fillings, model=model, timeout=timeout,
                 retry=retry, base_url=base_url, api_key_env=api_key_env)
-            self._bind_authored_client()
             response = await provider.evaluate(request, params)
             return decode(request['state'], resolved, list(request['questions']), response)
 
-    def _bind_authored_client(self):
-        """Keep lazy provider clients aligned with the Sampler's authored settings."""
-        authored = SamplerParams(**ParamsSerializer.to_preserialization_data(self.params))
-        authored.validate()
+    def _bind_authored_client(self, authored):
+        """Bind the lazy sync client after effective parameters have been validated."""
         if not hasattr(self, '_provider_clients'):
             self._provider_clients = _SamplerClient(copy.deepcopy(authored))
         self._provider_clients.bind(authored)
