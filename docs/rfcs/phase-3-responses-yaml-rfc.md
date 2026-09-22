@@ -1,5 +1,8 @@
 # Phase 3 RFC: Responses YAML That Stays Chatsnack
 
+The [portable conversation history RFC](conversation-fidelity-rfc.md) supersedes
+the folded history and message-field export gating described in this historical proposal.
+
 ## Status
 Proposed.
 

@@ -95,6 +95,15 @@ def test_goal_save_load_and_literal_replay(tmp_path, monkeypatch, evaluations):
     assert evaluations[-1][0]['state'] == sample.data
 
 
+@pytest.mark.parametrize('name', [['unhashable'], 'Sampler!Name', 'Sampler:Name', 'Sampler{Name}'])
+def test_sampler_names_reject_unaddressable_formatters_before_save(name, tmp_path, monkeypatch):
+    monkeypatch.setenv('CHATSNACK_BASE_DIR', str(tmp_path))
+    sampler = Sampler(name=name, data='hi', questions=['Good?'])
+    with pytest.raises(ValueError, match='Sampler names must be nonempty strings without filling metacharacters'):
+        sampler.save()
+    assert not (tmp_path / 'samplers').exists()
+
+
 def test_goal_reject_empty_batch_before_evaluation(evaluations):
     with pytest.raises(ValueError, match='question'):
         Sampler(data='popcorn').ask()
@@ -110,6 +119,21 @@ def test_batch_requires_a_collection_and_unique_names(evaluations):
     with pytest.raises(ValueError, match='Duplicate'):
         sampler.ask(questions=[Question(name='same', question='One?'),
                                Question(name='same', question='Two?')])
+    assert not evaluations
+
+
+@pytest.mark.parametrize('name', [
+    ['unhashable'], 'ambiguous.answer', 'indexed[answer]', 'braced{answer}',
+    'converted!answer', 'formatted:answer',
+])
+def test_question_names_fail_preflight_before_mapping_or_filling(name, tmp_path, evaluations):
+    question = Question(name=name, question='Good?')
+    with pytest.raises(ValueError, match='Question names must be nonempty strings without filling metacharacters'):
+        Sampler(data='hi').ask(question)
+    path = tmp_path / 'invalid-question.yml'
+    with pytest.raises(ValueError, match='Question names must be nonempty strings without filling metacharacters'):
+        question.save(path)
+    assert not path.exists()
     assert not evaluations
 
 
@@ -133,6 +157,19 @@ async def test_goal_result_fillings_share_one_evaluation_across_chat_messages(tm
     await chat._build_final_prompt({'snack': 'apple'})
     assert len(evaluations) == 2
     assert evaluations[-1][0]['state'] == 'apple'
+
+
+@pytest.mark.asyncio
+async def test_named_result_fillings_accept_non_formatter_punctuation(tmp_path, monkeypatch, evaluations):
+    monkeypatch.setenv('CHATSNACK_BASE_DIR', str(tmp_path))
+    Sampler(name='Snack.[Check]', data='popcorn', questions=[
+        Question(name='well-approved', question='Good?'),
+    ]).save()
+    values = await resolve_fillings_a(
+        ['sampler.Snack.[Check].well-approved.choice'], allow_sampler=True,
+    )
+    assert values['sampler']['Snack.[Check].well-approved.choice'] == 'yes'
+    assert len(evaluations) == 1
 
 
 @pytest.mark.asyncio

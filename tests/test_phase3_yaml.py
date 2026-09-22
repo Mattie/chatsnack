@@ -346,8 +346,8 @@ class TestMixedTurnsAndNormalization:
 # ═══════════════════════════════════════════════════════════════════════════
 
 class TestFidelity:
-    def test_authoring_fidelity_omits_state_and_provider_extras(self):
-        """Default authoring fidelity should omit state and provider_extras."""
+    def test_authoring_fidelity_keeps_message_extras(self):
+        """Ordinary saves retain the available conversation metadata."""
         chat = Chat(name="phase3_auth_fidelity")
         chat.params = ChatParams(
             model="gpt-5.4",
@@ -364,12 +364,10 @@ class TestFidelity:
 
         yaml_text = chat.yaml
         parsed = _parse_yaml(yaml_text)
-        # In authoring fidelity, provider_extras and encrypted_content are dropped
         asst = parsed["messages"][0]
-        # Should collapse to scalar since only text remains after fidelity gating
-        assert asst.get("assistant") == "Answer."
+        assert asst["assistant"] == {"text": "Answer.", "provider_extras": {"internal_id": "xyz"}}
 
-    def test_authoring_fidelity_drops_encrypted_content(self):
+    def test_authoring_fidelity_keeps_encrypted_content(self):
         chat = Chat(name="phase3_auth_no_encrypted")
         chat.params = ChatParams(model="gpt-5.4", runtime="responses")
         chat.messages = [
@@ -384,7 +382,7 @@ class TestFidelity:
         yaml_text = chat.yaml
         parsed = _parse_yaml(yaml_text)
         asst = parsed["messages"][0]["assistant"]
-        assert "encrypted_content" not in asst
+        assert asst["encrypted_content"] == "gAAAAAB...trimmed..."
         assert asst["reasoning"] == "Thinking about the answer."
 
     def test_continuation_fidelity_keeps_state(self):
@@ -634,8 +632,8 @@ class TestNormalizedTurn:
             provider_extras={"internal": True},
         )
         result = turn.to_message_dict(fidelity="authoring")
-        # Both encrypted_content and provider_extras should be dropped
-        assert result == {"assistant": "Answer."}
+        assert result == {"assistant": {"text": "Answer.", "encrypted_content": "secret",
+                                        "provider_extras": {"internal": True}}}
 
     def test_fidelity_gating_continuation(self):
         from chatsnack.chat.turns import NormalizedTurn
@@ -695,7 +693,7 @@ class TestNormalizedTurn:
             provider_extras={"internal": True},
         )]
         authoring = denormalize_messages(turns, fidelity="authoring")
-        assert authoring[0] == {"assistant": "Answer."}
+        assert authoring[0] == {"assistant": {"text": "Answer.", "provider_extras": {"internal": True}}}
         diagnostic = denormalize_messages(turns, fidelity="diagnostic")
         assert "provider_extras" in diagnostic[0]["assistant"]
 

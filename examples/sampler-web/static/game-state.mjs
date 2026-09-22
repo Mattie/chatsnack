@@ -177,6 +177,15 @@ export class Experiment {
   if(this.levelIndex===this.levels.length-1)return this.newGame(true);
   return this.selectLevel(this.levelIndex+1);
  }
+ /** Reset server progress before a final-level victory becomes a new local game. */
+ async continueAfterWin(resetServer){
+  if(!this.accessGranted)return false;
+  const final=this.levelIndex===this.levels.length-1;
+  if(final)await resetServer();
+  const advanced=this.advance();
+  if(advanced&&final)this.serverResetPending=false;
+  return advanced;
+ }
  edit(text){this.text=text;this.revision++;this.error='';this.failedText='';this.discoveries=[];this.changed();}
  get current(){return this.readings!==null&&this.resultRevision===this.revision;}
  get won(){return this.current&&this.rules.every((rule,i)=>readingMeets(rule,this.readings[i]));}

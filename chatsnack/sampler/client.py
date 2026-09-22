@@ -22,7 +22,7 @@ class _SamplerClient:
         self._params = params
         self._signature = connection_signature(params)
         self._client = None
-        self._aclient = None
+        self._aclients = {}
         self._lock = threading.Lock()
 
     def bind(self, params):
@@ -30,13 +30,14 @@ class _SamplerClient:
         signature = connection_signature(params)
         if signature == self._signature:
             return
-        if self._client is not None or self._aclient is not None:
-            raise RuntimeError(
-                'Sampler connection settings changed after evaluation. Close the Sampler '
-                'before using the new settings.'
-            )
-        self._params = params
-        self._signature = signature
+        with self._lock:
+            if self._client is not None or self._aclients:
+                raise RuntimeError(
+                    'Sampler connection settings changed after evaluation. Close the Sampler '
+                    'before using the new settings.'
+                )
+            self._params = params
+            self._signature = signature
 
     @property
     def signature(self):
@@ -54,38 +55,68 @@ class _SamplerClient:
 
     @property
     def aclient(self):
-        """Return the async SDK client, constructing it once across callers."""
-        if self._aclient is None:
-            with self._lock:
-                if self._aclient is None:
-                    self._aclient = provider.create_async_client(self._params)
-        return self._aclient
+        """Return one retained SDK client for the current event loop."""
+        loop = asyncio.get_running_loop()
+        with self._lock:
+            for closed_loop in [owner for owner in self._aclients if owner.is_closed()]:
+                self._aclients.pop(closed_loop, None)
+            client = self._aclients.get(loop)
+            if client is None:
+                client = provider.create_async_client(self._params)
+                self._aclients[loop] = client
+            return client
+
+    @staticmethod
+    async def _close_async_client(client):
+        """Close an async SDK client while running on its owning event loop."""
+        result = client.aclose()
+        if inspect.isawaitable(result):
+            await result
 
     def close(self):
         """Close opened clients from synchronous code."""
-        if self._aclient is not None:
+        if self._aclients:
             try:
                 asyncio.get_running_loop()
             except RuntimeError:
                 pass
             else:
                 raise RuntimeError('Use await close_a() inside an event loop.')
-        if self._client is not None:
-            self._client.close()
-            self._client = None
-        if self._aclient is not None:
-            result = self._aclient.aclose()
-            if inspect.isawaitable(result):
-                asyncio.run(result)
-            self._aclient = None
+        with self._lock:
+            client, self._client = self._client, None
+            async_clients = list(self._aclients.items())
+            self._aclients.clear()
+        if client is not None:
+            client.close()
+        for loop, async_client in async_clients:
+            if loop.is_closed():
+                continue
+            closing = self._close_async_client(async_client)
+            if loop.is_running():
+                asyncio.run_coroutine_threadsafe(closing, loop).result()
+            else:
+                loop.run_until_complete(closing)
 
     async def close_a(self):
         """Close opened sync and async clients from asynchronous code."""
-        if self._client is not None:
-            self._client.close()
-            self._client = None
-        if self._aclient is not None:
-            result = self._aclient.aclose()
-            if inspect.isawaitable(result):
-                await result
-            self._aclient = None
+        current_loop = asyncio.get_running_loop()
+        with self._lock:
+            client, self._client = self._client, None
+            async_clients = list(self._aclients.items())
+            self._aclients.clear()
+        if client is not None:
+            client.close()
+        for loop, async_client in async_clients:
+            if loop.is_closed():
+                continue
+            if loop is current_loop:
+                await self._close_async_client(async_client)
+            elif loop.is_running():
+                closing = asyncio.run_coroutine_threadsafe(
+                    self._close_async_client(async_client), loop,
+                )
+                await asyncio.wrap_future(closing)
+            else:
+                await asyncio.to_thread(
+                    loop.run_until_complete, self._close_async_client(async_client),
+                )

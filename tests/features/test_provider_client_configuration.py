@@ -464,7 +464,7 @@ async def test_goal_g3_mixed_providers_stay_isolated_through_copy_and_utensil_co
     )
     assert replayed_call["id"] == "fc_lookup"
     assert replayed_call["call_id"] == "call_lookup"
-    assert replayed_call["status"] == "completed"
+    assert "status" not in replayed_call  # The optional completed default is omitted.
 
     await asyncio.gather(
         tool_thread.close_a(),

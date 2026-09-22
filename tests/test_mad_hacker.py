@@ -6,7 +6,7 @@ import sys
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from pathlib import Path
-from threading import Barrier, Lock
+from threading import Barrier, Event, Lock
 import pytest
 
 from chatsnack import Sampler
@@ -393,6 +393,54 @@ def test_sampler_results_are_cached_by_level_and_trimmed_text(monkeypatch):
     game.evaluate_level('01', 'repeat this')
     assert len(calls) == 2
     assert recorded == [('game', 'level-01', 3), ('game', 'level-01', 3)]
+
+
+def test_concurrent_identical_attempts_share_one_provider_evaluation(monkeypatch):
+    from chatsnack.sampler import provider
+
+    waiter_entered = Event()
+    calls = []
+
+    class TrackingFuture(game.Future):
+        def result(self, timeout=None):
+            waiter_entered.set()
+            return super().result(timeout)
+
+    def fake(request, params):
+        calls.append(request)
+        assert waiter_entered.wait(2)
+        return {
+            'answers': {
+                'polite': {'type': 'noul', 'noul': .8},
+                'self_deprecation': {
+                    'type': 'choice',
+                    'choice': game.SELF_DEPRECATION[2],
+                    'confidence': .9,
+                    'probabilities': {
+                        label: float(index == 2)
+                        for index, label in enumerate(game.SELF_DEPRECATION)
+                    },
+                },
+                'specific': {'type': 'noul', 'noul': .8},
+            },
+            'model': 'fake-concurrent-cache',
+            'usage': {'input_tokens': 1, 'output_tokens': 1},
+        }
+
+    monkeypatch.setattr(game, 'Future', TrackingFuture)
+    monkeypatch.setattr(provider, 'evaluate_sync', fake)
+    recorded = []
+    monkeypatch.setattr(game, 'record_api_query', lambda *args, **kwargs: recorded.append(args))
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        first = pool.submit(game.evaluate_level, '01', 'same phrase')
+        second = pool.submit(game.evaluate_level, '01', ' same phrase ')
+        results = [first.result(timeout=3), second.result(timeout=3)]
+
+    assert results[0] == results[1]
+    assert results[0] is not results[1]
+    assert len(calls) == 1
+    assert recorded == [('game', 'level-01', 3)]
 
 
 def test_api_query_log_rotates_daily_and_continues_its_count(monkeypatch, tmp_path):

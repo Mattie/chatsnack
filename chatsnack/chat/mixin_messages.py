@@ -4,6 +4,10 @@ from loguru import logger
 import pprint
 
 from ..assets import ChatFile
+from ..runtime.conversation import (
+    ITEM_ROLES, item_to_message, copy_value as deepcopy,
+    is_assistant_entry, latest_response_entries,
+)
 from .turns import (
     CANONICAL_SYSTEM_ROLE,
     DEVELOPER_ALIAS,
@@ -87,11 +91,7 @@ class ChatMessagesMixin:
             self.messages.append({"assistant": {"tool_calls": content}})
         # now we need to handle the tool message the same way as the assistant message, it should have a tool_call_id and content
         elif role == "tool" and isinstance(content, dict) and "tool_call_id" in content and "content" in content:
-            tool_block = {"tool_call_id": content["tool_call_id"], "content": content["content"]}
-            for key in ("output_type", "status", "item_id", "provider_extras"):
-                if key in content:
-                    tool_block[key] = content[key]
-            self.messages.append({"tool": tool_block})
+            self.messages.append({"tool": deepcopy(content)})
         else:
             self.messages.append({role: content})
             
@@ -107,9 +107,27 @@ class ChatMessagesMixin:
         logger.debug(f"Added messages to chat from JSON: {pprint.pformat(incoming_messages)}")
         
         for message in incoming_messages:
+            if "type" in message and ("role" not in message or message["type"] == "message"):
+                self.messages.append(item_to_message(message))
+                continue
             if "role" in message:
                 role = message["role"]
                 content = message.get("content")
+
+                if role in ITEM_ROLES:
+                    self.messages.append({role: deepcopy(content)})
+                    continue
+                if role == "assistant" and "tool_calls" not in message:
+                    block = {key: deepcopy(value) for key, value in message.items()
+                             if key not in {"role", "content"}}
+                    if (escape and isinstance(content, str) and not message.get("item_id")
+                            and "content" not in (message.get("provider_extras") or {})):
+                        content = content.replace("{", "{{").replace("}", "}}")
+                    # CC may omit null content. Keep metadata separate from the
+                    # textual value even when the wire key was absent.
+                    block["text"] = content
+                    self.messages.append({role: block if set(block) != {"text"} else content})
+                    continue
 
                 if role == "assistant" and "tool_calls" in message:
                     # Format assistant message with tool_calls to match our internal structure
@@ -127,22 +145,22 @@ class ChatMessagesMixin:
                             # Convert dict back to string for consistency
                             arguments = json.dumps(arguments)
                             
-                        normalized_call = {
-                            "id": tool_call.get("id", ""),
-                            "type": tool_call.get("type", "function"),
-                        }
+                        normalized_call = deepcopy(tool_call)
+                        normalized_call.setdefault("id", "")
+                        normalized_call.setdefault("type", "function")
                         if function_data:
                             normalized_call["function"] = {
-                                "name": function_data.get("name", ""),
-                                "arguments": arguments
+                                **deepcopy(function_data), "arguments": arguments
                             }
-                        for key in ("item_id", "status", "payload", "provider_extras"):
-                            if tool_call.get(key) is not None:
-                                normalized_call[key] = tool_call[key]
                         tool_calls.append(normalized_call)
                         
                     # Create the assistant message with proper structure
-                    self.assistant({"content": content, "tool_calls": tool_calls})
+                    block = {key: deepcopy(value) for key, value in message.items()
+                             if key not in {"role", "content", "tool_calls"}}
+                    if escape and isinstance(content, str) and not message.get("item_id"):
+                        content = content.replace("{", "{{").replace("}", "}}")
+                    block.update({"text": content, "tool_calls": tool_calls})
+                    self.assistant(block)
                     
                 elif role == "tool":
                     # Handle tool response messages
@@ -151,12 +169,8 @@ class ChatMessagesMixin:
                     output_type = message.get("output_type")
                     
                     # Add as a tool message with proper structure
-                    payload = {"tool_call_id": tool_call_id, "content": tool_content}
-                    if output_type:
-                        payload["output_type"] = output_type
-                    for key in ("status", "item_id", "provider_extras"):
-                        if key in message:
-                            payload[key] = message[key]
+                    payload = {key: deepcopy(value) for key, value in message.items() if key != "role"}
+                    payload.update({"tool_call_id": tool_call_id, "content": tool_content})
                     self.tool(payload)
                     
                 else:
@@ -164,17 +178,14 @@ class ChatMessagesMixin:
                     if escape and isinstance(content, str):
                         content = content.replace("{", "{{").replace("}", "}}")
 
-                    attachments = {}
-                    if message.get("images"):
-                        attachments["images"] = message["images"]
-                    if message.get("files"):
-                        attachments["files"] = message["files"]
+                    attachments = {key: deepcopy(value) for key, value in message.items()
+                                   if key not in {"role", "content"}}
 
                     if role and attachments:
                         # Attachment-only turns are valid in Phase 3, so we keep
                         # the expanded structure even when there is no text field.
                         expanded = {}
-                        if content:
+                        if "content" in message:
                             expanded["text"] = content
                         expanded.update(attachments)
                         self.messages.append({role: expanded})
@@ -265,11 +276,19 @@ class ChatMessagesMixin:
         message does not hide the latest assistant result, while scalar text
         responses naturally expose no generated files.
         """
-        for raw_message in reversed(self.messages):
-            message = self._msg_dict(raw_message)
+        entries = [self._msg_dict(message) for message in self.messages]
+        for message in reversed(latest_response_entries(entries)):
+            item = message.get("provider_item")
+            # A result_asset wrapper restores provider bytes for replay; it may
+            # follow the assistant that owns the response's convenience views.
+            if (isinstance(item, dict) and "item" in item and "type" not in item
+                    and any(key in item for key in ("images", "files", "sources"))):
+                return item
             if "assistant" in message:
                 assistant = message["assistant"]
                 return assistant if isinstance(assistant, dict) else {}
+            if is_assistant_entry(message):
+                return {}
         return {}
 
     @property
@@ -323,13 +342,13 @@ class ChatMessagesMixin:
 
     @property
     def system_message(self) -> str:
-        """ Returns the first system (or developer alias) message, if any """
+        """Return the first system text, leaving expanded metadata in history."""
         for _message in self.messages:
             message = self._msg_dict(_message)
-            if "system" in message:
-                return message["system"]
-            if DEVELOPER_ALIAS in message:
-                return message[DEVELOPER_ALIAS]
+            for role in (CANONICAL_SYSTEM_ROLE, DEVELOPER_ALIAS):
+                if role in message:
+                    value = message[role]
+                    return value.get("text", value.get("content")) if isinstance(value, dict) else value
         return None
     
     @system_message.setter
@@ -393,7 +412,9 @@ class ChatMessagesMixin:
                 # Normalize developer → system for API calls
                 api_role = CANONICAL_SYSTEM_ROLE if role == DEVELOPER_ALIAS else role
 
-                if role == "include" and includes_expanded:
+                if role in ITEM_ROLES:
+                    new_messages.append({"role": role, "content": deepcopy(content)})
+                elif role == "include" and includes_expanded:
                     stash = self.snapshot_lookup_stash if hasattr(self, "snapshot_lookup_stash") else None
                     include_chatprompt = self.__class__.snapshots(stash).get_or_none(content) if stash else self.__class__.snapshots.get_or_none(content)
                     if include_chatprompt is None:
@@ -405,27 +426,15 @@ class ChatMessagesMixin:
                     for tool_call in content["tool_calls"]:
                         if not isinstance(tool_call, dict):
                             continue
-                        tc = {
-                            "id": tool_call.get("id", ""),
-                            "type": tool_call.get("type", "function"),
-                        }
-                        if isinstance(tool_call.get("function"), dict):
-                            tc["function"] = {
-                                "name": tool_call.get("function", {}).get("name", ""),
-                                "arguments": tool_call.get("function", {}).get("arguments", "{}"),
-                            }
-                        if isinstance(tool_call.get("payload"), dict):
-                            tc["payload"] = tool_call["payload"]
-                        for key in ("item_id", "status", "provider_extras"):
-                            if tool_call.get(key) is not None:
-                                tc[key] = tool_call[key]
+                        tc = deepcopy(tool_call)
+                        tc.setdefault("id", "")
+                        tc.setdefault("type", "function")
                         tool_calls.append(tc)
-                    new_messages.append({"role": api_role, "content": content.get('text', content.get('content')), "tool_calls": tool_calls})
+                    expanded = {key: deepcopy(value) for key, value in content.items()
+                                if key not in {"text", "content", "tool_calls"}}
+                    new_messages.append({"role": api_role, "content": content.get('text', content.get('content')), "tool_calls": tool_calls, **expanded})
                 elif api_role == "tool" and isinstance(content, dict) and "tool_call_id" in content and "content" in content:
-                    tool_msg = {"role": api_role, "content": content["content"], "tool_call_id": content["tool_call_id"]}
-                    for key in ("output_type", "status", "item_id", "provider_extras"):
-                        if key in content:
-                            tool_msg[key] = content[key]
+                    tool_msg = {"role": api_role, **deepcopy(content)}
                     new_messages.append(tool_msg)
                 elif isinstance(content, dict) and (
                     "text" in content or "images" in content or "files" in content
@@ -435,10 +444,7 @@ class ChatMessagesMixin:
                     # so runtime adapters can build multi-part input items.
                     # Attachment-only turns (no text) are also valid.
                     api_msg = {"role": api_role, "content": content.get("text", "")}
-                    if content.get("images"):
-                        api_msg["images"] = content["images"]
-                    if content.get("files"):
-                        api_msg["files"] = content["files"]
+                    api_msg.update({key: deepcopy(value) for key, value in content.items() if key != "text"})
                     new_messages.append(api_msg)
                 else:
                     new_messages.append({"role": api_role, "content": content})

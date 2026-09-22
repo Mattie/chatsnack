@@ -1,11 +1,11 @@
 """Contract tests through the required SDK's HTTP encode/decode boundary."""
 
 import asyncio
-import builtins
-from concurrent.futures import ThreadPoolExecutor
 import json
 import os
-import time
+import subprocess
+import sys
+from pathlib import Path
 
 import pytest
 import httpx2
@@ -125,18 +125,32 @@ async def test_sdk_client_closes_on_cancellation(sdk_transport):
     assert clients[0].is_closed
 
 
-def test_authoring_does_not_import_provider_sdk(monkeypatch, tmp_path):
-    original = builtins.__import__
+def test_authoring_does_not_import_provider_sdk(tmp_path):
+    script = r'''
+import builtins
+from pathlib import Path
+import sys
 
-    def without_sdk(name, *args, **kwargs):
-        if name == 'typesafe_sdk':
-            raise AssertionError('Authoring must not import the provider SDK')
-        return original(name, *args, **kwargs)
+original = builtins.__import__
 
-    monkeypatch.setattr(builtins, '__import__', without_sdk)
-    sampler = Sampler(name='Offline', data='hi', questions=['Good?'])
-    sampler.save(tmp_path / 'Offline.yml')
-    assert sampler.compile()['state'] == 'hi'
+def without_sdk(name, *args, **kwargs):
+    if name == 'typesafe_sdk' or name.startswith('typesafe_sdk.'):
+        raise AssertionError('Authoring must not import the provider SDK')
+    return original(name, *args, **kwargs)
+
+builtins.__import__ = without_sdk
+from chatsnack import Sampler
+
+sampler = Sampler(name='Offline', data='hi', questions=['Good?'])
+sampler.save(Path(sys.argv[1]) / 'Offline.yml')
+assert sampler.compile()['state'] == 'hi'
+assert 'typesafe_sdk' not in sys.modules
+'''
+    result = subprocess.run(
+        [sys.executable, '-c', script, str(tmp_path)],
+        cwd=Path(__file__).parents[1], capture_output=True, text=True, timeout=20,
+    )
+    assert result.returncode == 0, result.stderr
 
 
 def _fake_response(score=.8):
@@ -208,26 +222,67 @@ async def test_repeated_async_asks_reuse_one_client_until_sampler_closes(monkeyp
     assert clients[0].closed
 
 
-def test_concurrent_async_client_access_constructs_once(monkeypatch):
-    """Concurrent callers must not overwrite and leak a second async client."""
+@pytest.mark.asyncio
+async def test_concurrent_async_client_access_constructs_once_per_loop(monkeypatch):
+    """Concurrent callers on one loop share exactly one async client."""
     from chatsnack.sampler.client import _SamplerClient
     from chatsnack.sampler.models import SamplerParams
 
     created = []
 
     def create(params):
-        time.sleep(.02)  # Give every worker time to observe an unguarded None.
         client = object()
         created.append(client)
         return client
 
     monkeypatch.setattr('chatsnack.sampler.provider.create_async_client', create)
     clients = _SamplerClient(SamplerParams())
-    with ThreadPoolExecutor(max_workers=8) as pool:
-        observed = list(pool.map(lambda _: clients.aclient, range(16)))
+
+    async def access():
+        await asyncio.sleep(0)
+        return clients.aclient
+
+    observed = await asyncio.gather(*(access() for _ in range(16)))
 
     assert len(created) == 1
     assert all(client is created[0] for client in observed)
+
+
+def test_async_clients_are_scoped_to_their_event_loop(monkeypatch):
+    """Separate event loops never reuse each other's retained transport."""
+    from chatsnack.sampler.client import _SamplerClient
+    from chatsnack.sampler.models import SamplerParams
+
+    created = []
+
+    def create(params):
+        client = object()
+        created.append(client)
+        return client
+
+    monkeypatch.setattr('chatsnack.sampler.provider.create_async_client', create)
+    clients = _SamplerClient(SamplerParams())
+
+    first = _run_on_fresh_loop(_read_async_client(clients))
+    second = _run_on_fresh_loop(_read_async_client(clients))
+
+    assert first is created[0]
+    assert second is created[1]
+    assert first is not second
+
+
+async def _read_async_client(clients):
+    """Read a retained client from inside its event loop."""
+    return clients.aclient
+
+
+def _run_on_fresh_loop(coro):
+    """Exercise loop ownership independently of chatsnack's notebook patch."""
+    loop = asyncio.new_event_loop()
+    try:
+        return loop.run_until_complete(coro)
+    finally:
+        loop.close()
 
 
 def test_call_override_uses_scoped_client_without_rebinding_sampler(monkeypatch):

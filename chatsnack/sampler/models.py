@@ -13,6 +13,10 @@ from ..defaults import CHATSNACK_ROOT
 from .persistence import Asset, AssetYAML, ValueSerializer
 
 
+_FILLING_FORMAT_METACHARACTERS = frozenset('{}!:')
+_QUESTION_NAME_METACHARACTERS = _FILLING_FORMAT_METACHARACTERS | frozenset('.[]')
+
+
 def json_value(value):
     """Copy JSON content without coercing keys, opaque objects, or nonfinite numbers."""
     if value is None or isinstance(value, (str, bool, int)):
@@ -50,6 +54,11 @@ class Question(Asset):
         return {field.name: json_value(getattr(self, field.name)) for field in fields(self)
                 if getattr(self, field.name) is not None and (include_name or field.name != 'name')}
 
+    def save(self, path=None):
+        """Persist only names that remain addressable as assets and result keys."""
+        self._validate_name()
+        return super().save(path)
+
     @property
     def kind(self):
         """Infer the provider primitive without adding a discriminator to YAML."""
@@ -62,8 +71,7 @@ class Question(Asset):
             isinstance(instructions, str) and not instructions.strip()
         ):
             raise ValueError('A question needs nonempty instructions')
-        if self.name is not None and (not isinstance(self.name, str) or not self.name.strip()):
-            raise ValueError('Question names must be nonempty strings')
+        self._validate_name()
         if self.choices is not None and self.levels is not None:
             raise ValueError('A question cannot have both choices and levels')
         if self.kind != 'noul' and (self.yes is not None or self.no is not None):
@@ -89,6 +97,16 @@ class Question(Asset):
             names, descriptions = self.score_levels()
             result['criteria'] = descriptions
         return result
+
+    def _validate_name(self):
+        """Reject names that cannot safely identify a compiled or filled answer."""
+        if self.name is not None and (
+            not isinstance(self.name, str) or not self.name.strip()
+            or any(char in self.name for char in _QUESTION_NAME_METACHARACTERS)
+        ):
+            raise ValueError(
+                'Question names must be nonempty strings without filling metacharacters .[]{}!:'
+            )
 
     def score_levels(self):
         """Keep stable authored names alongside Jev's ordered level descriptions."""

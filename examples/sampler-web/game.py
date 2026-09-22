@@ -3,6 +3,7 @@ import atexit
 import copy
 import json
 import re
+from concurrent.futures import Future
 from datetime import datetime, timezone
 from pathlib import Path
 from threading import Lock
@@ -15,6 +16,7 @@ GAME_ROOT = Path(__file__).parent
 LEVEL_DIR = GAME_ROOT / 'levels'
 SAMPLER_DIR = GAME_ROOT / 'samplers'
 _EVALUATION_CACHE = {}
+_EVALUATION_IN_FLIGHT = {}
 _EVALUATION_CACHE_LOCK = Lock()
 API_QUERY_LOG_DIR = GAME_ROOT / '.local' / 'api-queries'
 _API_QUERY_LOG_LOCK = Lock()
@@ -328,7 +330,7 @@ def record_api_query(surface, asset, question_count, *, now=None):
 
 
 def evaluate_level(level_id, text):
-    """Evaluate one batch, reusing successful readings until this process exits."""
+    """Evaluate one batch, sharing cached or concurrent identical work."""
     level = next((item for item in LEVELS if item['id'] == level_id), None)
     if level is None:
         raise KeyError(level_id)
@@ -336,20 +338,37 @@ def evaluate_level(level_id, text):
     cache_key = (level_id, submitted)
     with _EVALUATION_CACHE_LOCK:
         cached = _EVALUATION_CACHE.get(cache_key)
-    if cached is not None:
-        return copy.deepcopy(cached)
+        if cached is not None:
+            return copy.deepcopy(cached)
+        pending = _EVALUATION_IN_FLIGHT.get(cache_key)
+        if pending is None:
+            pending = Future()
+            _EVALUATION_IN_FLIGHT[cache_key] = pending
+            evaluates = True
+        else:
+            evaluates = False
+    if not evaluates:
+        return copy.deepcopy(pending.result())
 
-    record_api_query('game', f'level-{level_id}', len(level['questions']))
-    sample = level['sampler'].ask(title=level['title'], submission=submitted)
-    rules = {rule['id']: rule for rule in level['rules']}
-    readings = []
-    for question, answer in zip(sample.questions, sample.answers):
-        rule = rules[question.name]
-        value = rule['categories'].index(answer.choice) if 'categories' in rule else answer.score
-        readings.append(dict(id=question.name, value=value))
-    result = dict(readings=readings, model=sample.model)
+    try:
+        record_api_query('game', f'level-{level_id}', len(level['questions']))
+        sample = level['sampler'].ask(title=level['title'], submission=submitted)
+        rules = {rule['id']: rule for rule in level['rules']}
+        readings = []
+        for question, answer in zip(sample.questions, sample.answers):
+            rule = rules[question.name]
+            value = rule['categories'].index(answer.choice) if 'categories' in rule else answer.score
+            readings.append(dict(id=question.name, value=value))
+        result = dict(readings=readings, model=sample.model)
+    except BaseException as exc:
+        with _EVALUATION_CACHE_LOCK:
+            _EVALUATION_IN_FLIGHT.pop(cache_key, None)
+            pending.set_exception(exc)
+        raise
     with _EVALUATION_CACHE_LOCK:
         result = _EVALUATION_CACHE.setdefault(cache_key, result)
+        _EVALUATION_IN_FLIGHT.pop(cache_key, None)
+        pending.set_result(result)
     return copy.deepcopy(result)
 
 

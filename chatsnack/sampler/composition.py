@@ -100,11 +100,12 @@ async def question_filling(name, additional=None):
 def sampler_reference(suffix):
     """Parse a named answer leaf while allowing dots in the saved asset name."""
     from snapclass.paths import safe_path_placeholder
+    from .models import _QUESTION_NAME_METACHARACTERS
     parts = suffix.rsplit('.', 2)
     if len(parts) != 3 or not parts[1] or parts[2] not in {'choice', 'score', 'confidence'}:
         raise ValueError('Use sampler.Name.answer.choice, score, or confidence')
     safe_path_placeholder('name', parts[0])
-    if any(char in parts[1] for char in '{}[]'):
+    if any(char in parts[1] for char in _QUESTION_NAME_METACHARACTERS):
         raise ValueError('Invalid sampler answer name')
     return parts
 

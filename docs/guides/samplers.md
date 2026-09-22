@@ -74,7 +74,8 @@ print(sample.answer.choice, sample.answer.score)
 Construction stays in memory. Questions and Samplers save under `questions/` and
 `samplers/` in the chatsnack data directory. Existing `CHATSNACK_BASE_DIR` and
 snapclass stash configuration apply. An anonymous definition needs a name or an
-explicit file path before saving.
+explicit file path before saving. Saved Sampler names cannot contain `{`, `}`,
+`!`, or `:`, because those characters have special meaning to the filling formatter.
 
 Pass a Question object to embed its definition. Use `"{question.crunchy}"` for a
 live connection to the saved asset. Saving preserves that choice; a Question's
@@ -100,8 +101,9 @@ print(sample.answers["sweetness"].score)
 ```
 
 Named access remains stable when you reorder questions. All collections retain
-authored order; unnamed questions are available by position. Names must be unique
-within a batch. Empty batches are rejected.
+authored order; unnamed questions are available by position. Names must be
+nonempty strings without the filling metacharacters `.`, `[`, `]`, `{`, `}`, `!`,
+or `:`, and unique within a batch. Empty batches are rejected.
 
 Every answer has `choice`, `score`, `probabilities`, and `confidence`:
 

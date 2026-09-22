@@ -7,6 +7,7 @@ from typing import Any, Dict, List, Optional, Tuple
 from loguru import logger
 
 from .attachment_resolver import AttachmentResolver
+from .conversation import ITEM_ROLES, item_to_message, message_to_item, wire_dict
 from .types import (
     NormalizedAssistantMessage,
     NormalizedCompletionResult,
@@ -39,7 +40,7 @@ class ResponsesNormalizationMixin:
         if isinstance(obj, dict):
             return obj
         if hasattr(obj, "model_dump"):
-            return obj.model_dump()
+            return wire_dict(obj)
         if hasattr(obj, "__dict__"):
             return vars(obj)
         return dict(obj)
@@ -94,7 +95,7 @@ class ResponsesNormalizationMixin:
         sanitized = []
         for item in output or []:
             item_dict = dict(self._to_dict(item))
-            if item_dict.get("type") == "image_generation_call":
+            if item_dict.get("type") == "image_generation_call" and item_dict.get("result"):
                 item_dict.pop("result", None)
             sanitized.append(item_dict)
         return sanitized
@@ -102,13 +103,26 @@ class ResponsesNormalizationMixin:
     def _message_to_input_items(self, message: Dict[str, Any]) -> List[Dict[str, Any]]:
         role = message.get("role")
         content = message.get("content")
+        block = content if role in ITEM_ROLES else {
+            "text": content, **{k: v for k, v in message.items() if k not in {"role", "content"}}
+        }
+        item = message_to_item(role, block)
+        if item is not None:
+            return [item]
         text_part_type = "output_text" if role == "assistant" else "input_text"
 
         if role == "tool":
             output_type = message.get("output_type")
+            # Legacy CC imports keep extras beside content. Merge them before
+            # canonical fields so authored correlation/output always wins.
+            output = dict(self._to_dict(message.get("provider_extras") or {}))
+            output.update({key: value for key, value in message.items() if key not in {
+                "role", "content", "tool_call_id", "output_type", "provider_extras", "item_id", "status"}})
+            for name, wire_name in (("item_id", "id"), ("status", "status")):
+                if name in message:
+                    output[wire_name] = message[name]
             if output_type == "apply_patch_call_output":
-                item = dict(self._to_dict(message.get("provider_extras") or {}))
-                item.update(
+                output.update(
                     {
                         "type": "apply_patch_call_output",
                         "call_id": message.get("tool_call_id", ""),
@@ -116,22 +130,20 @@ class ResponsesNormalizationMixin:
                         "output": self._coerce_text(content),
                     }
                 )
-                return [item]
+                return [output]
             if output_type == "tool_search_output":
-                return [
-                    {
-                        "type": "tool_search_output",
-                        "tool_call_id": message.get("tool_call_id", ""),
-                        "output": self._coerce_text(content),
-                    }
-                ]
-            return [
-                {
-                    "type": "function_call_output",
-                    "call_id": message.get("tool_call_id", ""),
+                output.update({
+                    "type": "tool_search_output",
+                    "tool_call_id": message.get("tool_call_id", ""),
                     "output": self._coerce_text(content),
-                }
-            ]
+                })
+                return [output]
+            output.update({
+                "type": "function_call_output",
+                "call_id": message.get("tool_call_id", ""),
+                "output": json.dumps(content, ensure_ascii=False) if isinstance(content, (dict, list)) else self._coerce_text(content),
+            })
+            return [output]
 
         items: List[Dict[str, Any]] = []
         tool_calls = message.get("tool_calls") or []
@@ -168,12 +180,15 @@ class ResponsesNormalizationMixin:
                     items.append(item)
                     continue
                 function = self._to_dict(tool_call.get("function") or {})
-                item = {
+                item = dict(self._to_dict(tool_call.get("provider_extras") or {}))
+                item.update({key: value for key, value in tool_call.items() if key not in {
+                    "id", "type", "function", "provider_extras", "item_id", "status", "payload"}})
+                item.update({
                     "type": "function_call",
                     "call_id": tool_call.get("id", ""),
                     "name": function.get("name", ""),
                     "arguments": function.get("arguments", ""),
-                }
+                })
                 if tool_call.get("item_id"):
                     item["id"] = tool_call["item_id"]
                 if tool_call.get("status"):
@@ -223,8 +238,15 @@ class ResponsesNormalizationMixin:
         if not content_parts:
             content_parts.append({"type": text_part_type, "text": ""})
 
+        extras = dict(self._to_dict(message.get("provider_extras") or {}))
+        if role in {"user", "system", "developer"}:
+            # Imported wire extensions may still be top-level before YAML load.
+            # Match load-time precedence without changing the legacy JSON bridge.
+            extras.update({key: value for key, value in message.items() if key not in {
+                "role", "content", "images", "files", "provider_extras"}})
         return [
             {
+                **extras,
                 "type": "message",
                 "role": role,
                 "content": content_parts,
@@ -258,23 +280,6 @@ class ResponsesNormalizationMixin:
             out = merged
 
         return out
-
-    @staticmethod
-    def _select_continuation_messages(messages: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-        if not messages:
-            return messages
-
-        last_assistant_idx = -1
-        for idx in range(len(messages) - 1, -1, -1):
-            if messages[idx].get("role") == "assistant":
-                last_assistant_idx = idx
-                break
-
-        if last_assistant_idx == -1:
-            return messages
-
-        suffix = messages[last_assistant_idx + 1 :]
-        return suffix or [messages[-1]]
 
     @classmethod
     def _responses_debug_enabled(cls) -> bool:
@@ -386,8 +391,9 @@ class ResponsesNormalizationMixin:
         if "max_tokens" in options:
             options.setdefault("max_output_tokens", options.pop("max_tokens"))
         input_messages = messages
-        if options.get("previous_response_id"):
-            input_messages = self._select_continuation_messages(messages)
+        prefix_length = options.pop("_continuation_prefix_length", None)
+        if options.get("previous_response_id") and prefix_length is not None:
+            input_messages = messages[prefix_length:]
         options["input"] = self._map_messages_to_input(input_messages)
         # Normalize function tools from Chat Completions shape to Responses shape.
         if options.get("tools"):
@@ -415,6 +421,7 @@ class ResponsesNormalizationMixin:
         pending_outputs: List[PendingOutput] = []
         encrypted_content: Optional[str] = None
         tool_calls: List[NormalizedToolCall] = []
+        unfinished_local_call = False
         hosted_tool_calls: List[Dict[str, Any]] = []
         code_interpreter_container_ids: List[str] = []
         assistant_phase: Optional[str] = None
@@ -422,8 +429,11 @@ class ResponsesNormalizationMixin:
         for item in response_dict.get("output") or []:
             item_dict = self._to_dict(item)
             item_type = item_dict.get("type")
+            if (item_type in {"function_call", "apply_patch_call", "tool_search_call"}
+                    and item_dict.get("status") in {"in_progress", "incomplete"}):
+                unfinished_local_call = True
             if item_type == "message" and item_dict.get("role") == "assistant":
-                assistant_phase = assistant_phase or item_dict.get("status")
+                assistant_phase = assistant_phase or item_dict.get("phase")
                 for part in item_dict.get("content") or []:
                     part_dict = self._to_dict(part)
                     part_type = part_dict.get("type")
@@ -481,6 +491,8 @@ class ResponsesNormalizationMixin:
                             name=item_dict.get("name", ""),
                             arguments=item_dict.get("arguments", ""),
                         ),
+                        provider_extras={k: v for k, v in item_dict.items()
+                                         if k not in {"type", "id", "call_id", "name", "arguments", "status"}} or None,
                     )
                 )
             elif item_type == "apply_patch_call":
@@ -531,8 +543,10 @@ class ResponsesNormalizationMixin:
                 )
             elif item_type == "image_generation_call":
                 image_bytes = self._decode_generated_image(item_dict.get("result", ""))
-                if image_bytes:
-                    pending_outputs.append(PendingOutput(kind="image", data=image_bytes))
+                if image_bytes or item_dict.get("result"):
+                    # A nonempty result still needs capture when decoding fails.
+                    # The capture error path prevents adoption of lossy history.
+                    pending_outputs.append(PendingOutput(kind="image", data=image_bytes, item_id=item_dict.get("id")))
                 hosted_tool_calls.append(
                     {key: value for key, value in item_dict.items() if key != "result"}
                 )
@@ -608,6 +622,12 @@ class ResponsesNormalizationMixin:
                     )
                 )
 
+        # Keep an unfinished batch pending. Executing just its completed peers
+        # would auto-feed an exchange that still contains an unresolved call.
+        # normalize_completion retains every raw item in the saved transcript.
+        if unfinished_local_call:
+            tool_calls = []
+
         message = NormalizedAssistantMessage(
             role="assistant",
             content="".join(content_parts) or None,
@@ -628,12 +648,15 @@ class ResponsesNormalizationMixin:
 
         metadata = {
             "response_id": response_dict.get("id"),
+            "response_status": response_dict.get("status"),
+            "stored": request_kwargs.get("store") is True,
             "previous_response_id": response_dict.get("previous_response_id")
             or request_kwargs.get("previous_response_id"),
             "assistant_phase": assistant_phase,
             "provider_extras": {
                 "status": response_dict.get("status"),
                 "incomplete_details": response_dict.get("incomplete_details"),
+                # Diagnostic compatibility only; replay uses messages exclusively.
                 "output": self._sanitized_provider_output(response_dict.get("output")),
             },
         }
@@ -644,4 +667,7 @@ class ResponsesNormalizationMixin:
             model=response_dict.get("model"),
             usage=response_dict.get("usage"),
             metadata=metadata,
+            messages=([item_to_message(item) for item in
+                       self._sanitized_provider_output(response_dict.get("output"))]
+                      if response_dict.get("output") else None),
         )

@@ -8,7 +8,7 @@ const {installPocketLayout,createPocketSignals}=await import(pocketUrl);
 const pocketSignals=createPocketSignals(pocketQuery);
 const debug=new URLSearchParams(window.location.search).get('debug')==='1';
 const progressKey='chatsnack.mad-hacker.progress.v1';
-let autoTimer=null,pendingManual=false,scopeSettlingTimer=null,scopeDiscoveryTimer=null,discoveryStatusTimer=null,lastScopeAttempt=0;
+let autoTimer=null,pendingManual=false,resetting=false,scopeSettlingTimer=null,scopeDiscoveryTimer=null,discoveryStatusTimer=null,lastScopeAttempt=0;
 
 function readProgress(){try{return JSON.parse(localStorage.getItem(progressKey));}catch{return null;}}
 function clearStoredProgress(){try{localStorage.removeItem(progressKey);}catch{}}
@@ -106,7 +106,7 @@ function render(){
   el('debug-unlock').disabled=game.loading||game.debugUnlocked;
   el('debug-unlock').textContent=game.debugUnlocked?'Levels unlocked':'Unlock levels';
  }
- el('start-over').disabled=activity.active;
+ el('start-over').disabled=activity.active||resetting;
  const portrait=el('guardian-portrait'),guardian=level.guardian||config.levels[0].guardian;
  portrait.src=portrait.dataset.staticRoot+guardian.file;portrait.alt=guardian.alt;
  el('guardian-level').textContent=level.id;el('level-title').textContent='LEVEL '+level.id+' / '+level.title.toUpperCase();
@@ -117,13 +117,13 @@ function render(){
  el('instruments').classList.toggle('stale',!!game.readings&&!game.current);
  el('phrase').disabled=game.inputLocked;
  const canSubmit=game.canAnalyze()||game.canRetry;
- el('analyze').disabled=game.accessGranted?false:activity.active||!config.configured||!canSubmit;
+ el('analyze').disabled=resetting||(game.accessGranted?false:activity.active||!config.configured||!canSubmit);
  el('analyze').classList.toggle('continue',game.accessGranted);
- el('analyze').textContent=game.accessGranted?'CONTINUE':activity.active?'ANALYZING…':game.canRetry?'RETRY ▶':'ANALYZE\nTEXT';
+ el('analyze').textContent=resetting?'RESETTING…':game.accessGranted?'CONTINUE':activity.active?'ANALYZING…':game.canRetry?'RETRY ▶':'ANALYZE\nTEXT';
  el('attempt').textContent='RUN '+String(game.attempts).padStart(3,'0');
  syncAnalysisScope(activity);
  el('status').textContent=!config.configured?'Set TYPESAFE_API_KEY on the server, then reload.':
-  activity.active?'Sampling the unknown…':game.error||
+  resetting?'Resetting the security circuits…':activity.active?'Sampling the unknown…':game.error||
   (game.accessGranted?'ACCESS GRANTED. The next circuit is live.':game.readings&&!game.current?'Input changed. Analyze to take a new reading.':game.current?'Reading complete. Adjust the phrase and try again.':level.briefing);
  el('status').setAttribute('role',game.error&&!activity.active?'alert':'status');
  const passed=game.current?rules.filter((rule,i)=>readingMeets(rule,game.readings[i])).length:0;
@@ -244,7 +244,20 @@ if(debug){
  });
 }
 function submitAnalysis(withBeep=false){if(!game.canAnalyze()&&!game.canRetry)return;if(withBeep)submissionBeep();queueAnalysis(true);}
-function continueLevel(){if(game.advance()){syncInput();el('phrase').focus();return true;}return false;}
+async function resetServerProgress(){
+ const response=await fetch('/api/game/reset',{method:'POST'});
+ if(!response.ok)throw new Error('The apparatus could not clear your progress. Try again.');
+}
+async function continueLevel(){
+ if(resetting)return false;
+ const final=game.levelIndex===game.levels.length-1;
+ if(final){resetting=true;render();}
+ try{
+  if(await game.continueAfterWin(resetServerProgress)){syncInput();el('phrase').focus();return true;}
+  return false;
+ }catch(error){game.error=error.message;return false;}
+ finally{if(final){resetting=false;render();}}
+}
 el('experiment').addEventListener('submit',event=>{event.preventDefault();if(game.awaitingAcceptance)submitAnalysis();else if(game.inputLocked)continueLevel();else submitAnalysis();});
 let audioContext;
 function submissionBeep(){
@@ -255,11 +268,10 @@ el('start-over').addEventListener('click',async()=>{
  if(game.loading||!window.confirm('Clear all Mad Hacker progress and start over?'))return;
  el('start-over').disabled=true;
  try{
-  const response=await fetch('/api/game/reset',{method:'POST'});
-  if(!response.ok)throw new Error();
+  await resetServerProgress();
   game.newGame(true);game.serverResetPending=false;clearStoredProgress();lastStoredProgress='';syncInput();render();el('phrase').focus();
  }catch{game.error='The apparatus could not clear your progress. Try again.';render();}
 });
-el('restart').addEventListener('click',continueLevel);
+el('restart').addEventListener('click',()=>{continueLevel();});
 installPocketLayout(pocketQuery,()=>{resizeInput();render();});
 syncInput();render();el('phrase').focus({preventScroll:true});

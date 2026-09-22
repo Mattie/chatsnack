@@ -670,10 +670,11 @@ class ResponsesWebSocketAdapter(ResponsesNormalizationMixin):
     # ------------------------------------------------------------------
 
     def _request_with_session(self, messages, kwargs, include_prev=True):
-        """Build a Responses request, injecting session continuation state."""
-        request_options = dict(kwargs)
-        if include_prev and self.session.last_response_id and not request_options.get("previous_response_id"):
-            request_options["previous_response_id"] = self.session.last_response_id
+        """Use a verified prefix, or replay all messages when retrying without it."""
+        request_options = self._apply_profile_defaults(kwargs)
+        if not include_prev:
+            request_options.pop("previous_response_id", None)
+            request_options.pop("_continuation_prefix_length", None)
         return self.build_responses_request(messages, request_options)
 
     @staticmethod
@@ -704,7 +705,7 @@ class ResponsesWebSocketAdapter(ResponsesNormalizationMixin):
     def _event_dict(event) -> Dict[str, Any]:
         """Convert an SDK event to a plain dict for metadata extraction."""
         if hasattr(event, "model_dump"):
-            return event.model_dump()
+            return ResponsesWebSocketAdapter._to_dict(event)
         return {}
 
     # ------------------------------------------------------------------
@@ -793,7 +794,7 @@ class ResponsesWebSocketAdapter(ResponsesNormalizationMixin):
                         )
                         index += 1
 
-                elif etype == "response.completed":
+                elif etype in {"response.completed", "response.incomplete"}:
                     resp = getattr(event, "response", None)
                     resp_dict = self._event_dict(resp) if resp else {}
                     terminal_response = resp_dict
@@ -934,7 +935,7 @@ class ResponsesWebSocketAdapter(ResponsesNormalizationMixin):
                         )
                         index += 1
 
-                elif etype == "response.completed":
+                elif etype in {"response.completed", "response.incomplete"}:
                     resp = getattr(event, "response", None)
                     resp_dict = self._event_dict(resp) if resp else {}
                     terminal_response = resp_dict

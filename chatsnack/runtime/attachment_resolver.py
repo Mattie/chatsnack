@@ -229,11 +229,19 @@ class AttachmentResolver:
     def resolve_messages(self, messages):
         """Resolve all local path entries in a list of API message dicts (sync).
 
-        Mutates nothing on the original message dicts.  Returns a new list
-        with resolved entries.
+        Returns a new list with resolved entries. Materialized file-object
+        sources are also replaced in the original history with their durable
+        provider reference before their temporary path is deleted.
         """
         resolved = []
         for msg in messages:
+            if msg.get("role") == "assistant" and (
+                msg.get("item_id") or "content" in (msg.get("provider_extras") or {})
+            ):
+                # Recorded output already owns its wire content. Its asset lists
+                # are display conveniences, not new attachment inputs to upload.
+                resolved.append(msg)
+                continue
             new_msg = dict(msg)
             changed = False
 
@@ -243,9 +251,17 @@ class AttachmentResolver:
                     continue
                 new_entries = []
                 for entry in entries:
+                    materialized = is_materialized_tempfile(entry)
+                    filename = entry.get("filename") if materialized else None
                     result = self.resolve_attachment(entry, kind)
                     if result is not None:
                         new_entries.append(result)
+                        if materialized:
+                            result = dict(result)
+                            if filename:
+                                result["filename"] = filename
+                            entry.clear()
+                            entry.update(result)
                 if new_entries != entries:
                     changed = True
                 new_msg[key] = new_entries
@@ -257,6 +273,11 @@ class AttachmentResolver:
         """Async variant of :meth:`resolve_messages`."""
         resolved = []
         for msg in messages:
+            if msg.get("role") == "assistant" and (
+                msg.get("item_id") or "content" in (msg.get("provider_extras") or {})
+            ):
+                resolved.append(msg)
+                continue
             new_msg = dict(msg)
             changed = False
 
@@ -266,9 +287,17 @@ class AttachmentResolver:
                     continue
                 new_entries = []
                 for entry in entries:
+                    materialized = is_materialized_tempfile(entry)
+                    filename = entry.get("filename") if materialized else None
                     result = await self.resolve_attachment_async(entry, kind)
                     if result is not None:
                         new_entries.append(result)
+                        if materialized:
+                            result = dict(result)
+                            if filename:
+                                result["filename"] = filename
+                            entry.clear()
+                            entry.update(result)
                 if new_entries != entries:
                     changed = True
                 new_msg[key] = new_entries

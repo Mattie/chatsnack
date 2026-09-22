@@ -199,7 +199,7 @@ sample.questions["department"]
 sample.answers["department"].choice
 ```
 
-Names are optional and must be unique within one Sample. An unnamed question remains available by position. This works for every question kind because `.choice` is universal: it returns `"yes"` or `"no"` for yes/no, an option key for Choice, and the selected level name for Score.
+Names are optional. Explicit names must be nonempty strings without filling metacharacters (`.`, `[`, `]`, `{`, `}`, `!`, or `:`) and unique within one Sample; those characters delimit or modify named result fillings. Saved Sampler names exclude the formatter metacharacters `{`, `}`, `!`, and `:`, while dots and brackets remain valid in the asset-name segment. An unnamed question remains available by position. This works for every question kind because `.choice` is universal: it returns `"yes"` or `"no"` for yes/no, an option key for Choice, and the selected level name for Score.
 
 TypeSafe returns answers in a map keyed by question ID. The adapter should rebuild both collections from the submitted question order rather than relying on response-object order. It may generate private provider IDs for unnamed questions, but those IDs do not become authored names.
 
@@ -548,7 +548,7 @@ The public layer should reject invalid authored questions before making a provid
 - empty Choice options;
 - fewer than two Score levels;
 - duplicate Choice option keys or Score level identifiers;
-- duplicate explicit question names in one batch;
+- invalid or duplicate explicit question names in one batch;
 - a missing saved Question referenced by an exact filling;
 - missing data after call and Sampler precedence are applied;
 - both a positional question and `questions=` on the same call.

@@ -105,11 +105,21 @@ test('debug controls reveal every goal and allow direct level selection',()=>{
  assert.deepEqual(game.revealed,[true]);
 });
 
-test('final victory action starts a clean game',()=>{
+test('final victory resets server progress before starting a clean local game',async()=>{
  const {game}=setup();game.levelIndex=5;game.unlocked=5;game.history=[{level:'06'}];game.readings=[{value:1}];game.resultRevision=game.revision;
  game.completed={'01':{},'06':game.captureCompletedLevel()};
  game.levels[0].rules[1].label='Previously decoded';game.levels[0].rules[1].target=2;game.acceptedToken='old-token';
- assert.equal(game.won,true);assert.equal(game.advance(),true);
+ const resetAt=[];
+ assert.equal(game.won,true);assert.equal(await game.continueAfterWin(async()=>resetAt.push(game.level.id)),true);
+ assert.deepEqual(resetAt,['06']);
  assert.equal(game.level.id,'01');assert.equal(game.unlocked,0);assert.deepEqual(game.history,[]);
- assert.equal(game.levels[0].rules[1].label,'Self-deprecating');assert.equal(game.acceptedToken,null);assert.equal(game.serverResetPending,true);
+ assert.equal(game.levels[0].rules[1].label,'Self-deprecating');assert.equal(game.acceptedToken,null);assert.equal(game.serverResetPending,false);
+});
+
+test('failed final server reset leaves the completed game available to retry',async()=>{
+ const {game}=setup();game.levelIndex=5;game.unlocked=5;game.readings=[{value:1}];game.resultRevision=game.revision;
+ game.completed={'06':game.captureCompletedLevel()};
+
+ await assert.rejects(game.continueAfterWin(async()=>{throw new Error('offline');}),/offline/);
+ assert.equal(game.level.id,'06');assert.equal(game.accessGranted,true);assert.equal(game.serverResetPending,false);
 });

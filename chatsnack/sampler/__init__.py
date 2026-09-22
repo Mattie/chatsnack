@@ -12,7 +12,8 @@ from ..fillings import active_filling_stash
 from . import provider
 from .client import _SamplerClient, connection_signature
 from .models import (Answer, ChoiceAnswer, NamedSequence, Question, Sample, SamplerParams,
-                     SampleUsage, ScoreAnswer, YesNoAnswer, decode, json_value)
+                     SampleUsage, ScoreAnswer, YesNoAnswer, decode, json_value,
+                     _FILLING_FORMAT_METACHARACTERS)
 from .persistence import Asset, AssetYAML, DataSerializer, ParamsSerializer, QuestionsSerializer, ValueSerializer
 
 
@@ -84,6 +85,17 @@ class Sampler(Asset):
         if not self.expand:
             result['expand'] = False
         return result
+
+    def save(self, path=None):
+        """Persist only names that the saved-result filling grammar can address."""
+        if self.name is not None and (
+            not isinstance(self.name, str) or not self.name.strip()
+            or any(char in self.name for char in _FILLING_FORMAT_METACHARACTERS)
+        ):
+            raise ValueError(
+                'Sampler names must be nonempty strings without filling metacharacters {}!:'
+            )
+        return super().save(path)
 
     @classmethod
     def from_sample(cls, sample, *, name=None):
@@ -215,6 +227,8 @@ class Sampler(Asset):
                     content = {k: await resolve_value(v, fillings) if k != 'name' else v
                                for k, v in content.items()}
                 resolved.append(Question(**content))
+            for question in resolved:
+                question._validate_name()
             names = [q.name for q in resolved if q.name is not None]
             if len(set(names)) != len(names):
                 raise ValueError('Duplicate question names')
