@@ -1,0 +1,172 @@
+params:
+  timeout: 30
+  retry:
+    max_retries: 0
+data: "{input}"
+questions:
+  - name: tone
+    question: What is the dominant tone?
+    choices:
+      warm: Warm and collaborative
+      neutral: Plain and direct
+      tense: Irritated, defensive, or passive-aggressive
+  - name: grammar
+    question: Does the passage follow conventional English grammar?
+    yes: Grammar is consistent with its dialect and register. Sentence-ending
+      prepositions and intentional informal phrasing are not errors.
+    no: There are clear grammatical mistakes beyond dialect or intentional
+      informal style.
+  - name: spelling
+    question: Is the passage free of apparent spelling mistakes?
+    yes: Words are spelled correctly, allowing dialect, names, and intentional
+      stylization.
+    no: There are apparent unintended misspellings.
+  - name: punctuation
+    question: Is punctuation appropriate for this passage?
+    yes: Punctuation supports the intended meaning and register.
+    no: Missing or misplaced punctuation creates unintended confusion.
+  - name: prepositions
+    question: Does any sentence end with a preposition?
+    yes: A sentence ends with a preposition, including a stranded preposition.
+      This is descriptive, not a grammar fault.
+    no: No sentence ends with a preposition.
+  - name: fragments
+    question: Does the passage contain sentence fragments?
+    yes: At least one standalone fragment lacks a complete clause, even if used
+      intentionally.
+    no: All standalone sentences have complete clauses.
+  - name: runons
+    question: Does the passage contain improperly joined independent clauses?
+    yes: There is a fused sentence or comma splice.
+    no: Independent clauses are joined or separated appropriately; length alone
+      is not a run-on.
+  - name: passive
+    question: Does the passage use passive voice?
+    yes: A subject receives an action through a passive construction.
+    no: No passive construction appears; a form of 'be' alone does not qualify.
+  - name: slang
+    question: Does the passage use slang?
+    yes: It includes recognizable informal slang expressions.
+    no: There is no slang; ordinary contractions alone do not qualify.
+  - name: jargon
+    question: Does the passage use specialized jargon?
+    yes: Understanding some terms requires domain knowledge.
+    no: The vocabulary is accessible without specialized knowledge.
+  - name: contractions
+    question: Does the passage use contractions such as don't or we're?
+    yes: At least one contracted word form appears.
+    no: No contracted word forms appear.
+  - name: cliches
+    question: Does the passage rely on clichés?
+    yes: It uses familiar, overused stock expressions.
+    no: It avoids recognizable stock expressions.
+  - name: readable
+    question: Is the passage easy to follow on a first reading?
+    yes: Its meaning and progression are readily understandable.
+    no: Confusing structure or wording requires rereading.
+  - name: concise
+    question: Does the passage make its point without unnecessary words?
+    yes: The wording serves the message without avoidable padding.
+    no: Redundant or unnecessary wording dilutes the message.
+  - name: details
+    question: Does the passage use concrete, specific details?
+    yes: Identifiable examples, actions, observations, or particulars support
+      the message.
+    no: The passage mainly uses vague generalities.
+  - name: variety
+    question: Does the passage show meaningful variation in sentence structure?
+    yes: Multiple sentences vary their structure in a useful way.
+    no: Sentences repeat the same structure or there is too little text to show
+      variation.
+  - name: clear
+    question: Is the requested action clear?
+    yes: The reader can tell what should happen next.
+    no: The next step is missing or ambiguous.
+  - name: human
+    question: Does the passage have a natural conversational voice?
+    yes: Its phrasing feels fluid and conversational. Judge the text, not
+      whether a human or AI wrote it.
+    no: Its phrasing feels stiff or formulaic.
+  - name: reply
+    question: Does the passage give the reader a clear opening to respond?
+    yes: There is an identifiable question, invitation, or conversational
+      opening.
+    no: There is no clear opening for a useful response.
+  - name: hedging
+    question: Does the passage qualify its claims with hedging?
+    yes: Words or phrases soften certainty or commitment.
+    no: Claims are expressed without qualifying uncertainty.
+  - name: repetition
+    question: Does the passage repeat ideas or wording unnecessarily?
+    yes: Repetition adds no useful emphasis or meaning.
+    no: Repeated material is absent or serves a clear purpose.
+  - name: imagery
+    question: Does the passage evoke vivid sensory details?
+    yes: Concrete language evokes sight, sound, touch, smell, or taste.
+    no: The language remains abstract or lacks sensory detail.
+  - name: corporate
+    question: Does the passage wrap simple ideas in corporate abstractions?
+    yes: Business buzzwords or abstractions obscure an otherwise simple message.
+    no: Its business language is concrete and useful, or absent.
+  - name: passive_aggressive
+    question: Does polite wording in the passage convey irritation or blame?
+    yes: The wording suggests a pointed rebuke beneath surface politeness; judge
+      the passage's impression only.
+    no: Politeness reads as straightforward, or there is no veiled irritation.
+  - name: main_character
+    question: Does the passage cast its speaker as unusually central or
+      consequential?
+    yes: The text gives its speaker a conspicuously starring or world-changing
+      role.
+    no: The speaker is not framed as unusually central. Do not infer
+      personality.
+  - name: twist
+    question: Does the passage contain a surprising reversal or reveal?
+    yes: The text meaningfully overturns an expectation it establishes.
+    no: There is no actual reversal or surprising reveal.
+  - name: poetry
+    question: Does the passage have striking rhythm, imagery, or lyrical
+      phrasing?
+    yes: The wording has a noticeable poetic quality even outside verse.
+    no: The phrasing is ordinary prose without a striking lyrical quality.
+  - name: meme
+    question: Does the passage contain a punchy, recognizable, shareable moment?
+    yes: A line or situation feels quotable and relatable in a meme-like way.
+    no: There is no distinct meme-like hook.
+  - name: late_night
+    question: Does the passage evoke an impulsive, intimate, or rambling
+      late-night message?
+    yes: Its phrasing strongly evokes that conversational mood; do not infer
+      when it was written.
+    no: Its phrasing does not evoke that mood.
+  - name: trailer
+    question: Does the passage use suspense, high stakes, or theatrical
+      declarations?
+    yes: The language sounds dramatically suited to a trailer voice-over.
+    no: The language lacks theatrical stakes or suspense.
+  - name: outlandish
+    question: Does the passage mention an absurd, wildly implausible, or
+      extravagantly outlandish idea?
+    yes: The text includes a conspicuously absurd or fantastical claim, image,
+      or proposal, even as a joke. Judge the content, never anyone's mental
+      health.
+    no: Its ideas are ordinary or plausible; mere disagreement or unfamiliarity
+      is not enough.
+  - name: haiku
+    question: Does the passage form a recognizable English-language haiku?
+    yes: It is a compact three-line poem with concrete imagery or a
+      juxtaposition; a traditional 5-7-5 syllable pattern is strong evidence but
+      not mandatory for modern English haiku.
+    no: It lacks the compact three-line poetic form. Three arbitrary lines alone
+      do not qualify.
+  - name: sonnet
+    question: Is the passage a recognizable sonnet?
+    yes: It is a fourteen-line poem with a coherent sonnet-like rhythmic or
+      rhyme structure and development or turn of thought.
+    no: It lacks the fourteen-line sonnet form or is merely prose split into
+      lines.
+  - name: shakespearean
+    question: Does the passage use a recognizably Shakespearean style?
+    yes: It evokes Shakespeare through Elizabethan diction, dramatic rhetoric,
+      wordplay, or verse cadence; a mere mention of Shakespeare is insufficient.
+    no: It does not sustain a recognizable Shakespearean style.

@@ -1,0 +1,372 @@
+params:
+  timeout: 30
+  retry:
+    max_retries: 0
+data: |-
+  The user submitted the following phrase. Represent it as a single horizontal color strip whose
+  separate colors comprehensively describe the object or concept in the expected proportions,
+  making the phrase recognizable through color alone:
+  <phrase_to_colorstrip>
+  {input}
+  </phrase_to_colorstrip>
+questions:
+  - name: stop_01_h
+    question: >-
+      Looking at the full 12-bar color strip that best represents the supplied word or phrase,
+      which hue family should bar 1 of 12 use? Consider the strip from left to right
+      and choose the hue that makes the complete composition most recognizable.
+    choices:
+      red: Red, centered near 0 degrees.
+      orange: Orange, centered near 30 degrees.
+      yellow: Yellow, centered near 60 degrees.
+      chartreuse: Chartreuse, centered near 90 degrees.
+      green: Green, centered near 120 degrees.
+      spring: Spring green, centered near 150 degrees.
+      cyan: Cyan, centered near 180 degrees.
+      azure: Azure, centered near 210 degrees.
+      blue: Blue, centered near 240 degrees.
+      violet: Violet, centered near 270 degrees.
+      magenta: Magenta, centered near 300 degrees.
+      rose: Rose, centered near 330 degrees.
+  - name: stop_01_s
+    question: >-
+      Should this bar be vividly saturated rather than muted or gray within the full
+      12-bar strip? This is bar 1 of 12 from left to right.
+    yes: The hue should be vivid and strongly saturated; stronger evidence for yes means greater saturation.
+    no: The hue should be muted, gray, or nearly colorless.
+  - name: stop_01_v
+    question: >-
+      Should this bar be bright rather than dark within the full 12-bar strip?
+      This is bar 1 of 12 from left to right.
+    yes: The color should be bright; stronger evidence for yes means greater brightness.
+    no: The color should be dark or nearly black.
+  - name: stop_02_h
+    question: >-
+      Looking at the full 12-bar color strip that best represents the supplied word or phrase,
+      which hue family should bar 2 of 12 use? Consider the strip from left to right
+      and choose the hue that makes the complete composition most recognizable.
+    choices:
+      red: Red, centered near 0 degrees.
+      orange: Orange, centered near 30 degrees.
+      yellow: Yellow, centered near 60 degrees.
+      chartreuse: Chartreuse, centered near 90 degrees.
+      green: Green, centered near 120 degrees.
+      spring: Spring green, centered near 150 degrees.
+      cyan: Cyan, centered near 180 degrees.
+      azure: Azure, centered near 210 degrees.
+      blue: Blue, centered near 240 degrees.
+      violet: Violet, centered near 270 degrees.
+      magenta: Magenta, centered near 300 degrees.
+      rose: Rose, centered near 330 degrees.
+  - name: stop_02_s
+    question: >-
+      Should this bar be vividly saturated rather than muted or gray within the full
+      12-bar strip? This is bar 2 of 12 from left to right.
+    yes: The hue should be vivid and strongly saturated; stronger evidence for yes means greater saturation.
+    no: The hue should be muted, gray, or nearly colorless.
+  - name: stop_02_v
+    question: >-
+      Should this bar be bright rather than dark within the full 12-bar strip?
+      This is bar 2 of 12 from left to right.
+    yes: The color should be bright; stronger evidence for yes means greater brightness.
+    no: The color should be dark or nearly black.
+  - name: stop_03_h
+    question: >-
+      Looking at the full 12-bar color strip that best represents the supplied word or phrase,
+      which hue family should bar 3 of 12 use? Consider the strip from left to right
+      and choose the hue that makes the complete composition most recognizable.
+    choices:
+      red: Red, centered near 0 degrees.
+      orange: Orange, centered near 30 degrees.
+      yellow: Yellow, centered near 60 degrees.
+      chartreuse: Chartreuse, centered near 90 degrees.
+      green: Green, centered near 120 degrees.
+      spring: Spring green, centered near 150 degrees.
+      cyan: Cyan, centered near 180 degrees.
+      azure: Azure, centered near 210 degrees.
+      blue: Blue, centered near 240 degrees.
+      violet: Violet, centered near 270 degrees.
+      magenta: Magenta, centered near 300 degrees.
+      rose: Rose, centered near 330 degrees.
+  - name: stop_03_s
+    question: >-
+      Should this bar be vividly saturated rather than muted or gray within the full
+      12-bar strip? This is bar 3 of 12 from left to right.
+    yes: The hue should be vivid and strongly saturated; stronger evidence for yes means greater saturation.
+    no: The hue should be muted, gray, or nearly colorless.
+  - name: stop_03_v
+    question: >-
+      Should this bar be bright rather than dark within the full 12-bar strip?
+      This is bar 3 of 12 from left to right.
+    yes: The color should be bright; stronger evidence for yes means greater brightness.
+    no: The color should be dark or nearly black.
+  - name: stop_04_h
+    question: >-
+      Looking at the full 12-bar color strip that best represents the supplied word or phrase,
+      which hue family should bar 4 of 12 use? Consider the strip from left to right
+      and choose the hue that makes the complete composition most recognizable.
+    choices:
+      red: Red, centered near 0 degrees.
+      orange: Orange, centered near 30 degrees.
+      yellow: Yellow, centered near 60 degrees.
+      chartreuse: Chartreuse, centered near 90 degrees.
+      green: Green, centered near 120 degrees.
+      spring: Spring green, centered near 150 degrees.
+      cyan: Cyan, centered near 180 degrees.
+      azure: Azure, centered near 210 degrees.
+      blue: Blue, centered near 240 degrees.
+      violet: Violet, centered near 270 degrees.
+      magenta: Magenta, centered near 300 degrees.
+      rose: Rose, centered near 330 degrees.
+  - name: stop_04_s
+    question: >-
+      Should this bar be vividly saturated rather than muted or gray within the full
+      12-bar strip? This is bar 4 of 12 from left to right.
+    yes: The hue should be vivid and strongly saturated; stronger evidence for yes means greater saturation.
+    no: The hue should be muted, gray, or nearly colorless.
+  - name: stop_04_v
+    question: >-
+      Should this bar be bright rather than dark within the full 12-bar strip?
+      This is bar 4 of 12 from left to right.
+    yes: The color should be bright; stronger evidence for yes means greater brightness.
+    no: The color should be dark or nearly black.
+  - name: stop_05_h
+    question: >-
+      Looking at the full 12-bar color strip that best represents the supplied word or phrase,
+      which hue family should bar 5 of 12 use? Consider the strip from left to right
+      and choose the hue that makes the complete composition most recognizable.
+    choices:
+      red: Red, centered near 0 degrees.
+      orange: Orange, centered near 30 degrees.
+      yellow: Yellow, centered near 60 degrees.
+      chartreuse: Chartreuse, centered near 90 degrees.
+      green: Green, centered near 120 degrees.
+      spring: Spring green, centered near 150 degrees.
+      cyan: Cyan, centered near 180 degrees.
+      azure: Azure, centered near 210 degrees.
+      blue: Blue, centered near 240 degrees.
+      violet: Violet, centered near 270 degrees.
+      magenta: Magenta, centered near 300 degrees.
+      rose: Rose, centered near 330 degrees.
+  - name: stop_05_s
+    question: >-
+      Should this bar be vividly saturated rather than muted or gray within the full
+      12-bar strip? This is bar 5 of 12 from left to right.
+    yes: The hue should be vivid and strongly saturated; stronger evidence for yes means greater saturation.
+    no: The hue should be muted, gray, or nearly colorless.
+  - name: stop_05_v
+    question: >-
+      Should this bar be bright rather than dark within the full 12-bar strip?
+      This is bar 5 of 12 from left to right.
+    yes: The color should be bright; stronger evidence for yes means greater brightness.
+    no: The color should be dark or nearly black.
+  - name: stop_06_h
+    question: >-
+      Looking at the full 12-bar color strip that best represents the supplied word or phrase,
+      which hue family should bar 6 of 12 use? Consider the strip from left to right
+      and choose the hue that makes the complete composition most recognizable.
+    choices:
+      red: Red, centered near 0 degrees.
+      orange: Orange, centered near 30 degrees.
+      yellow: Yellow, centered near 60 degrees.
+      chartreuse: Chartreuse, centered near 90 degrees.
+      green: Green, centered near 120 degrees.
+      spring: Spring green, centered near 150 degrees.
+      cyan: Cyan, centered near 180 degrees.
+      azure: Azure, centered near 210 degrees.
+      blue: Blue, centered near 240 degrees.
+      violet: Violet, centered near 270 degrees.
+      magenta: Magenta, centered near 300 degrees.
+      rose: Rose, centered near 330 degrees.
+  - name: stop_06_s
+    question: >-
+      Should this bar be vividly saturated rather than muted or gray within the full
+      12-bar strip? This is bar 6 of 12 from left to right.
+    yes: The hue should be vivid and strongly saturated; stronger evidence for yes means greater saturation.
+    no: The hue should be muted, gray, or nearly colorless.
+  - name: stop_06_v
+    question: >-
+      Should this bar be bright rather than dark within the full 12-bar strip?
+      This is bar 6 of 12 from left to right.
+    yes: The color should be bright; stronger evidence for yes means greater brightness.
+    no: The color should be dark or nearly black.
+  - name: stop_07_h
+    question: >-
+      Looking at the full 12-bar color strip that best represents the supplied word or phrase,
+      which hue family should bar 7 of 12 use? Consider the strip from left to right
+      and choose the hue that makes the complete composition most recognizable.
+    choices:
+      red: Red, centered near 0 degrees.
+      orange: Orange, centered near 30 degrees.
+      yellow: Yellow, centered near 60 degrees.
+      chartreuse: Chartreuse, centered near 90 degrees.
+      green: Green, centered near 120 degrees.
+      spring: Spring green, centered near 150 degrees.
+      cyan: Cyan, centered near 180 degrees.
+      azure: Azure, centered near 210 degrees.
+      blue: Blue, centered near 240 degrees.
+      violet: Violet, centered near 270 degrees.
+      magenta: Magenta, centered near 300 degrees.
+      rose: Rose, centered near 330 degrees.
+  - name: stop_07_s
+    question: >-
+      Should this bar be vividly saturated rather than muted or gray within the full
+      12-bar strip? This is bar 7 of 12 from left to right.
+    yes: The hue should be vivid and strongly saturated; stronger evidence for yes means greater saturation.
+    no: The hue should be muted, gray, or nearly colorless.
+  - name: stop_07_v
+    question: >-
+      Should this bar be bright rather than dark within the full 12-bar strip?
+      This is bar 7 of 12 from left to right.
+    yes: The color should be bright; stronger evidence for yes means greater brightness.
+    no: The color should be dark or nearly black.
+  - name: stop_08_h
+    question: >-
+      Looking at the full 12-bar color strip that best represents the supplied word or phrase,
+      which hue family should bar 8 of 12 use? Consider the strip from left to right
+      and choose the hue that makes the complete composition most recognizable.
+    choices:
+      red: Red, centered near 0 degrees.
+      orange: Orange, centered near 30 degrees.
+      yellow: Yellow, centered near 60 degrees.
+      chartreuse: Chartreuse, centered near 90 degrees.
+      green: Green, centered near 120 degrees.
+      spring: Spring green, centered near 150 degrees.
+      cyan: Cyan, centered near 180 degrees.
+      azure: Azure, centered near 210 degrees.
+      blue: Blue, centered near 240 degrees.
+      violet: Violet, centered near 270 degrees.
+      magenta: Magenta, centered near 300 degrees.
+      rose: Rose, centered near 330 degrees.
+  - name: stop_08_s
+    question: >-
+      Should this bar be vividly saturated rather than muted or gray within the full
+      12-bar strip? This is bar 8 of 12 from left to right.
+    yes: The hue should be vivid and strongly saturated; stronger evidence for yes means greater saturation.
+    no: The hue should be muted, gray, or nearly colorless.
+  - name: stop_08_v
+    question: >-
+      Should this bar be bright rather than dark within the full 12-bar strip?
+      This is bar 8 of 12 from left to right.
+    yes: The color should be bright; stronger evidence for yes means greater brightness.
+    no: The color should be dark or nearly black.
+  - name: stop_09_h
+    question: >-
+      Looking at the full 12-bar color strip that best represents the supplied word or phrase,
+      which hue family should bar 9 of 12 use? Consider the strip from left to right
+      and choose the hue that makes the complete composition most recognizable.
+    choices:
+      red: Red, centered near 0 degrees.
+      orange: Orange, centered near 30 degrees.
+      yellow: Yellow, centered near 60 degrees.
+      chartreuse: Chartreuse, centered near 90 degrees.
+      green: Green, centered near 120 degrees.
+      spring: Spring green, centered near 150 degrees.
+      cyan: Cyan, centered near 180 degrees.
+      azure: Azure, centered near 210 degrees.
+      blue: Blue, centered near 240 degrees.
+      violet: Violet, centered near 270 degrees.
+      magenta: Magenta, centered near 300 degrees.
+      rose: Rose, centered near 330 degrees.
+  - name: stop_09_s
+    question: >-
+      Should this bar be vividly saturated rather than muted or gray within the full
+      12-bar strip? This is bar 9 of 12 from left to right.
+    yes: The hue should be vivid and strongly saturated; stronger evidence for yes means greater saturation.
+    no: The hue should be muted, gray, or nearly colorless.
+  - name: stop_09_v
+    question: >-
+      Should this bar be bright rather than dark within the full 12-bar strip?
+      This is bar 9 of 12 from left to right.
+    yes: The color should be bright; stronger evidence for yes means greater brightness.
+    no: The color should be dark or nearly black.
+  - name: stop_10_h
+    question: >-
+      Looking at the full 12-bar color strip that best represents the supplied word or phrase,
+      which hue family should bar 10 of 12 use? Consider the strip from left to right
+      and choose the hue that makes the complete composition most recognizable.
+    choices:
+      red: Red, centered near 0 degrees.
+      orange: Orange, centered near 30 degrees.
+      yellow: Yellow, centered near 60 degrees.
+      chartreuse: Chartreuse, centered near 90 degrees.
+      green: Green, centered near 120 degrees.
+      spring: Spring green, centered near 150 degrees.
+      cyan: Cyan, centered near 180 degrees.
+      azure: Azure, centered near 210 degrees.
+      blue: Blue, centered near 240 degrees.
+      violet: Violet, centered near 270 degrees.
+      magenta: Magenta, centered near 300 degrees.
+      rose: Rose, centered near 330 degrees.
+  - name: stop_10_s
+    question: >-
+      Should this bar be vividly saturated rather than muted or gray within the full
+      12-bar strip? This is bar 10 of 12 from left to right.
+    yes: The hue should be vivid and strongly saturated; stronger evidence for yes means greater saturation.
+    no: The hue should be muted, gray, or nearly colorless.
+  - name: stop_10_v
+    question: >-
+      Should this bar be bright rather than dark within the full 12-bar strip?
+      This is bar 10 of 12 from left to right.
+    yes: The color should be bright; stronger evidence for yes means greater brightness.
+    no: The color should be dark or nearly black.
+  - name: stop_11_h
+    question: >-
+      Looking at the full 12-bar color strip that best represents the supplied word or phrase,
+      which hue family should bar 11 of 12 use? Consider the strip from left to right
+      and choose the hue that makes the complete composition most recognizable.
+    choices:
+      red: Red, centered near 0 degrees.
+      orange: Orange, centered near 30 degrees.
+      yellow: Yellow, centered near 60 degrees.
+      chartreuse: Chartreuse, centered near 90 degrees.
+      green: Green, centered near 120 degrees.
+      spring: Spring green, centered near 150 degrees.
+      cyan: Cyan, centered near 180 degrees.
+      azure: Azure, centered near 210 degrees.
+      blue: Blue, centered near 240 degrees.
+      violet: Violet, centered near 270 degrees.
+      magenta: Magenta, centered near 300 degrees.
+      rose: Rose, centered near 330 degrees.
+  - name: stop_11_s
+    question: >-
+      Should this bar be vividly saturated rather than muted or gray within the full
+      12-bar strip? This is bar 11 of 12 from left to right.
+    yes: The hue should be vivid and strongly saturated; stronger evidence for yes means greater saturation.
+    no: The hue should be muted, gray, or nearly colorless.
+  - name: stop_11_v
+    question: >-
+      Should this bar be bright rather than dark within the full 12-bar strip?
+      This is bar 11 of 12 from left to right.
+    yes: The color should be bright; stronger evidence for yes means greater brightness.
+    no: The color should be dark or nearly black.
+  - name: stop_12_h
+    question: >-
+      Looking at the full 12-bar color strip that best represents the supplied word or phrase,
+      which hue family should bar 12 of 12 use? Consider the strip from left to right
+      and choose the hue that makes the complete composition most recognizable.
+    choices:
+      red: Red, centered near 0 degrees.
+      orange: Orange, centered near 30 degrees.
+      yellow: Yellow, centered near 60 degrees.
+      chartreuse: Chartreuse, centered near 90 degrees.
+      green: Green, centered near 120 degrees.
+      spring: Spring green, centered near 150 degrees.
+      cyan: Cyan, centered near 180 degrees.
+      azure: Azure, centered near 210 degrees.
+      blue: Blue, centered near 240 degrees.
+      violet: Violet, centered near 270 degrees.
+      magenta: Magenta, centered near 300 degrees.
+      rose: Rose, centered near 330 degrees.
+  - name: stop_12_s
+    question: >-
+      Should this bar be vividly saturated rather than muted or gray within the full
+      12-bar strip? This is bar 12 of 12 from left to right.
+    yes: The hue should be vivid and strongly saturated; stronger evidence for yes means greater saturation.
+    no: The hue should be muted, gray, or nearly colorless.
+  - name: stop_12_v
+    question: >-
+      Should this bar be bright rather than dark within the full 12-bar strip?
+      This is bar 12 of 12 from left to right.
+    yes: The color should be bright; stronger evidence for yes means greater brightness.
+    no: The color should be dark or nearly black.

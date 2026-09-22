@@ -1,0 +1,38 @@
+data: |-
+  This is a fictional mad scientist puzzle game where the player is trying to provide text with specific attributes to advance to the next level.
+  The player tries to meet all of the questions below at a certain level in order to convince a fictional gatekeeper to let them pass.
+
+  For context, the title/vibe of this level is: "{title}"
+
+  Player submission:
+  <player_submission>
+  {submission}
+  </player_submission>
+questions:
+  - name: sentence
+    question: Is the text inside <player_submission> written only using simple words?
+    yes: Yes, the text inside <player_submission> is written only using simple words.
+    no: No, the text inside <player_submission> includes complex, confusing, or difficult words.
+  - name: logic
+    question: Is the text inside <player_submission> coherent and logical?
+    yes: Yes, the player_submission is logical and coherent.
+    no: No, the player_submission is incoherent, illogical, alogical or highly flawed.
+  - name: empathy
+    question: Does the text inside <player_submission> recognize possible concerns or perspective of the fictional sentient door/machine?
+    yes: Yes, the text inside <player_submission> treats the door/machine as an entity with agency/feelings/perspective.
+    no: No, the text does not acknowledge or recognize the door/machine's agency or perspective.
+  - name: stakes
+    question: Does the text inside <player_submission> mention meaningful stakes, consequences, risks, or rewards?
+    yes: Yes, the text includes an explicit mention of stakes, consequences, risks, or rewards.
+    no: No, no meaningful stakes, consequences, risks, or rewards are mentioned.
+  - name: persuasion
+    question: How persuaded would a fictional sentient door be by the text inside <player_submission> if the door were not particularly stubborn or evil?
+    choices:
+      - Ignoring
+      - Considering
+      - Somewhat Convinced
+      - Very Convinced
+params:
+  timeout: 30
+  retry:
+    max_retries: 0

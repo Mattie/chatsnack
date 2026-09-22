@@ -1,0 +1,29 @@
+params:
+  timeout: 30
+  retry:
+    max_retries: 0
+data: "{input}"
+questions:
+  - name: experience
+    question: What level of engineering experience does this code suggest?
+    choices:
+      learning: Early learner or first attempt
+      junior: Working junior developer
+      professional: Experienced professional developer
+  - name: syntax
+    question: Is the code free of syntax errors?
+    choices:
+      "yes": Yes, the code has no syntax errors.
+      "no": No, the code contains syntax errors.
+  - name: comments
+    question: Are comments useful and appropriately placed?
+  - name: readable
+    question: Is the code easy to follow?
+  - name: maintainable
+    question: Would this be straightforward to maintain?
+  - name: risk
+    question: What is the apparent defect risk?
+    levels:
+      - low: Small, focused, and unsurprising
+      - medium: Some unclear behavior or edge cases
+      - high: Likely defects, unsafe behavior, or tangled control flow

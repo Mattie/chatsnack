@@ -1,0 +1,11 @@
+label: Menu
+title: Menu sense
+description: Judge positioning from the product, portion, ingredients, and price.
+placeholder: Describe a menu item and include its price…
+sample: Truffle popcorn — $16. A shareable bowl of kettle-popped corn with black truffle butter, pecorino, and chives.
+sampler: lab/samplers/menu.yml
+labels:
+  position: Price positioning
+  supported: Supported positioning
+  specific: Specific details
+  tempting: Appeal

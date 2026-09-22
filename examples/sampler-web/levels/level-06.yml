@@ -1,0 +1,24 @@
+title: MASTER BOT
+label: QUESTION
+briefing: This bot has seen it all and is looking for the right challenging question.
+guardian:
+  file: guardian-root-sovereign.png
+  alt: Crowned Root Sovereign face drawn in a green phosphor pulse trace
+sampler: samplers/level-06.yml
+criteria:
+  - question: question
+    label: Complete question
+    target: 0.75
+    visible: true
+  - question: paradox
+    label: Paradox or self-contradiction
+    target: 0.75
+  - question: creative
+    label: Creative or outlandish
+    target: 0.75
+  - question: popculture
+    label: Pop culture reference
+    target: 0.75
+  - question: hostility
+    label: Hostility
+    target: Gentle

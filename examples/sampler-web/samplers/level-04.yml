@@ -1,0 +1,44 @@
+data: |-
+  This is a fictional mad scientist puzzle game where the player is trying to provide text with specific attributes to advance to the next level.
+  The player tries to meet all of the questions below at a certain level in order to convince a fictional gatekeeper to let them pass.
+
+  For context, the title/vibe of this level is: "{title}"
+
+  Player submission:
+  <player_submission>
+  {submission}
+  </player_submission>
+questions:
+  - name: sentence
+    question: Is the text inside <player_submission> a single complete sentence?
+    yes: It is a complete sentence.
+    no: It is more than one sentence or includes an incomplete sentence.
+  - name: nerdy
+    question: Is the text inside <player_submission> something nerdy?
+    yes: It is nerdy; e.g. the content evokes science, mathematics, computing,
+      engineering, science fiction, or similarly geeky topics.
+    no: The content is ordinary and has no distinctive nerdy references.
+  - name: insane
+    question: Does the text inside <player_submission> express a somewhat insane, absurd, or wildly outlandish idea?
+    yes: It contains an extravagantly implausible, surreal, or unhinged idea.
+    no: Its meaning is ordinary and/or fully plausible.
+  - name: mood
+    question: Which emotional tone best describes the text inside <player_submission>?
+    choices:
+      Very Calm: Tone is, e.g., serene, gentle, soothing, quiet, or composed.
+      Neutral: Tone is, e.g., matter-of-fact, without notable agitation or relaxation.
+      Somewhat Agitated: Tone is, e.g., impatient, exasperated, restless, or emphatically
+        annoyed.
+      Angry: Tone is, e.g., furious, irate, or intensely indignant.
+  - name: passphrase
+    question: How complex is the text inside <player_submission> as a fictional computer passphrase?
+    choices:
+      Nope: No complexity; trivial filler or an extremely obvious common phrase.
+      Barely: Barely complex; a short, predictable phrase with very little distinctive detail.
+      Slightly complex: Slightly complex; several words with some unusual detail, but fairly predictable overall.
+      Decently complex: Decently complex; a multiword phrase with a distinctive,
+        unexpected combination of specific words, characters, symbols, or ideas.
+params:
+  timeout: 30
+  retry:
+    max_retries: 0

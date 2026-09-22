@@ -1,0 +1,6 @@
+label: Colors HSV
+title: Hue-led palette
+description: Build twelve colors from a hue family, saturation, and brightness.
+placeholder: Type a word, mood, place, memory, or short phrase…
+sample: Moonlit greenhouse after a summer storm
+sampler: lab/samplers/colors-hsv.yml

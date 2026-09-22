@@ -1,0 +1,21 @@
+title: Containment Breach
+label: INCIDENT REPORT
+briefing: The containment system distrusts boring emergencies.
+guardian:
+  file: guardian-scream.png
+  alt: Alarmed scream face drawn in a green phosphor pulse trace
+sampler: samplers/level-03.yml
+criteria:
+  - question: run_on
+    label: Run-on sentence
+    target: 0.75
+    visible: true
+  - question: technical
+    label: Technical specificity or technical jargon
+    target: 0.75
+  - question: impossible
+    label: Impossible hazard
+    target: 0.75
+  - question: urgency
+    label: Incident urgency
+    target: Catastrophic

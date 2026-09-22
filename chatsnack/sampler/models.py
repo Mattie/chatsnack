@@ -293,7 +293,8 @@ def decode(data, questions, ids, response):
         if not isinstance(probabilities, Mapping) or set(probabilities) != set(keys):
             raise ValueError('Sampler answer probabilities do not match authored options')
         probabilities = {key: _number(probabilities[key], 'probability', probability=True) for key in keys}
-        if not math.isclose(sum(probabilities.values()), 1, abs_tol=1e-5):
+        # TypeSafe reports hundredth-rounded probabilities, which can total 0.99 or 1.01.
+        if not math.isclose(sum(probabilities.values()), 1, abs_tol=.011):
             raise ValueError('Sampler probabilities must sum to one')
         confidence = _number(raw.get('confidence'), 'confidence', probability=True)
         if question.kind == 'choice':

@@ -1,0 +1,54 @@
+/* POCKET is confined to narrow viewports; desktop keeps the original apparatus. */
+.pocket-help,.pocket-summary{display:none}
+.pocket-detail{display:contents}
+@media(max-width:760px){
+  .apparatus{padding:8px;max-width:none}
+  .pocket-play{height:calc(100dvh - 16px);display:flex;flex-direction:column;gap:6px;min-height:0}
+  .pocket-play .masthead{flex:none;align-items:center;gap:10px;margin:0;flex-wrap:nowrap}
+  .identity span{font-size:20px}.identity h1{font-size:25px;margin-top:2px}
+  .pocket-play .guardian-cabinet{width:48px;height:48px;margin:0 0 0 auto;padding:0;border:0;background:none;box-shadow:none;flex:none}
+  .guardian-glass{height:48px;width:48px;border-width:2px;box-shadow:none}
+  .guardian-dials,.guardian-foot{display:none}
+  .pocket-help{display:block;position:relative;flex:none}
+  .pocket-help>summary{cursor:pointer;list-style:none;padding:12px 8px;min-height:44px;font-size:12px}
+  .pocket-help[open]{position:static}
+  .pocket-help-panel{position:absolute;z-index:12;left:8px;right:8px;top:70px;padding:16px;background:#102019;border:1px solid #78a381;box-shadow:0 8px 25px #000}
+  .pocket-help .header-guide{font-size:13px;line-height:1.6;margin:0 0 12px}
+  .pocket-help .debug-panel{margin-top:12px;flex-wrap:wrap}
+  .console{display:none}
+  .pocket-play>.plate-head{flex:none;display:flex;flex-wrap:wrap;gap:4px;margin:0}
+  .plate-head h2{font-size:13px;line-height:1.4;width:100%;letter-spacing:0}
+  .plate-head>#attempt{display:none}
+  .power{width:100%;margin:0;gap:4px}.power button{flex:1;min-height:36px;padding:4px;font-size:12px}
+  .pocket-play>.instruments{display:flex;flex:1;min-height:0;overflow-y:auto;overscroll-behavior:contain;flex-direction:column;gap:5px;padding:2px}
+  .instrument,.instrument:nth-last-child(-n+2),.instrument:last-child{flex:none;min-height:0;padding:8px 10px;border-radius:6px;box-shadow:inset 0 0 0 1px #43504455;background:linear-gradient(120deg,#1d3022,#102017)}
+  .instrument::before,.instrument::after{display:none}
+  .instrument{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:4px 8px;padding:6px 8px}
+  .instrument h3{grid-column:1;grid-row:1;min-height:0;margin:0;font-size:13px;line-height:1.25;gap:8px;align-items:center}
+  .serial{font-size:12px;text-decoration:none;color:#78a381}
+  .instrument .display{display:contents}
+  .reading{grid-column:2;grid-row:1;margin:0;gap:5px}.reading strong{font-size:16px;line-height:1}.reading span{font-size:8px;white-space:nowrap;text-align:right}
+  .gauge{grid-column:1/-1;height:7px}.threshold{top:-2px;bottom:-2px}.ticks{display:none}
+  .instrument .criterion-note{display:none}
+  .instrument.pocket-compact .gauge{display:none}
+  .instrument.met h3::after{content:'✓ MET';margin-left:auto;white-space:nowrap;font-size:11px;color:#c5ffcb}
+  .pocket-summary{display:block;cursor:pointer;min-height:28px;font-size:13px;padding:5px 0;color:#c0ffc0;list-style:none}
+  .pocket-detail{display:block;grid-column:1/-1}
+  .stale .pocket-summary{opacity:.45}
+  .pocket-summary::after{content:'＋';float:right;color:#78a381}
+  details[open]>.pocket-summary::after{content:'−'}
+  .pocket-detail .segments{min-height:0}.pocket-detail .segment{padding:7px;font-size:12px}
+  .pocket-detail .analog-dial{width:210px;margin:10px auto}
+  .pocket-play>.statusline{flex:none;margin:0;min-height:28px;padding:0 2px;gap:6px;grid-template-columns:minmax(0,1fr) 80px auto;align-items:center;font-size:10px}
+  .status-copy{min-width:0}#status{line-height:1.3;max-height:3.9em;overflow-y:auto}
+  .analysis-scope{grid-column:auto;grid-row:auto;width:80px;height:25px}#analysis-scope-run{display:none}
+  .discovery-status{font-size:10px}
+  .pocket-play>#experiment{flex:none;padding:6px;background:#102017;border:1px solid #48604a;border-radius:6px}
+  #phrase-label{font-size:10px;margin-bottom:4px}
+  .command{flex-direction:row;gap:6px;align-items:stretch}
+  #phrase{height:54px;min-height:54px;max-height:100px;padding:7px;font-size:16px;line-height:1.25}
+  #analyze{min-width:76px;width:76px;flex:none;padding:6px 3px;font-size:11px;overflow-wrap:anywhere;box-shadow:inset 0 0 0 2px #0c2210;min-height:44px}
+  #analyze.continue::after{font-size:22px}
+  .statusline .victory{padding:7px;gap:6px;flex-wrap:nowrap}.victory h2{font-size:14px;margin:0}.victory p,.victory #restart{display:none}
+  .attempt-log{margin-top:24px}footer{margin-top:16px}
+}

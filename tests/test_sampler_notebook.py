@@ -18,11 +18,11 @@ def test_introductory_notebook_cells(tmp_path, monkeypatch, evaluations):
         'A bargain bowl of truffle popcorn for your everyday snack break.',
         'A warm cinnamon-sugar pretzel for a small everyday treat.',
     ]
-    original_evaluate = provider.evaluate
+    original_evaluate = provider.evaluate_sync
 
-    async def menu_evaluate(request, params):
+    def menu_evaluate(request, params):
         """Supply varied ratings and a rejection to exercise the notebook's data flow."""
-        response = await original_evaluate(request, params)
+        response = original_evaluate(request, params)
         if 'price' in request['questions']:
             choice = 'expensive' if request['state']['name'] == 'Truffle popcorn' else 'inexpensive'
             response['answers']['price'].update(choice=choice)
@@ -31,7 +31,7 @@ def test_introductory_notebook_cells(tmp_path, monkeypatch, evaluations):
                 .1 if request['state']['product']['name'] == 'Truffle popcorn' else .9)
         return response
 
-    monkeypatch.setattr(provider, 'evaluate', menu_evaluate)
+    monkeypatch.setattr(provider, 'evaluate_sync', menu_evaluate)
 
     def chat_reply(self, **fillings):
         """Inspect the real writer prompt and return a deterministic draft for judging."""

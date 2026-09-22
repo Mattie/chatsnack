@@ -1,0 +1,18 @@
+title: Front Security Desk
+label: REQUEST
+briefing: One request. Three locks. Humility may help.
+guardian:
+  file: guardian-pulse.png
+  alt: Skeptical monocle face drawn in a green phosphor pulse trace
+sampler: samplers/level-01.yml
+criteria:
+  - question: polite
+    label: Polite request
+    target: 0.7
+    visible: true
+  - question: self_deprecation
+    label: Self-deprecating
+    target: Slightly self-deprecating
+  - question: specific
+    label: Mentions a specific object or operation
+    target: 0.7

@@ -1,0 +1,24 @@
+title: Glitched Terminal
+label: PASSPHRASE
+briefing: One sentence. Five locks. Find what makes them open.
+guardian:
+  file: guardian-entropy-gremlin.png
+  alt: Delighted entropy gremlin drawn in a green phosphor pulse trace
+sampler: samplers/level-04.yml
+criteria:
+  - question: sentence
+    label: Write a complete sentence
+    target: 0.75
+    visible: true
+  - question: nerdy
+    label: Nerdy
+    target: 0.7
+  - question: insane
+    label: Somewhat insane
+    target: 0.7
+  - question: mood
+    label: Temperament
+    target: Somewhat Agitated
+  - question: passphrase
+    label: Computer passphrase
+    target: Decently complex

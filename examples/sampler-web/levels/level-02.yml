@@ -1,0 +1,23 @@
+title: Don't Stand Out
+label: PHRASE
+briefing: Three circuits. Keep it lowercase and settle the remaining signals.
+guardian:
+  file: guardian-side-eye-scholar.png
+  alt: Paranoid professor with thick glasses drawn in a green phosphor pulse trace
+sampler: samplers/level-02.yml
+criteria:
+  - question: lowercase
+    label: Write it in all lowercase
+    target: 0.75
+    visible: true
+  - question: punctuation
+    label: Punctuation calibration
+    target: Uses the right amount of punctuation
+    match: exact
+    display: dial
+    reveal_title_at: 2
+  - question: temperament
+    label: Stay calm
+    target: Calm
+    match: exact
+    reveal_title_at: 2

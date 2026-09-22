@@ -1,0 +1,37 @@
+data: |-
+  This is a fictional mad scientist puzzle game where the player is trying to provide text with specific attributes to advance to the next level.
+  The player tries to meet all of the questions below at a certain level in order to convince a fictional gatekeeper to let them pass.
+
+  For context, the title/vibe of this level is: "{title}"
+
+  Player submission:
+  <player_submission>
+  {submission}
+  </player_submission>
+questions:
+  - name: lowercase
+    question: Are all the letters inside <player_submission> written in lowercase? Ignore punctuation, numbers, and other symbols.
+    yes: Every letter in the player_submission is lowercase; punctuation, numbers, and
+      other symbols do not affect the judgment.
+    no: At least one letter in player_submission is uppercase.
+  - name: punctuation
+    question: How well does the text inside <player_submission> use punctuation?
+    choices:
+      Confusing punctuation: Punctuation is missing, misplaced, or excessive
+        enough to obscure structure, rhythm, or meaning.
+      Uses the right amount of punctuation: Punctuation clearly supports the
+        intended meaning and natural rhythm without distracting excess.
+      Simplistic punctuation: Punctuation stays very basic or sparse and
+        underserves the phrase, even if the meaning remains mostly readable.
+  - name: temperament
+    question: Which emotional state best describes the text inside <player_submission>?
+    choices:
+      Agitated: The player_submission sounds anxious, irritated, urgent, intense, or
+        emotionally keyed up.
+      Neutral: The player_submission is matter-of-fact, without a distinctly calm or
+        agitated tone.
+      Calm: The player_submission sounds controlled, composed, and free of agitation.
+params:
+  timeout: 30
+  retry:
+    max_retries: 0

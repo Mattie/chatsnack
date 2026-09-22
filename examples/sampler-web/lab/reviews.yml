@@ -1,0 +1,11 @@
+label: Reviews
+title: Review triage
+description: Turn unstructured feedback into a useful service signal.
+placeholder: Paste a customer review or support message…
+sample: The room was spotless and the front desk was kind, but we waited almost an hour after check-in and nobody explained the delay.
+sampler: lab/samplers/reviews.yml
+labels:
+  sentiment: Sentiment
+  recovery: Needs follow-up
+  specific: Specific details
+  urgency: Urgency

@@ -1,0 +1,264 @@
+params:
+  timeout: 30
+  retry:
+    max_retries: 0
+data: |-
+  The user submitted the following phrase. Represent it as a single horizontal color strip whose
+  separate colors comprehensively describe the object or concept in the expected proportions,
+  making the phrase recognizable through color alone:
+  <phrase_to_colorstrip>
+  {input}
+  </phrase_to_colorstrip>
+questions:
+  - name: stop_01_r
+    question: >-
+      Looking at the full 12-bar color strip that best represents the supplied word or phrase,
+      should bar 1 of 12 contain red? Consider the strip from left to right
+      and keep neighboring bars visually coherent.
+    yes: Red belongs in this bar; stronger evidence for yes represents greater red intensity.
+    no: Red should be absent from this bar.
+  - name: stop_01_g
+    question: >-
+      Looking at the full 12-bar color strip that best represents the supplied word or phrase,
+      should bar 1 of 12 contain green? Consider the strip from left to right
+      and keep neighboring bars visually coherent.
+    yes: Green belongs in this bar; stronger evidence for yes represents greater green intensity.
+    no: Green should be absent from this bar.
+  - name: stop_01_b
+    question: >-
+      Looking at the full 12-bar color strip that best represents the supplied word or phrase,
+      should bar 1 of 12 contain blue? Consider the strip from left to right
+      and keep neighboring bars visually coherent.
+    yes: Blue belongs in this bar; stronger evidence for yes represents greater blue intensity.
+    no: Blue should be absent from this bar.
+  - name: stop_02_r
+    question: >-
+      Looking at the full 12-bar color strip that best represents the supplied word or phrase,
+      should bar 2 of 12 contain red? Consider the strip from left to right
+      and keep neighboring bars visually coherent.
+    yes: Red belongs in this bar; stronger evidence for yes represents greater red intensity.
+    no: Red should be absent from this bar.
+  - name: stop_02_g
+    question: >-
+      Looking at the full 12-bar color strip that best represents the supplied word or phrase,
+      should bar 2 of 12 contain green? Consider the strip from left to right
+      and keep neighboring bars visually coherent.
+    yes: Green belongs in this bar; stronger evidence for yes represents greater green intensity.
+    no: Green should be absent from this bar.
+  - name: stop_02_b
+    question: >-
+      Looking at the full 12-bar color strip that best represents the supplied word or phrase,
+      should bar 2 of 12 contain blue? Consider the strip from left to right
+      and keep neighboring bars visually coherent.
+    yes: Blue belongs in this bar; stronger evidence for yes represents greater blue intensity.
+    no: Blue should be absent from this bar.
+  - name: stop_03_r
+    question: >-
+      Looking at the full 12-bar color strip that best represents the supplied word or phrase,
+      should bar 3 of 12 contain red? Consider the strip from left to right
+      and keep neighboring bars visually coherent.
+    yes: Red belongs in this bar; stronger evidence for yes represents greater red intensity.
+    no: Red should be absent from this bar.
+  - name: stop_03_g
+    question: >-
+      Looking at the full 12-bar color strip that best represents the supplied word or phrase,
+      should bar 3 of 12 contain green? Consider the strip from left to right
+      and keep neighboring bars visually coherent.
+    yes: Green belongs in this bar; stronger evidence for yes represents greater green intensity.
+    no: Green should be absent from this bar.
+  - name: stop_03_b
+    question: >-
+      Looking at the full 12-bar color strip that best represents the supplied word or phrase,
+      should bar 3 of 12 contain blue? Consider the strip from left to right
+      and keep neighboring bars visually coherent.
+    yes: Blue belongs in this bar; stronger evidence for yes represents greater blue intensity.
+    no: Blue should be absent from this bar.
+  - name: stop_04_r
+    question: >-
+      Looking at the full 12-bar color strip that best represents the supplied word or phrase,
+      should bar 4 of 12 contain red? Consider the strip from left to right
+      and keep neighboring bars visually coherent.
+    yes: Red belongs in this bar; stronger evidence for yes represents greater red intensity.
+    no: Red should be absent from this bar.
+  - name: stop_04_g
+    question: >-
+      Looking at the full 12-bar color strip that best represents the supplied word or phrase,
+      should bar 4 of 12 contain green? Consider the strip from left to right
+      and keep neighboring bars visually coherent.
+    yes: Green belongs in this bar; stronger evidence for yes represents greater green intensity.
+    no: Green should be absent from this bar.
+  - name: stop_04_b
+    question: >-
+      Looking at the full 12-bar color strip that best represents the supplied word or phrase,
+      should bar 4 of 12 contain blue? Consider the strip from left to right
+      and keep neighboring bars visually coherent.
+    yes: Blue belongs in this bar; stronger evidence for yes represents greater blue intensity.
+    no: Blue should be absent from this bar.
+  - name: stop_05_r
+    question: >-
+      Looking at the full 12-bar color strip that best represents the supplied word or phrase,
+      should bar 5 of 12 contain red? Consider the strip from left to right
+      and keep neighboring bars visually coherent.
+    yes: Red belongs in this bar; stronger evidence for yes represents greater red intensity.
+    no: Red should be absent from this bar.
+  - name: stop_05_g
+    question: >-
+      Looking at the full 12-bar color strip that best represents the supplied word or phrase,
+      should bar 5 of 12 contain green? Consider the strip from left to right
+      and keep neighboring bars visually coherent.
+    yes: Green belongs in this bar; stronger evidence for yes represents greater green intensity.
+    no: Green should be absent from this bar.
+  - name: stop_05_b
+    question: >-
+      Looking at the full 12-bar color strip that best represents the supplied word or phrase,
+      should bar 5 of 12 contain blue? Consider the strip from left to right
+      and keep neighboring bars visually coherent.
+    yes: Blue belongs in this bar; stronger evidence for yes represents greater blue intensity.
+    no: Blue should be absent from this bar.
+  - name: stop_06_r
+    question: >-
+      Looking at the full 12-bar color strip that best represents the supplied word or phrase,
+      should bar 6 of 12 contain red? Consider the strip from left to right
+      and keep neighboring bars visually coherent.
+    yes: Red belongs in this bar; stronger evidence for yes represents greater red intensity.
+    no: Red should be absent from this bar.
+  - name: stop_06_g
+    question: >-
+      Looking at the full 12-bar color strip that best represents the supplied word or phrase,
+      should bar 6 of 12 contain green? Consider the strip from left to right
+      and keep neighboring bars visually coherent.
+    yes: Green belongs in this bar; stronger evidence for yes represents greater green intensity.
+    no: Green should be absent from this bar.
+  - name: stop_06_b
+    question: >-
+      Looking at the full 12-bar color strip that best represents the supplied word or phrase,
+      should bar 6 of 12 contain blue? Consider the strip from left to right
+      and keep neighboring bars visually coherent.
+    yes: Blue belongs in this bar; stronger evidence for yes represents greater blue intensity.
+    no: Blue should be absent from this bar.
+  - name: stop_07_r
+    question: >-
+      Looking at the full 12-bar color strip that best represents the supplied word or phrase,
+      should bar 7 of 12 contain red? Consider the strip from left to right
+      and keep neighboring bars visually coherent.
+    yes: Red belongs in this bar; stronger evidence for yes represents greater red intensity.
+    no: Red should be absent from this bar.
+  - name: stop_07_g
+    question: >-
+      Looking at the full 12-bar color strip that best represents the supplied word or phrase,
+      should bar 7 of 12 contain green? Consider the strip from left to right
+      and keep neighboring bars visually coherent.
+    yes: Green belongs in this bar; stronger evidence for yes represents greater green intensity.
+    no: Green should be absent from this bar.
+  - name: stop_07_b
+    question: >-
+      Looking at the full 12-bar color strip that best represents the supplied word or phrase,
+      should bar 7 of 12 contain blue? Consider the strip from left to right
+      and keep neighboring bars visually coherent.
+    yes: Blue belongs in this bar; stronger evidence for yes represents greater blue intensity.
+    no: Blue should be absent from this bar.
+  - name: stop_08_r
+    question: >-
+      Looking at the full 12-bar color strip that best represents the supplied word or phrase,
+      should bar 8 of 12 contain red? Consider the strip from left to right
+      and keep neighboring bars visually coherent.
+    yes: Red belongs in this bar; stronger evidence for yes represents greater red intensity.
+    no: Red should be absent from this bar.
+  - name: stop_08_g
+    question: >-
+      Looking at the full 12-bar color strip that best represents the supplied word or phrase,
+      should bar 8 of 12 contain green? Consider the strip from left to right
+      and keep neighboring bars visually coherent.
+    yes: Green belongs in this bar; stronger evidence for yes represents greater green intensity.
+    no: Green should be absent from this bar.
+  - name: stop_08_b
+    question: >-
+      Looking at the full 12-bar color strip that best represents the supplied word or phrase,
+      should bar 8 of 12 contain blue? Consider the strip from left to right
+      and keep neighboring bars visually coherent.
+    yes: Blue belongs in this bar; stronger evidence for yes represents greater blue intensity.
+    no: Blue should be absent from this bar.
+  - name: stop_09_r
+    question: >-
+      Looking at the full 12-bar color strip that best represents the supplied word or phrase,
+      should bar 9 of 12 contain red? Consider the strip from left to right
+      and keep neighboring bars visually coherent.
+    yes: Red belongs in this bar; stronger evidence for yes represents greater red intensity.
+    no: Red should be absent from this bar.
+  - name: stop_09_g
+    question: >-
+      Looking at the full 12-bar color strip that best represents the supplied word or phrase,
+      should bar 9 of 12 contain green? Consider the strip from left to right
+      and keep neighboring bars visually coherent.
+    yes: Green belongs in this bar; stronger evidence for yes represents greater green intensity.
+    no: Green should be absent from this bar.
+  - name: stop_09_b
+    question: >-
+      Looking at the full 12-bar color strip that best represents the supplied word or phrase,
+      should bar 9 of 12 contain blue? Consider the strip from left to right
+      and keep neighboring bars visually coherent.
+    yes: Blue belongs in this bar; stronger evidence for yes represents greater blue intensity.
+    no: Blue should be absent from this bar.
+  - name: stop_10_r
+    question: >-
+      Looking at the full 12-bar color strip that best represents the supplied word or phrase,
+      should bar 10 of 12 contain red? Consider the strip from left to right
+      and keep neighboring bars visually coherent.
+    yes: Red belongs in this bar; stronger evidence for yes represents greater red intensity.
+    no: Red should be absent from this bar.
+  - name: stop_10_g
+    question: >-
+      Looking at the full 12-bar color strip that best represents the supplied word or phrase,
+      should bar 10 of 12 contain green? Consider the strip from left to right
+      and keep neighboring bars visually coherent.
+    yes: Green belongs in this bar; stronger evidence for yes represents greater green intensity.
+    no: Green should be absent from this bar.
+  - name: stop_10_b
+    question: >-
+      Looking at the full 12-bar color strip that best represents the supplied word or phrase,
+      should bar 10 of 12 contain blue? Consider the strip from left to right
+      and keep neighboring bars visually coherent.
+    yes: Blue belongs in this bar; stronger evidence for yes represents greater blue intensity.
+    no: Blue should be absent from this bar.
+  - name: stop_11_r
+    question: >-
+      Looking at the full 12-bar color strip that best represents the supplied word or phrase,
+      should bar 11 of 12 contain red? Consider the strip from left to right
+      and keep neighboring bars visually coherent.
+    yes: Red belongs in this bar; stronger evidence for yes represents greater red intensity.
+    no: Red should be absent from this bar.
+  - name: stop_11_g
+    question: >-
+      Looking at the full 12-bar color strip that best represents the supplied word or phrase,
+      should bar 11 of 12 contain green? Consider the strip from left to right
+      and keep neighboring bars visually coherent.
+    yes: Green belongs in this bar; stronger evidence for yes represents greater green intensity.
+    no: Green should be absent from this bar.
+  - name: stop_11_b
+    question: >-
+      Looking at the full 12-bar color strip that best represents the supplied word or phrase,
+      should bar 11 of 12 contain blue? Consider the strip from left to right
+      and keep neighboring bars visually coherent.
+    yes: Blue belongs in this bar; stronger evidence for yes represents greater blue intensity.
+    no: Blue should be absent from this bar.
+  - name: stop_12_r
+    question: >-
+      Looking at the full 12-bar color strip that best represents the supplied word or phrase,
+      should bar 12 of 12 contain red? Consider the strip from left to right
+      and keep neighboring bars visually coherent.
+    yes: Red belongs in this bar; stronger evidence for yes represents greater red intensity.
+    no: Red should be absent from this bar.
+  - name: stop_12_g
+    question: >-
+      Looking at the full 12-bar color strip that best represents the supplied word or phrase,
+      should bar 12 of 12 contain green? Consider the strip from left to right
+      and keep neighboring bars visually coherent.
+    yes: Green belongs in this bar; stronger evidence for yes represents greater green intensity.
+    no: Green should be absent from this bar.
+  - name: stop_12_b
+    question: >-
+      Looking at the full 12-bar color strip that best represents the supplied word or phrase,
+      should bar 12 of 12 contain blue? Consider the strip from left to right
+      and keep neighboring bars visually coherent.
+    yes: Blue belongs in this bar; stronger evidence for yes represents greater blue intensity.
+    no: Blue should be absent from this bar.

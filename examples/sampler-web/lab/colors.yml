@@ -1,0 +1,6 @@
+label: Colors
+title: Phrase to palette
+description: Turn a word or phrase into an ordered strip of twelve colors.
+placeholder: Type a word, mood, place, memory, or short phrase…
+sample: Moonlit greenhouse after a summer storm
+sampler: lab/samplers/colors.yml
