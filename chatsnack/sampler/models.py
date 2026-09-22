@@ -13,7 +13,8 @@ from ..defaults import CHATSNACK_ROOT
 from .persistence import Asset, AssetYAML, ValueSerializer
 
 
-_QUESTION_NAME_METACHARACTERS = frozenset('.[]{}!:')
+_FILLING_FORMAT_METACHARACTERS = frozenset('{}!:')
+_QUESTION_NAME_METACHARACTERS = _FILLING_FORMAT_METACHARACTERS | frozenset('.[]')
 
 
 def json_value(value):
@@ -52,6 +53,11 @@ class Question(Asset):
         """Return the authored definition, retaining structured criteria and order."""
         return {field.name: json_value(getattr(self, field.name)) for field in fields(self)
                 if getattr(self, field.name) is not None and (include_name or field.name != 'name')}
+
+    def save(self, path=None):
+        """Persist only names that remain addressable as assets and result keys."""
+        self._validate_name()
+        return super().save(path)
 
     @property
     def kind(self):

@@ -57,6 +57,8 @@ ordered descriptions go to Jev.
 Explicit Question names must be nonempty strings without the filling
 metacharacters `.`, `[`, `]`, `{`, `}`, `!`, or `:`. Those characters delimit
 parts of named result fillings or have special meaning to the filling formatter.
+Saved Sampler names similarly exclude `{`, `}`, `!`, and `:`; dots and brackets
+remain valid in the asset-name segment.
 
 ## Advanced resolver
 

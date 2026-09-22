@@ -11,7 +11,8 @@ from ..defaults import CHATSNACK_ROOT
 from ..fillings import active_filling_stash
 from . import provider
 from .models import (Answer, ChoiceAnswer, NamedSequence, Question, Sample, SamplerParams,
-                     SampleUsage, ScoreAnswer, YesNoAnswer, decode, json_value)
+                     SampleUsage, ScoreAnswer, YesNoAnswer, decode, json_value,
+                     _FILLING_FORMAT_METACHARACTERS)
 from .persistence import Asset, AssetYAML, DataSerializer, ParamsSerializer, QuestionsSerializer, ValueSerializer
 
 
@@ -82,6 +83,17 @@ class Sampler(Asset):
         if not self.expand:
             result['expand'] = False
         return result
+
+    def save(self, path=None):
+        """Persist only names that the saved-result filling grammar can address."""
+        if self.name is not None and (
+            not isinstance(self.name, str) or not self.name.strip()
+            or any(char in self.name for char in _FILLING_FORMAT_METACHARACTERS)
+        ):
+            raise ValueError(
+                'Sampler names must be nonempty strings without filling metacharacters {}!:'
+            )
+        return super().save(path)
 
     @classmethod
     def from_sample(cls, sample, *, name=None):
