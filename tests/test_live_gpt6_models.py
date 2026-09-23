@@ -10,7 +10,7 @@ import os
 import pytest
 import pytest_asyncio
 
-from chatsnack import Chat, ChatParams, utensil
+from chatsnack import Chat, ChatParams
 
 
 pytestmark = pytest.mark.skipif(
@@ -58,39 +58,6 @@ async def test_live_gpt6_reasoning_summary(model):
             for part in entry.get("reasoning", {}).get("summary", [])
         ]
         assert any(text.strip() for text in summaries)
-    finally:
-        if completed is not None:
-            await completed.close_a()
-        await chat.close_a()
-
-
-@pytest.mark.parametrize("model", ("gpt-6-sol", "gpt-6-luna"))
-@pytest.mark.asyncio
-async def test_live_gpt6_chat_completions_utensil_without_reasoning(model):
-    """The public Chat API can request a real function call at none effort."""
-    @utensil
-    def stock(sku: str):
-        """Look up the stock for a snack SKU."""
-        return {"sku": sku, "available": 3}
-
-    chat = Chat(
-        "Call stock when asked about inventory.",
-        model=model,
-        runtime="chat_completions",
-        reasoning_effort="none",
-        utensils=[stock],
-        tool_choice="required",
-        auto_execute=False,
-    )
-    completed = None
-    try:
-        completed = await chat.chat_a("Call stock for SKU popcorn and report availability.")
-        tool_calls = [
-            call
-            for message in completed.get_messages()
-            for call in message.get("tool_calls", [])
-        ]
-        assert any(call.get("function", {}).get("name") == "stock" for call in tool_calls)
     finally:
         if completed is not None:
             await completed.close_a()

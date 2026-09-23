@@ -111,30 +111,15 @@ support `none`; their default is `medium`. For a reasoning summary, use
 checks recognize these three exact model IDs.
 Other variants and dated snapshots still need verification.
 
-Use Responses for tool calls with reasoning. Sol and Luna also support function
-calling through Chat Completions when `reasoning_effort="none"`:
-
-```python
-from chatsnack import Chat, utensil
-
-@utensil
-def stock(sku: str):
-    """Look up a snack SKU."""
-    return {"sku": sku, "available": 3}
-
-chat = Chat("Use stock for inventory questions.", model="gpt-6-sol",
-            runtime="chat_completions", reasoning_effort="none",
-            utensils=[stock])
-print(chat.chat("Check popcorn stock.").response)
-```
-
+Use Responses for tool calls with reasoning. Pass your Python functions in
+`utensils=[...]`.
 If you're moving an existing Chat from Chat Completions, create a new one with
 `runtime="responses"`. There's a complete example that saves a stock helper and
 continues the conversation in
 [ReasoningModelValidation.ipynb](https://github.com/Mattie/chatsnack/blob/master/notebooks/ReasoningModelValidation.ipynb).
 To run its live calls, set `CHATSNACK_RUN_LIVE_TESTS=1` and provide an API key.
 
-When sending GPT-6 directly to OpenAI with reasoning effort other than `none`,
+When sending these models directly to OpenAI with reasoning enabled,
 remove these unsupported options:
 
 - `temperature`, `top_p`, and `top_logprobs` on either API.

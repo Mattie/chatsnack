@@ -48,31 +48,6 @@ def test_reasoning_proxy_reads_and_writes_nested_params():
     assert chat.params.responses["reasoning"]["summary"] == "auto"
 
 
-def test_chat_completions_reasoning_effort_stays_out_of_responses_requests():
-    """The Chat Completions option must not leak into the Responses wire body."""
-    chat = Chat(model="gpt-6-sol", runtime="chat_completions", reasoning_effort="none")
-    assert chat.reasoning_effort == "none"
-    assert chat._build_completion_request_kwargs()["reasoning_effort"] == "none"
-
-    responses = Chat(params=ChatParams(
-        model="gpt-6-sol", runtime="responses", reasoning_effort="none",
-        responses={"reasoning": {"effort": "medium"}},
-    ))
-    request = responses._build_completion_request_kwargs()
-    assert "reasoning_effort" not in request
-    assert request["reasoning"] == {"effort": "medium"}
-
-
-def test_chat_completions_unknown_effort_warns_and_passes_through():
-    """A local capability warning must not edit the caller's provider option."""
-    chat = Chat(model="gpt-6-sol", runtime="chat_completions", reasoning_effort="minimal")
-    with warnings.catch_warnings(record=True) as caught:
-        warnings.simplefilter("always")
-        request = chat._build_completion_request_kwargs()
-    assert request["reasoning_effort"] == "minimal"
-    assert any("known supported set" in str(item.message) for item in caught)
-
-
 def test_reasoning_default_not_injected_for_reasoning_model():
     params = ChatParams(model="gpt-5.4", runtime="responses")
     opts = params._get_responses_api_options()

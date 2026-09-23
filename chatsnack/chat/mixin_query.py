@@ -588,14 +588,11 @@ class ChatQueryMixin(ChatMessagesMixin, ChatParamsMixin):
             # Phase 3: merge provider-facing Responses options into the
             # request kwargs only for Responses-family runtimes.
             if self._runtime_supports_continuation():
-                kwargs.pop("reasoning_effort", None)  # Chat Completions-only field
                 responses_opts = params._get_responses_api_options()
                 if responses_opts:
                     merged = responses_opts.copy()
                     merged.update(kwargs)
                     kwargs = merged
-            elif params.reasoning_effort is not None:
-                params._validate_reasoning_options({"effort": params.reasoning_effort})
 
         if hasattr(self, "get_tools"):
             tools = self.get_tools()

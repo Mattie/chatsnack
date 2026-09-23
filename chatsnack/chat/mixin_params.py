@@ -477,7 +477,6 @@ class ChatParams:
     engine: Optional[str] = None   #: Deprecated, use model instead
     temperature: Optional[float] = None
     top_p: Optional[float] = None
-    reasoning_effort: Optional[str] = None  # Chat Completions reasoning control
     stream: Optional[bool] = None
     stop: Optional[List[str]] = None
     max_tokens: Optional[int] = None
@@ -653,7 +652,7 @@ class ChatParams:
                     f"Unknown reasoning summary '{summary}'. Passing through to provider unchanged.",
                     stacklevel=3,
                 )
-            elif capabilities and capabilities.get("summary") is not None and summary not in capabilities["summary"]:
+            elif capabilities and summary not in capabilities["summary"]:
                 warnings.warn(
                     f"Reasoning summary '{summary}' is not in the known supported set "
                     f"{sorted(capabilities['summary'])} for model '{self.model}'. "
@@ -739,18 +738,6 @@ class ChatParamsMixin:
     @property
     def reasoning(self) -> _ReasoningConfigProxy:
         return _ReasoningConfigProxy(self)
-
-    @property
-    def reasoning_effort(self) -> Optional[str]:
-        """Read the Chat Completions reasoning effort authored for this Chat."""
-        return self.params.reasoning_effort if self.params is not None else None
-
-    @reasoning_effort.setter
-    def reasoning_effort(self, value: Optional[str]) -> None:
-        """Set the Chat Completions reasoning effort without changing Responses options."""
-        if self.params is None:
-            self.params = ChatParams()
-        self.params.reasoning_effort = value
 
     @property
     def engine(self) -> Optional[str]:

@@ -9,7 +9,6 @@ import httpx
 import openai
 import pytest
 
-from chatsnack import Chat, utensil
 from chatsnack.aiclient import AiClient
 from chatsnack.runtime import ChatCompletionsAdapter, ResponsesAdapter, ResponsesWebSocketAdapter
 from chatsnack.runtime import model_advisories
@@ -174,64 +173,6 @@ def test_model_advisories_preserve_all_authored_options(adapter_type, monkeypatc
     else:
         assert "message.output_text.logprobs" in messages
         assert calls[0]["include"] == options["include"]
-
-
-@pytest.mark.parametrize("model", ("gpt-6-sol", "gpt-6-luna"))
-@pytest.mark.parametrize("adapter_type", (ResponsesAdapter, ChatCompletionsAdapter))
-@pytest.mark.parametrize("effort", (None, "none", "high"))
-def test_sol_and_luna_request_advisories_follow_reasoning_effort(model, adapter_type, effort, monkeypatch):
-    """Non-reasoning calls can sample and use Chat Completions tools."""
-    adapter, calls = _fake_adapter(adapter_type, monkeypatch)
-    options = {"model": model, "temperature": 0.3, "top_p": 0.8}
-    if adapter_type is ChatCompletionsAdapter:
-        options["tools"] = [{"type": "function", "function": {"name": "stock"}}]
-        if effort is not None:
-            options["reasoning_effort"] = effort
-    elif effort is not None:
-        options["reasoning"] = {"effort": effort}
-
-    with warnings.catch_warnings(record=True) as caught:
-        warnings.simplefilter("always")
-        adapter.create_completion([], **options)
-
-    assert {key: calls[0][key] for key in options} == options
-    messages = " ".join(str(w.message) for w in caught)
-    if effort == "none":
-        assert not caught
-    else:
-        assert "temperature" in messages and "top_p" in messages
-        if adapter_type is ChatCompletionsAdapter:
-            assert "tools" in messages and "Responses" in messages
-
-
-@pytest.mark.parametrize("model", ("gpt-6-sol", "gpt-6-luna"))
-@pytest.mark.asyncio
-async def test_public_chat_forwards_none_effort_with_chat_completions_utensil(model, monkeypatch):
-    """The documented Chat path sends explicit none effort with function tools."""
-    adapter, calls = _fake_adapter(ChatCompletionsAdapter, monkeypatch)
-
-    @utensil
-    def stock(sku: str):
-        """Return available stock for a snack SKU."""
-        return {"sku": sku, "available": 3}
-
-    chat = Chat(
-        "Use stock to answer inventory questions.",
-        model=model,
-        runtime="chat_completions",
-        reasoning_effort="none",
-        utensils=[stock],
-        _ai_client=adapter.ai_client,
-    )
-    with warnings.catch_warnings(record=True) as caught:
-        warnings.simplefilter("always")
-        completed = await chat.chat_a("Is popcorn in stock?")
-
-    assert completed.response == "ok"
-    assert len(calls) == 1
-    assert calls[0]["reasoning_effort"] == "none"
-    assert calls[0]["tools"][0]["function"]["name"] == "stock"
-    assert not caught
 
 
 @pytest.mark.parametrize("options,expected_warning", (
