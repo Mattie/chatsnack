@@ -10,11 +10,6 @@ If so, then chatsnack is your kind of library. It is a bit magical, silly, and o
 
 ![chatsnack features](chatsnack_features_smaller.jpg)
 
-<p class="hero-copy">
-Start with the common path: learn `Chat(...)`, save prompt assets as YAML, compose
-with fillings, and add tools through `utensils=[...]`.
-</p>
-
 ## Chatsnack Guides
 
 <div class="callout-grid">

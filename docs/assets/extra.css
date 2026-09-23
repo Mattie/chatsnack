@@ -35,8 +35,56 @@ body {
   font-family: var(--snack-body-font);
   font-feature-settings: "kern" 1, "liga" 1;
   font-kerning: normal;
-  font-size: 1rem;
+  font-size: 0.8rem;
   line-height: 1.7;
+}
+
+/* Keep headings at their original size while the reading text becomes denser.
+   Generated API pages use 90% headings, including their page title. */
+.md-content .md-typeset {
+  --snack-heading-scale: 1;
+}
+
+.md-content .md-typeset:has(.doc-object) {
+  --snack-heading-scale: 0.9;
+}
+
+.md-content .md-typeset h1 { font-size: calc(2rem * var(--snack-heading-scale)); }
+.md-content .md-typeset h2 { font-size: calc(1.5625rem * var(--snack-heading-scale)); }
+.md-content .md-typeset h3 { font-size: calc(1.25rem * var(--snack-heading-scale)); }
+.md-content .md-typeset h4 { font-size: calc(1rem * var(--snack-heading-scale)); }
+.md-content .md-typeset :is(h5, h6) { font-size: calc(0.8rem * var(--snack-heading-scale)); }
+
+/* Material sizes these in rem, so they need the same explicit 80% reduction. */
+.md-content .md-typeset table:not([class]),
+.md-content .md-typeset :is(.admonition, details, .footnote),
+.md-content .md-typeset .tabbed-labels > label {
+  font-size: 0.512rem;
+}
+
+/* Indent descriptions, then cancel that inset for nested member lists so
+   symbols stay aligned even inside nested classes. */
+.md-typeset .doc-object > .doc-contents {
+  margin-left: 0;
+  padding-left: 1rem;
+  border-left: 0;
+}
+
+.md-typeset .doc-contents > .doc-children {
+  margin-left: -1rem;
+  padding-left: 0;
+}
+
+.md-typeset .doc-heading {
+  margin-left: 0;
+  padding-left: 0;
+  line-height: 1.45;
+}
+
+.md-typeset .doc-heading > code {
+  padding-left: 0;
+  padding-right: 0;
+  background: transparent;
 }
 
 .md-typeset :is(h1, h2, h3, h4, h5, h6) {
@@ -54,12 +102,6 @@ body {
 .md-typeset p,
 .md-typeset li {
   line-height: 1.7;
-}
-
-.hero-copy {
-  font-size: 1.3rem;
-  line-height: 1.65;
-  max-width: 48rem;
 }
 
 .callout-grid {
