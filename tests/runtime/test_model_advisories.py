@@ -175,6 +175,34 @@ def test_model_advisories_preserve_all_authored_options(adapter_type, monkeypatc
         assert calls[0]["include"] == options["include"]
 
 
+@pytest.mark.parametrize("model", ("gpt-6-sol", "gpt-6-luna"))
+@pytest.mark.parametrize("adapter_type", (ResponsesAdapter, ChatCompletionsAdapter))
+@pytest.mark.parametrize("effort", (None, "none", "high"))
+def test_sol_and_luna_request_advisories_follow_reasoning_effort(model, adapter_type, effort, monkeypatch):
+    """Non-reasoning calls can sample and use Chat Completions tools."""
+    adapter, calls = _fake_adapter(adapter_type, monkeypatch)
+    options = {"model": model, "temperature": 0.3, "top_p": 0.8}
+    if adapter_type is ChatCompletionsAdapter:
+        options["tools"] = [{"type": "function", "function": {"name": "stock"}}]
+        if effort is not None:
+            options["reasoning_effort"] = effort
+    elif effort is not None:
+        options["reasoning"] = {"effort": effort}
+
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        adapter.create_completion([], **options)
+
+    assert {key: calls[0][key] for key in options} == options
+    messages = " ".join(str(w.message) for w in caught)
+    if effort == "none":
+        assert not caught
+    else:
+        assert "temperature" in messages and "top_p" in messages
+        if adapter_type is ChatCompletionsAdapter:
+            assert "tools" in messages and "Responses" in messages
+
+
 @pytest.mark.parametrize("options,expected_warning", (
     ({"extra_body": {"temperature": 0.3}}, "temperature"),
     ({"temperature": 0.3, "extra_body": {"temperature": None}}, None),

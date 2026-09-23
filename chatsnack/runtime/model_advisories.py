@@ -14,10 +14,22 @@ _GPT6_REQUEST_LIMITS = {
     },
     "responses": {"unsupported_include": ("message.output_text.logprobs",)},
 }
+_GPT6_SOL_LUNA_REQUEST_LIMITS = {
+    **_GPT6_REQUEST_LIMITS,
+    "none_effort_allows_sampling_and_chat_tools": True,
+}
 _MODEL_REQUEST_LIMITS = {
     # Verified 2026-09-09 for this exact model on the direct OpenAI endpoint.
     # https://developers.openai.com/api/docs/guides/latest-model#update-api-and-model-parameters
     "gpt-6-astra": _GPT6_REQUEST_LIMITS,
+    # Verified 2026-09-23 for this exact ID on the direct OpenAI endpoint.
+    # https://developers.openai.com/api/docs/guides/latest-model#update-api-and-model-parameters
+    # https://developers.openai.com/api/docs/models/gpt-6-sol
+    "gpt-6-sol": _GPT6_SOL_LUNA_REQUEST_LIMITS,
+    # Verified 2026-09-23 for this exact ID on the direct OpenAI endpoint.
+    # https://developers.openai.com/api/docs/guides/latest-model#update-api-and-model-parameters
+    # https://developers.openai.com/api/docs/models/gpt-6-luna
+    "gpt-6-luna": _GPT6_SOL_LUNA_REQUEST_LIMITS,
 }
 
 
@@ -50,6 +62,14 @@ def warn_model_options(options, client, runtime_family):
     if not direct_openai:
         return
 
+    if limits.get("none_effort_allows_sampling_and_chat_tools"):
+        # Sol and Luna allow these options only when reasoning is explicitly off.
+        reasoning = effective.get("reasoning")
+        effort = (effective.get("reasoning_effort") if runtime_family == "chat_completions"
+                  else reasoning.get("effort") if isinstance(reasoning, dict) else None)
+        if effort == "none":
+            return
+
     runtime_limits = limits.get(runtime_family, {})
     unsupported = [key for key in (*limits.get("unsupported_options", ()),
                                    *runtime_limits.get("unsupported_options", ()))
@@ -57,9 +77,15 @@ def warn_model_options(options, client, runtime_family):
     if runtime_limits.get("tools_require_responses") and (
         effective.get("tools") or effective.get("functions")
     ):
+        guidance = (
+            "tools with reasoning require Responses. Set reasoning_effort='none' "
+            "to use Chat Completions tools. "
+            if limits.get("none_effort_allows_sampling_and_chat_tools")
+            else "tools require Responses. "
+        )
         warnings.warn(
-            f"Model '{model}' tools require Responses. Construct a new "
-            "Chat(runtime='responses') to use utensils. Passing through to provider unchanged.",
+            f"Model '{model}' {guidance}Construct a new Chat(runtime='responses') "
+            "to use utensils with reasoning. Passing through to provider unchanged.",
             stacklevel=3,
         )
     include = effective.get("include")

@@ -82,7 +82,8 @@ create a new Chat.
 
 ## GPT-6
 
-Set `model="gpt-6-astra"` to use GPT-6. Here's a small request using Responses:
+Set `model` to `gpt-6-astra`, `gpt-6-sol`, or `gpt-6-luna`. Here's a small
+request using Responses:
 
 ```python
 chat = Chat("Respond tersely.", model="gpt-6-astra", runtime="responses")
@@ -103,19 +104,23 @@ messages:
   - system: Respond tersely.
 ```
 
-Choose a reasoning effort from `low`, `medium`, `high`, `xhigh`, or `max`. For a
-reasoning summary, use `chat.reasoning.summary = "auto"`; that's the setting
-we've verified. Chatsnack's GPT-6 checks currently recognize the exact
-`gpt-6-astra` name. Other variants and dated snapshots still need verification.
+For Astra, choose `low`, `medium`, `high`, `xhigh`, or `max`. Sol and Luna also
+support `none`; their default is `medium`. For an Astra reasoning summary, use
+`chat.reasoning.summary = "auto"`; summary choices for Sol and Luna are not yet
+verified. Chatsnack's GPT-6 checks recognize these three exact model IDs.
+Other variants and dated snapshots still need verification.
 
-Tool calls require Responses. Pass your Python functions in `utensils=[...]`.
+Use Responses for tool calls with reasoning. Sol and Luna also support function
+calling through Chat Completions when `reasoning_effort="none"`. Pass your Python
+functions in `utensils=[...]`.
 If you're moving an existing Chat from Chat Completions, create a new one with
 `runtime="responses"`. There's a complete example that saves a stock helper and
 continues the conversation in
 [ReasoningModelValidation.ipynb](https://github.com/Mattie/chatsnack/blob/master/notebooks/ReasoningModelValidation.ipynb).
 To run its live calls, set `CHATSNACK_RUN_LIVE_TESTS=1` and provide an API key.
 
-When sending this model directly to OpenAI, remove these unsupported options:
+When sending GPT-6 directly to OpenAI with reasoning effort other than `none`,
+remove these unsupported options:
 
 - `temperature`, `top_p`, and `top_logprobs` on either API.
 - `logprobs` on Chat Completions.

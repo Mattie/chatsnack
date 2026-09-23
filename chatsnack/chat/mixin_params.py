@@ -47,10 +47,14 @@ class _ReasoningModel:
 
 
 _REASONING_SUMMARY_OPTIONS = frozenset({"auto", "concise", "detailed"})
-# Reusable GPT-6 capabilities; assign to additional IDs only after verification.
+# Astra's verified GPT-6 capabilities; sibling models have different effort choices.
 _GPT6_REASONING_CAPABILITIES = {
     "effort": frozenset({"low", "medium", "high", "xhigh", "max"}),
     "summary": frozenset({"auto"}),
+}
+_GPT6_SOL_LUNA_REASONING_CAPABILITIES = {
+    "effort": frozenset({"none", "low", "medium", "high", "xhigh", "max"}),
+    # Summary choices are not yet documented for these exact models.
 }
 # Keep a verification date and official reference URL(s) beside each table update.
 _KNOWN_REASONING_MODELS: Tuple[_ReasoningModel, ...] = (
@@ -61,6 +65,20 @@ _KNOWN_REASONING_MODELS: Tuple[_ReasoningModel, ...] = (
     _ReasoningModel(
         "gpt-6-astra",
         _GPT6_REASONING_CAPABILITIES,
+        match="exact_naming",
+    ),
+    # Verified 2026-09-23; this page lists only the exact ID and effort values.
+    # https://developers.openai.com/api/docs/models/gpt-6-sol
+    _ReasoningModel(
+        "gpt-6-sol",
+        _GPT6_SOL_LUNA_REASONING_CAPABILITIES,
+        match="exact_naming",
+    ),
+    # Verified 2026-09-23; this page lists only the exact ID and effort values.
+    # https://developers.openai.com/api/docs/models/gpt-6-luna
+    _ReasoningModel(
+        "gpt-6-luna",
+        _GPT6_SOL_LUNA_REASONING_CAPABILITIES,
         match="exact_naming",
     ),
     # Verified 2026-08-06. GPT-5.6 family effort values:
@@ -630,7 +648,7 @@ class ChatParams:
                     f"Unknown reasoning summary '{summary}'. Passing through to provider unchanged.",
                     stacklevel=3,
                 )
-            elif capabilities and summary not in capabilities["summary"]:
+            elif capabilities and capabilities.get("summary") is not None and summary not in capabilities["summary"]:
                 warnings.warn(
                     f"Reasoning summary '{summary}' is not in the known supported set "
                     f"{sorted(capabilities['summary'])} for model '{self.model}'. "
