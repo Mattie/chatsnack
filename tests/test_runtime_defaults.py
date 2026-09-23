@@ -205,10 +205,11 @@ def test_sol_and_luna_verified_summaries_are_advisory_pass_through(model, summar
 
 
 @pytest.mark.parametrize("model", (
-    "gpt-6-sol-2026-09-22", "vendor/gpt-6-sol",
-    "gpt-6-luna-2026-09-22", "vendor/gpt-6-luna",
+    "gpt-6-sol-2099-01-01", "vendor/gpt-6-sol",
+    "gpt-6-luna-2099-01-01", "vendor/gpt-6-luna",
 ))
 def test_unverified_sol_and_luna_ids_remain_unknown(model):
+    """Hypothetical snapshots and provider aliases need their own verification."""
     params = ChatParams(model=model, responses={"reasoning": {"effort": "low"}})
     assert params._get_reasoning_capabilities() is None
     with pytest.warns(UserWarning, match="may not support reasoning options"):

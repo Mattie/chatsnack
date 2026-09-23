@@ -119,17 +119,16 @@ continues the conversation in
 [ReasoningModelValidation.ipynb](https://github.com/Mattie/chatsnack/blob/master/notebooks/ReasoningModelValidation.ipynb).
 To run its live calls, set `CHATSNACK_RUN_LIVE_TESTS=1` and provide an API key.
 
-When sending these models directly to OpenAI with reasoning enabled,
-remove these unsupported options:
+When sending `gpt-6-astra` directly to OpenAI, remove these unsupported options:
 
 - `temperature`, `top_p`, and `top_logprobs` on either API.
 - `logprobs` on Chat Completions.
 - `message.output_text.logprobs` from `include` on Responses.
 
-Chatsnack warns about these options and sends the request as you wrote it. The
-checks use the sending SDK client's URL and apply only to
-`https://api.openai.com/v1`. Custom or unidentified endpoints and unrecognized
-model names won't receive these request warnings. You'll also get a warning for
+For `gpt-6-astra`, chatsnack warns about these options and sends the request as
+you wrote it. The checks use the sending SDK client's URL and apply only to
+`https://api.openai.com/v1`. Custom or unidentified endpoints and other model
+names won't receive these request warnings. You'll also get a warning for
 reasoning values outside the verified table, and those values still pass through.
 See OpenAI's [migration guidance](https://developers.openai.com/api/docs/guides/latest-model#update-api-and-model-parameters)
 for the provider's requirements.
