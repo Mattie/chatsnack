@@ -54,7 +54,7 @@ _GPT6_REASONING_CAPABILITIES = {
 }
 _GPT6_SOL_LUNA_REASONING_CAPABILITIES = {
     "effort": frozenset({"none", "low", "medium", "high", "xhigh", "max"}),
-    # Summary choices are not yet documented for these exact models.
+    "summary": _REASONING_SUMMARY_OPTIONS,
 }
 # Keep a verification date and official reference URL(s) beside each table update.
 _KNOWN_REASONING_MODELS: Tuple[_ReasoningModel, ...] = (
@@ -67,15 +67,19 @@ _KNOWN_REASONING_MODELS: Tuple[_ReasoningModel, ...] = (
         _GPT6_REASONING_CAPABILITIES,
         match="exact_naming",
     ),
-    # Verified 2026-09-23; this page lists only the exact ID and effort values.
+    # Verified 2026-09-23; auto, concise, and detailed also returned summaries
+    # in direct Responses API probes. The guide documents summary semantics.
     # https://developers.openai.com/api/docs/models/gpt-6-sol
+    # https://developers.openai.com/api/docs/guides/reasoning#reasoning-summaries
     _ReasoningModel(
         "gpt-6-sol",
         _GPT6_SOL_LUNA_REASONING_CAPABILITIES,
         match="exact_naming",
     ),
-    # Verified 2026-09-23; this page lists only the exact ID and effort values.
+    # Verified 2026-09-23; auto, concise, and detailed returned summaries
+    # in direct Responses API probes. The guide documents summary semantics.
     # https://developers.openai.com/api/docs/models/gpt-6-luna
+    # https://developers.openai.com/api/docs/guides/reasoning#reasoning-summaries
     _ReasoningModel(
         "gpt-6-luna",
         _GPT6_SOL_LUNA_REASONING_CAPABILITIES,

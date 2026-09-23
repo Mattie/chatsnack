@@ -185,6 +185,25 @@ def test_sol_and_luna_reject_minimal_advisably(model):
     assert options["reasoning"] == {"effort": "minimal"}
 
 
+@pytest.mark.parametrize("model", ("gpt-6-sol", "gpt-6-luna"))
+@pytest.mark.parametrize("summary", ("auto", "concise", "detailed", "verbose"))
+def test_sol_and_luna_verified_summaries_are_advisory_pass_through(model, summary):
+    """Keep the live-verified summary choices and preserve unsupported input."""
+    params = ChatParams(model=model, responses={"reasoning": {"summary": summary}})
+    assert params._get_reasoning_capabilities()["summary"] == frozenset(
+        {"auto", "concise", "detailed"}
+    )
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        options = params._get_responses_api_options()
+    assert options["reasoning"] == {"summary": summary}
+    if summary == "verbose":
+        assert len(caught) == 1
+        assert "Unknown reasoning summary" in str(caught[0].message)
+    else:
+        assert not caught
+
+
 @pytest.mark.parametrize("model", (
     "gpt-6-sol-2026-09-22", "vendor/gpt-6-sol",
     "gpt-6-luna-2026-09-22", "vendor/gpt-6-luna",

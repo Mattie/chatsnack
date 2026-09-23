@@ -105,9 +105,10 @@ messages:
 ```
 
 For Astra, choose `low`, `medium`, `high`, `xhigh`, or `max`. Sol and Luna also
-support `none`; their default is `medium`. For an Astra reasoning summary, use
-`chat.reasoning.summary = "auto"`; summary choices for Sol and Luna are not yet
-verified. Chatsnack's GPT-6 checks recognize these three exact model IDs.
+support `none`; their default is `medium`. For a reasoning summary, use
+`chat.reasoning.summary = "auto"`. Sol and Luna also accept `concise` and
+`detailed`; chatsnack has verified only `auto` for Astra. Chatsnack's GPT-6
+checks recognize these three exact model IDs.
 Other variants and dated snapshots still need verification.
 
 Use Responses for tool calls with reasoning. Sol and Luna also support function
