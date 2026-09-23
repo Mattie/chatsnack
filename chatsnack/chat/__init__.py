@@ -124,6 +124,7 @@ class Chat(ChatQueryMixin, ChatSerializationMixin, ChatUtensilMixin):
         runtime = kwargs.pop("runtime", None)
         runtime_selector = kwargs.pop("runtime_selector", None)
         model = kwargs.pop("model", None)
+        reasoning_effort = kwargs.pop("reasoning_effort", None)
         base_url = kwargs.pop("base_url", None)
         api_key_env = kwargs.pop("api_key_env", None)
         if (base_url is None) != (api_key_env is None):
@@ -147,6 +148,7 @@ class Chat(ChatQueryMixin, ChatSerializationMixin, ChatUtensilMixin):
             for key, value in {
                 "engine": kwargs.get("engine"),
                 "model": model,
+                "reasoning_effort": reasoning_effort,
                 "base_url": base_url,
                 "api_key_env": api_key_env,
                 "session": session,
@@ -194,6 +196,8 @@ class Chat(ChatQueryMixin, ChatSerializationMixin, ChatUtensilMixin):
             self.engine = kwargs["engine"]
         if model is not None:
             self.model = model
+        if reasoning_effort is not None:
+            self.reasoning_effort = reasoning_effort
         if base_url is not None:
             if self.params is None:
                 self.params = ChatParams()
@@ -831,6 +835,8 @@ def _apply_chat_constructor_overrides(chat):
         chat.engine = overrides["engine"]
     if "model" in overrides:
         chat.model = overrides["model"]
+    if "reasoning_effort" in overrides:
+        chat.reasoning_effort = overrides["reasoning_effort"]
     if "base_url" in overrides or "api_key_env" in overrides:
         if chat.params is None:
             chat.params = ChatParams()

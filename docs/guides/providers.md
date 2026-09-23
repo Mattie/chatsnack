@@ -112,8 +112,22 @@ checks recognize these three exact model IDs.
 Other variants and dated snapshots still need verification.
 
 Use Responses for tool calls with reasoning. Sol and Luna also support function
-calling through Chat Completions when `reasoning_effort="none"`. Pass your Python
-functions in `utensils=[...]`.
+calling through Chat Completions when `reasoning_effort="none"`:
+
+```python
+from chatsnack import Chat, utensil
+
+@utensil
+def stock(sku: str):
+    """Look up a snack SKU."""
+    return {"sku": sku, "available": 3}
+
+chat = Chat("Use stock for inventory questions.", model="gpt-6-sol",
+            runtime="chat_completions", reasoning_effort="none",
+            utensils=[stock])
+print(chat.chat("Check popcorn stock.").response)
+```
+
 If you're moving an existing Chat from Chat Completions, create a new one with
 `runtime="responses"`. There's a complete example that saves a stock helper and
 continues the conversation in
