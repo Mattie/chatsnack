@@ -82,7 +82,8 @@ create a new Chat.
 
 ## GPT-6
 
-Set `model="gpt-6-astra"` to use GPT-6. Here's a small request using Responses:
+Set `model` to `gpt-6-astra`, `gpt-6-sol`, or `gpt-6-luna`. Here's a small
+request using Responses:
 
 ```python
 chat = Chat("Respond tersely.", model="gpt-6-astra", runtime="responses")
@@ -103,28 +104,31 @@ messages:
   - system: Respond tersely.
 ```
 
-Choose a reasoning effort from `low`, `medium`, `high`, `xhigh`, or `max`. For a
-reasoning summary, use `chat.reasoning.summary = "auto"`; that's the setting
-we've verified. Chatsnack's GPT-6 checks currently recognize the exact
-`gpt-6-astra` name. Other variants and dated snapshots still need verification.
+For Astra, choose `low`, `medium`, `high`, `xhigh`, or `max`. Sol and Luna also
+support `none`; their default is `medium`. For a reasoning summary, use
+`chat.reasoning.summary = "auto"`. Sol and Luna also accept `concise` and
+`detailed`; chatsnack has verified only `auto` for Astra. Chatsnack's GPT-6
+checks recognize these three exact model IDs.
+Other variants and dated snapshots still need verification.
 
-Tool calls require Responses. Pass your Python functions in `utensils=[...]`.
+Use Responses for tool calls with reasoning. Pass your Python functions in
+`utensils=[...]`.
 If you're moving an existing Chat from Chat Completions, create a new one with
 `runtime="responses"`. There's a complete example that saves a stock helper and
 continues the conversation in
 [ReasoningModelValidation.ipynb](https://github.com/Mattie/chatsnack/blob/master/notebooks/ReasoningModelValidation.ipynb).
 To run its live calls, set `CHATSNACK_RUN_LIVE_TESTS=1` and provide an API key.
 
-When sending this model directly to OpenAI, remove these unsupported options:
+When sending `gpt-6-astra` directly to OpenAI, remove these unsupported options:
 
 - `temperature`, `top_p`, and `top_logprobs` on either API.
 - `logprobs` on Chat Completions.
 - `message.output_text.logprobs` from `include` on Responses.
 
-Chatsnack warns about these options and sends the request as you wrote it. The
-checks use the sending SDK client's URL and apply only to
-`https://api.openai.com/v1`. Custom or unidentified endpoints and unrecognized
-model names won't receive these request warnings. You'll also get a warning for
+For `gpt-6-astra`, chatsnack warns about these options and sends the request as
+you wrote it. The checks use the sending SDK client's URL and apply only to
+`https://api.openai.com/v1`. Custom or unidentified endpoints and other model
+names won't receive these request warnings. You'll also get a warning for
 reasoning values outside the verified table, and those values still pass through.
 See OpenAI's [migration guidance](https://developers.openai.com/api/docs/guides/latest-model#update-api-and-model-parameters)
 for the provider's requirements.

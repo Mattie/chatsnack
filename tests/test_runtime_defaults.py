@@ -99,6 +99,8 @@ def test_reasoning_known_model_warns_for_known_unsupported_effort():
         ("gpt-6-astra", "high"),
         ("gpt-6-astra", "xhigh"),
         ("gpt-6-astra", "max"),
+        *((model, effort) for model in ("gpt-6-sol", "gpt-6-luna")
+          for effort in ("none", "low", "medium", "high", "xhigh", "max")),
     ),
 )
 def test_current_gpt_models_pass_supported_effort_without_warning(model, effort):
@@ -173,6 +175,46 @@ def test_astra_unverified_efforts_warn_without_rewriting(effort):
     with pytest.warns(UserWarning, match="Unknown reasoning effort|known supported set"):
         options = params._get_responses_api_options()
     assert options["reasoning"] == {"effort": effort}
+
+
+@pytest.mark.parametrize("model", ("gpt-6-sol", "gpt-6-luna"))
+def test_sol_and_luna_reject_minimal_advisably(model):
+    params = ChatParams(model=model, responses={"reasoning": {"effort": "minimal"}})
+    with pytest.warns(UserWarning, match="known supported set"):
+        options = params._get_responses_api_options()
+    assert options["reasoning"] == {"effort": "minimal"}
+
+
+@pytest.mark.parametrize("model", ("gpt-6-sol", "gpt-6-luna"))
+@pytest.mark.parametrize("summary", ("auto", "concise", "detailed", "verbose"))
+def test_sol_and_luna_verified_summaries_are_advisory_pass_through(model, summary):
+    """Keep the live-verified summary choices and preserve unsupported input."""
+    params = ChatParams(model=model, responses={"reasoning": {"summary": summary}})
+    assert params._get_reasoning_capabilities()["summary"] == frozenset(
+        {"auto", "concise", "detailed"}
+    )
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        options = params._get_responses_api_options()
+    assert options["reasoning"] == {"summary": summary}
+    if summary == "verbose":
+        assert len(caught) == 1
+        assert "Unknown reasoning summary" in str(caught[0].message)
+    else:
+        assert not caught
+
+
+@pytest.mark.parametrize("model", (
+    "gpt-6-sol-2099-01-01", "vendor/gpt-6-sol",
+    "gpt-6-luna-2099-01-01", "vendor/gpt-6-luna",
+))
+def test_unverified_sol_and_luna_ids_remain_unknown(model):
+    """Hypothetical snapshots and provider aliases need their own verification."""
+    params = ChatParams(model=model, responses={"reasoning": {"effort": "low"}})
+    assert params._get_reasoning_capabilities() is None
+    with pytest.warns(UserWarning, match="may not support reasoning options"):
+        options = params._get_responses_api_options()
+    assert options["reasoning"] == {"effort": "low"}
 
 
 @pytest.mark.parametrize("summary", ("auto", "concise", "detailed"))

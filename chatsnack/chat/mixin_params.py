@@ -47,10 +47,14 @@ class _ReasoningModel:
 
 
 _REASONING_SUMMARY_OPTIONS = frozenset({"auto", "concise", "detailed"})
-# Reusable GPT-6 capabilities; assign to additional IDs only after verification.
+# Astra's verified GPT-6 capabilities; sibling models have different effort choices.
 _GPT6_REASONING_CAPABILITIES = {
     "effort": frozenset({"low", "medium", "high", "xhigh", "max"}),
     "summary": frozenset({"auto"}),
+}
+_GPT6_SOL_LUNA_REASONING_CAPABILITIES = {
+    "effort": frozenset({"none", "low", "medium", "high", "xhigh", "max"}),
+    "summary": _REASONING_SUMMARY_OPTIONS,
 }
 # Keep a verification date and official reference URL(s) beside each table update.
 _KNOWN_REASONING_MODELS: Tuple[_ReasoningModel, ...] = (
@@ -61,6 +65,24 @@ _KNOWN_REASONING_MODELS: Tuple[_ReasoningModel, ...] = (
     _ReasoningModel(
         "gpt-6-astra",
         _GPT6_REASONING_CAPABILITIES,
+        match="exact_naming",
+    ),
+    # Verified 2026-09-23; auto, concise, and detailed also returned summaries
+    # in direct Responses API probes. The guide documents summary semantics.
+    # https://developers.openai.com/api/docs/models/gpt-6-sol
+    # https://developers.openai.com/api/docs/guides/reasoning#reasoning-summaries
+    _ReasoningModel(
+        "gpt-6-sol",
+        _GPT6_SOL_LUNA_REASONING_CAPABILITIES,
+        match="exact_naming",
+    ),
+    # Verified 2026-09-23; auto, concise, and detailed returned summaries
+    # in direct Responses API probes. The guide documents summary semantics.
+    # https://developers.openai.com/api/docs/models/gpt-6-luna
+    # https://developers.openai.com/api/docs/guides/reasoning#reasoning-summaries
+    _ReasoningModel(
+        "gpt-6-luna",
+        _GPT6_SOL_LUNA_REASONING_CAPABILITIES,
         match="exact_naming",
     ),
     # Verified 2026-08-06. GPT-5.6 family effort values:
