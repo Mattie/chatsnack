@@ -47,10 +47,14 @@ class _ReasoningModel:
 
 
 _REASONING_SUMMARY_OPTIONS = frozenset({"auto", "concise", "detailed"})
-# Astra's verified GPT-6 capabilities; sibling models have different effort choices.
+# Astra's verified GPT-6 capabilities; sibling models have different choices.
 _GPT6_REASONING_CAPABILITIES = {
     "effort": frozenset({"low", "medium", "high", "xhigh", "max"}),
     "summary": frozenset({"auto"}),
+}
+_GPT61_SOL_REASONING_CAPABILITIES = {
+    "effort": _GPT6_REASONING_CAPABILITIES["effort"],
+    "summary": _REASONING_SUMMARY_OPTIONS,
 }
 _GPT6_SOL_LUNA_REASONING_CAPABILITIES = {
     "effort": frozenset({"none", "low", "medium", "high", "xhigh", "max"}),
@@ -58,6 +62,17 @@ _GPT6_SOL_LUNA_REASONING_CAPABILITIES = {
 }
 # Keep a verification date and official reference URL(s) beside each table update.
 _KNOWN_REASONING_MODELS: Tuple[_ReasoningModel, ...] = (
+    # Verified 2026-09-29; the model page lists only this ID, with no snapshots.
+    # It supports low through max, and explicitly rejects none and minimal.
+    # Direct Responses probes accepted auto, concise, and detailed summaries;
+    # summary text was present for concise but absent for auto and detailed.
+    # https://developers.openai.com/api/docs/models/gpt-6.1-sol
+    # https://developers.openai.com/api/docs/guides/reasoning#reasoning-summaries
+    _ReasoningModel(
+        "gpt-6.1-sol",
+        _GPT61_SOL_REASONING_CAPABILITIES,
+        match="exact_naming",
+    ),
     # Verified 2026-09-09; only this exact model ID is documented (no dated variants).
     # https://developers.openai.com/api/docs/models/gpt-6-astra
     # https://developers.openai.com/api/docs/guides/reasoning#reasoning-summaries

@@ -1,7 +1,7 @@
-"""Opt-in provider checks for GPT-6 Sol and Luna through chatsnack.
+"""Opt-in provider checks for GPT-6 Sol, Luna, and GPT-6.1 Sol through chatsnack.
 
 Run with OPENAI_API_KEY and CHATSNACK_RUN_LIVE_TESTS=1. These checks exercise
-the Responses runtime and verify that a requested reasoning summary is returned.
+the Responses runtime and confirm supported reasoning requests complete.
 """
 
 import asyncio
@@ -27,10 +27,14 @@ async def _drain_live_callbacks():
     await asyncio.sleep(0)
 
 
-@pytest.mark.parametrize("model", ("gpt-6-sol", "gpt-6-luna"))
+@pytest.mark.parametrize(("model", "summary"), (
+    ("gpt-6-sol", "concise"),
+    ("gpt-6-luna", "concise"),
+    ("gpt-6.1-sol", "auto"),
+))
 @pytest.mark.asyncio
-async def test_live_gpt6_reasoning_summary(model):
-    """Each known model accepts a summary request and returns one through Chat."""
+async def test_live_gpt6_reasoning_summary(model, summary):
+    """Each model accepts the request; earlier Sol and Luna return summaries."""
     chat = Chat(
         "Solve the selection problem carefully, then answer with only the best "
         "total value. Each item may be chosen once.",
@@ -40,7 +44,7 @@ async def test_live_gpt6_reasoning_summary(model):
             max_tokens=2048,
             responses={
                 "store": False,
-                "reasoning": {"effort": "medium", "summary": "concise"},
+                "reasoning": {"effort": "medium", "summary": summary},
             },
         ),
     )
@@ -57,7 +61,8 @@ async def test_live_gpt6_reasoning_summary(model):
             for entry in completed.messages
             for part in entry.get("reasoning", {}).get("summary", [])
         ]
-        assert any(text.strip() for text in summaries)
+        if model != "gpt-6.1-sol":
+            assert any(text.strip() for text in summaries)
     finally:
         if completed is not None:
             await completed.close_a()

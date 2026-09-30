@@ -82,7 +82,7 @@ create a new Chat.
 
 ## GPT-6
 
-Set `model` to `gpt-6-astra`, `gpt-6-sol`, or `gpt-6-luna`. Here's a small
+Set `model` to `gpt-6-astra`, `gpt-6.1-sol`, `gpt-6-sol`, or `gpt-6-luna`. Here's a small
 request using Responses:
 
 ```python
@@ -104,11 +104,13 @@ messages:
   - system: Respond tersely.
 ```
 
-For Astra, choose `low`, `medium`, `high`, `xhigh`, or `max`. Sol and Luna also
-support `none`; their default is `medium`. For a reasoning summary, use
-`chat.reasoning.summary = "auto"`. Sol and Luna also accept `concise` and
-`detailed`; chatsnack has verified only `auto` for Astra. Chatsnack's GPT-6
-checks recognize these three exact model IDs.
+For Astra and GPT-6.1 Sol, choose `low`, `medium`, `high`, `xhigh`, or `max`.
+GPT-6 Sol and Luna also support `none`; their default is `medium`. For a
+reasoning summary, use `chat.reasoning.summary = "auto"`. GPT-6 Sol, Luna,
+and GPT-6.1 Sol also accept `concise` and `detailed`; chatsnack has verified
+only `auto` for Astra. A completed GPT-6.1 Sol response may omit summary text
+even when the summary setting is accepted. Chatsnack's GPT-6 checks recognize
+these four exact model IDs.
 Other variants and dated snapshots still need verification.
 
 Use Responses for tool calls with reasoning. Pass your Python functions in

@@ -99,6 +99,7 @@ def test_reasoning_known_model_warns_for_known_unsupported_effort():
         ("gpt-6-astra", "high"),
         ("gpt-6-astra", "xhigh"),
         ("gpt-6-astra", "max"),
+        *(("gpt-6.1-sol", effort) for effort in ("low", "medium", "high", "xhigh", "max")),
         *((model, effort) for model in ("gpt-6-sol", "gpt-6-luna")
           for effort in ("none", "low", "medium", "high", "xhigh", "max")),
     ),
@@ -183,6 +184,40 @@ def test_sol_and_luna_reject_minimal_advisably(model):
     with pytest.warns(UserWarning, match="known supported set"):
         options = params._get_responses_api_options()
     assert options["reasoning"] == {"effort": "minimal"}
+
+
+@pytest.mark.parametrize("effort", ("none", "minimal"))
+def test_gpt_61_sol_warns_for_unsupported_effort_without_rewriting(effort):
+    """The new Sol generation rejects both efforts while caller options stay intact."""
+    params = ChatParams(model="gpt-6.1-sol", responses={"reasoning": {"effort": effort}})
+    with pytest.warns(UserWarning, match="known supported set"):
+        options = params._get_responses_api_options()
+    assert options["reasoning"] == {"effort": effort}
+
+
+@pytest.mark.parametrize("summary", ("auto", "concise", "detailed", "verbose"))
+def test_gpt_61_sol_summary_settings_are_advisory_pass_through(summary):
+    """Accept provider-tested settings and preserve even unknown caller values."""
+    params = ChatParams(model="gpt-6.1-sol", responses={"reasoning": {"summary": summary}})
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        options = params._get_responses_api_options()
+    assert options["reasoning"] == {"summary": summary}
+    if summary == "verbose":
+        assert len(caught) == 1
+        assert "Unknown reasoning summary" in str(caught[0].message)
+    else:
+        assert not caught
+
+
+@pytest.mark.parametrize("model", ("gpt-6.1-sol-2099-01-01", "vendor/gpt-6.1-sol"))
+def test_unverified_gpt_61_sol_ids_remain_unknown(model):
+    """Only the published model ID inherits the verified capability profile."""
+    params = ChatParams(model=model, responses={"reasoning": {"effort": "low"}})
+    assert params._get_reasoning_capabilities() is None
+    with pytest.warns(UserWarning, match="may not support reasoning options"):
+        options = params._get_responses_api_options()
+    assert options["reasoning"] == {"effort": "low"}
 
 
 @pytest.mark.parametrize("model", ("gpt-6-sol", "gpt-6-luna"))
