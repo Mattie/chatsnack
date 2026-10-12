@@ -1,4 +1,6 @@
 import asyncio
+import copy
+import inspect
 import json
 from typing import Dict, List, Optional, Union, Any
 
@@ -248,7 +250,7 @@ class ChatUtensilMixin:
                         }
                     }
                     
-                    result = self.execute_tool_call(tool_call_dict)
+                    result = await self.execute_tool_call_a(tool_call_dict)
                     
                     # Add the tool response to the messages
                     self.tool_response(result)
@@ -458,6 +460,40 @@ class ChatUtensilMixin:
             logger.debug("No local registry found")
 
         return handle_tool_call(tool_call, local_registry=local_registry)
+
+    async def execute_tool_call_a(self, tool_call):
+        """Execute local utensils without blocking on async I/O.
+
+        Existing custom synchronous executors remain authoritative. They may
+        also return an awaitable; the default dispatcher awaits before adding
+        call metadata or formatting the result.
+        """
+        executor = self.execute_tool_call
+        if getattr(executor, "__func__", None) is ChatUtensilMixin.execute_tool_call:
+            from ..utensil import handle_tool_call_a
+
+            return await handle_tool_call_a(
+                tool_call, local_registry=getattr(self, "_local_registry", None)
+            )
+        result = executor(tool_call)
+        if inspect.isawaitable(result):
+            result = await result
+        return result
+
+    def _copy_local_registry(self):
+        """Copy tool declarations while preserving live Python callable bindings.
+
+        Bound async methods can own HTTP clients, locks, or other resources that
+        belong to the application and must not be deepcopied with a prompt.
+        """
+        registry = getattr(self, "_local_registry", None)
+        if registry is None:
+            return None
+        from ..utensil import collect_runtime_bindings, extract_utensil_functions
+
+        bindings = {id(tool.func): tool.func for tool in extract_utensil_functions(registry)}
+        bindings.update({id(handler): handler for handler in collect_runtime_bindings(registry).values()})
+        return copy.deepcopy(registry, bindings)
 
     def set_tools(self, tools_list: List[Dict]):
         """

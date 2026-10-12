@@ -144,6 +144,10 @@ without manual dict mutation.
 
 See the [Utensils guide](docs/guides/utensils.md) for more information.
 
+Local utensils can also be `async def` functions. `chat_a()` awaits their results
+while other independent chats keep running. See [async local functions](docs/guides/utensils.md#async-local-functions)
+for execution and saved-chat examples.
+
 For unusually long local-utensil workflows, `auto_feed` controls the automatic
 execute-and-follow-up loop. Leave it unset (or use `True` / `None`) for the legacy
 five-cycle limit. A positive integer allows that many cycles; `False` or `0` still

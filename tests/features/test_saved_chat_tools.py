@@ -1,5 +1,6 @@
 """Goal: a saved Chat uses ordinary utensils through the real SDK offline."""
 
+import asyncio
 import json
 import warnings
 
@@ -11,18 +12,27 @@ from chatsnack import Chat, Text, utensil
 
 
 @pytest.mark.asyncio
-async def test_saved_chat_executes_stock_and_continues(tmp_path, monkeypatch):
+@pytest.mark.parametrize("async_tool", [False, True])
+async def test_saved_chat_executes_stock_and_continues(tmp_path, monkeypatch, async_tool):
     """Exercise saved authoring, SDK serialization, execution, and continuation together."""
     monkeypatch.setenv("CHATSNACK_BASE_DIR", str(tmp_path))
     monkeypatch.setenv("CHATSNACK_DEFAULT_RUNTIME", "chat_completions")
     requests = []
     lookups = []
 
-    @utensil
-    def stock(sku: str):
+    def stock_sync(sku: str):
         """Look up the notebook's demo stock."""
         lookups.append(sku)
         return {"sku": sku, "available": 12}
+
+    async def stock_async(sku: str):
+        """Look up the notebook's demo stock without blocking other chats."""
+        await asyncio.sleep(0)
+        return stock_sync(sku)
+
+    stock = utensil(name="stock", description="Look up the notebook's demo stock.")(
+        stock_async if async_tool else stock_sync
+    )
 
     def respond(request):
         """Supply a provider call followed by answers, retaining the actual SDK wire body."""

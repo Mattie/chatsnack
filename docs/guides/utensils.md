@@ -18,6 +18,108 @@ chat = Chat(
 )
 ```
 
+## Async local functions
+
+Use the same decorator for an async function. Chatsnack awaits its result before
+recording the tool turn or sending the result back to the model:
+
+```python
+import asyncio
+from chatsnack import Chat, utensil
+
+@utensil
+async def stock(snack: str):
+    """Read demo snack stock."""
+    await asyncio.sleep(0)
+    return {"snack": snack, "available": 12}
+
+pantry = Chat("Use stock to check availability.", utensils=[stock])
+thread = await pantry.chat_a("How much popcorn is available?")
+print(thread.last)
+```
+
+The demo yields once; a real lookup might await an async HTTP client. While a
+tool waits, independent chats can make progress on the same event loop. Tools
+within one response still execute sequentially, in the model's requested order.
+Synchronous functions keep running inline, so blocking I/O or lengthy computation
+inside either kind of function can still hold up the event loop.
+
+`chat()` also executes async utensils through its existing async bridge in a
+script without an active event loop. In notebooks and async applications, use
+`await chat.chat_a(...)`. This adds async execution to existing tool workflows;
+it does not add automatic tool execution to `ask_a()` or streaming listeners.
+
+### Saved async capabilities
+
+Grouped async functions use the existing compact YAML shape. Author and save
+the chat normally, then attach the Python capability again when loading it:
+
+```python
+snacks = utensil.group("snacks", "Snack stock.")
+
+@snacks
+async def stock(snack: str):
+    """Read demo snack stock."""
+    await asyncio.sleep(0)
+    return {"snack": snack, "available": 12}
+
+pantry = (
+    Chat(name="SnackStock", utensils=[snacks])
+    .system("Use stock to check availability.")
+    .user("Check {snack}.")
+)
+print(pantry.yaml)
+pantry.save()
+
+reused = Chat(name="SnackStock", utensils=[snacks])
+reused.load()
+thread = await reused.chat_a(snack="popcorn")
+print(thread.last)
+```
+
+The saved tool and prompt excerpt stays readable:
+
+```yaml
+params:
+  tools:
+    - snacks: Snack stock.
+      tools:
+        - stock: Read demo snack stock.
+          snack: str
+messages:
+  - system: Use stock to check availability.
+  - user: Check {snack}.
+```
+
+Python bindings stay out of YAML. Copies, continued chats, and `reset()` retain
+their local bindings. Async execution needs no new saved setting or model
+capability. OpenAI's model-level `async: true` declaration is a separate protocol
+and is not enabled by defining a Python async utensil.
+
+Prompt copies retain the same live Python callables, including bound methods on
+services with HTTP clients or locks. Copying a prompt does not isolate a tool's
+application state.
+
+### Concurrency and failures
+
+Ordinary exceptions, including those raised while awaiting a tool, become the
+existing error result. Cancellation propagates so the application can stop a
+question and the tool can release resources in `finally` blocks. Chatsnack does
+not start detached background jobs or move synchronous functions into threads.
+
+Applications own shared rate limits and validation of actions against current
+game state. Context variables retain their task-local bindings; they do not make
+shared mutable objects safe. Concurrent WebSocket requests need independent
+sessions; the existing one-response-at-a-time guard on a shared session remains.
+
+For manual execution, use `await chat.execute_tool_call_a(call)` or
+`await handle_tool_call_a(call, local_registry=...)` from `chatsnack.utensil`.
+The synchronous manual methods return an error with that guidance when a tool
+returns an awaitable. Existing custom `execute_tool_call()` overrides remain
+authoritative during automatic execution, and their awaitable results are awaited.
+Override `execute_tool_call_a()` when writing an async execution policy that
+delegates to the default async dispatcher.
+
 ## Grouped tool namespaces
 
 ```python
