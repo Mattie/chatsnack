@@ -120,6 +120,11 @@ authoritative during automatic execution, and their awaitable results are awaite
 Override `execute_tool_call_a()` when writing an async execution policy that
 delegates to the default async dispatcher.
 
+When synchronous manual dispatch rejects a coroutine, it closes it. Returned
+asyncio Tasks and Futures are cancelled if pending, and their failures are
+collected, including failures raised by task cancellation cleanup. Cancellation
+is cooperative and cannot undo side effects that already happened.
+
 ## Grouped tool namespaces
 
 ```python

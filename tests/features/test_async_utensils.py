@@ -1,6 +1,7 @@
 """Goal and contract coverage for Python async utensils (not provider async calls)."""
 
 import asyncio
+import gc
 import json
 from contextvars import ContextVar
 
@@ -382,6 +383,113 @@ def test_manual_sync_execution_rejects_async_without_unawaited_warning(recwarn):
     assert result["tool_call_id"] == "call_stock"
     assert calls == []
     assert not recwarn.list
+
+
+@pytest.mark.parametrize("kind", ["task", "future"])
+async def test_manual_sync_rejection_cancels_pending_async_work(kind):
+    """A rejected sync call cannot leave its returned job running in the background."""
+    effects = []
+    returned = None
+
+    async def work():
+        await asyncio.sleep(0)
+        effects.append("unwanted side effect")
+
+    @utensil
+    def stock():
+        nonlocal returned
+        loop = asyncio.get_running_loop()
+        returned = loop.create_task(work()) if kind == "task" else loop.create_future()
+        return returned
+
+    try:
+        result = handle_tool_call(local_call(), [stock])
+        assert "handle_tool_call_a()" in result["error"]
+        assert result["tool_call_id"] == "call_stock"
+        await asyncio.sleep(0)
+        await asyncio.sleep(0)
+        assert returned.cancelled()
+        assert effects == []
+    finally:
+        if returned is not None:
+            returned.cancel()
+            await asyncio.gather(returned, return_exceptions=True)
+
+
+@pytest.mark.parametrize("kind", ["task", "future"])
+async def test_manual_sync_rejection_collects_completed_async_failures(kind):
+    """Discarding an already failed result does not log an unretrieved async exception."""
+    loop = asyncio.get_running_loop()
+    previous_handler = loop.get_exception_handler()
+    unhandled = []
+    loop.set_exception_handler(lambda _loop, context: unhandled.append(context))
+
+    async def fail():
+        raise ValueError("failed lookup")
+
+    failed = loop.create_task(fail()) if kind == "task" else loop.create_future()
+    if kind == "future":
+        failed.set_exception(ValueError("failed lookup"))
+    await asyncio.sleep(0)
+    assert failed.done()
+
+    @utensil
+    def stock():
+        return failed
+
+    try:
+        result = handle_tool_call(local_call(), [stock])
+        assert "handle_tool_call_a()" in result["error"]
+        failed = None
+        gc.collect()
+        await asyncio.sleep(0)
+        assert unhandled == []
+    finally:
+        if failed is not None:
+            failed.exception()
+        loop.set_exception_handler(previous_handler)
+
+
+async def test_manual_sync_rejection_collects_task_cleanup_failure():
+    """Cancellation cleanup may fail; its exception must still be retrieved."""
+    loop = asyncio.get_running_loop()
+    previous_handler = loop.get_exception_handler()
+    unhandled = []
+    loop.set_exception_handler(lambda _loop, context: unhandled.append(context))
+    entered = asyncio.Event()
+    cleaned = asyncio.Event()
+
+    async def work():
+        entered.set()
+        try:
+            await asyncio.Event().wait()
+        finally:
+            cleaned.set()
+            raise ValueError("cleanup failed")
+
+    returned = loop.create_task(work())
+    await entered.wait()
+
+    @utensil
+    def stock():
+        return returned
+
+    try:
+        result = handle_tool_call(local_call(), [stock])
+        assert "handle_tool_call_a()" in result["error"]
+        await asyncio.sleep(0)
+        await asyncio.sleep(0)
+        assert cleaned.is_set()
+        assert returned.done()
+        returned = None
+        gc.collect()
+        await asyncio.sleep(0)
+        assert unhandled == []
+    finally:
+        if returned is not None:
+            returned.cancel()
+            await asyncio.gather(returned, return_exceptions=True)
+        loop.set_exception_handler(previous_handler)
 
 
 @pytest.mark.parametrize("async_override", [False, True])

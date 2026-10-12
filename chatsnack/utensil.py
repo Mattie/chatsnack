@@ -1,3 +1,4 @@
+import asyncio
 import inspect
 import functools
 import json
@@ -673,6 +674,12 @@ def _format_tool_result(result, call_id) -> Dict[str, Any]:
     return result
 
 
+def _collect_rejected_future(future):
+    """Retrieve failures from rejected jobs, including exceptions raised during cancellation."""
+    if not future.cancelled():
+        future.exception()
+
+
 def handle_tool_call(tool_call: Dict[str, Any], local_registry=None) -> Dict[str, Any]:
     """Execute a synchronous utensil; direct async execution uses handle_tool_call_a."""
     result = _invoke_tool_call(tool_call, local_registry)
@@ -682,6 +689,14 @@ def handle_tool_call(tool_call: Dict[str, Any], local_registry=None) -> Dict[str
         # coroutine so the guidance below does not also emit an unawaited warning.
         if inspect.iscoroutine(result):
             result.close()
+        elif asyncio.isfuture(result):
+            if result.done():
+                _collect_rejected_future(result)
+            else:
+                # Cancellation can finish on a later loop turn or raise from
+                # the task's cleanup. Collect that outcome without blocking.
+                result.add_done_callback(_collect_rejected_future)
+                result.cancel()
         return _tool_execution_error(
             TypeError("Async utensils require handle_tool_call_a() or Chat.execute_tool_call_a()."),
             call_id,
