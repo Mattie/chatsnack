@@ -17,6 +17,8 @@
   .pocket-help .debug-panel{margin-top:12px;flex-wrap:wrap}
   .console{display:none}
   .pocket-play>.plate-head{flex:none;display:flex;flex-wrap:wrap;gap:4px;margin:0}
+  .plate-head .level-heading{flex:none;width:100%}
+  .plate-head .level-hint{margin-top:3px;font-size:12px;line-height:1.4}
   .plate-head h2{font-size:13px;line-height:1.4;width:100%;letter-spacing:0}
   .plate-head>#attempt{display:none}
   .power{width:100%;margin:0;gap:4px}.power button{flex:1;min-height:36px;padding:4px;font-size:12px}
