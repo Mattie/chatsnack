@@ -22,8 +22,8 @@ documented `muse-wonder-1.0` ID when the caller has omitted connection settings.
 - [x] Add an explicit opt-in live Goal, with credentials supplied through Joydex.
 - [x] Run two live Goals successfully against Meta (October 13, 2026; 13.88 seconds).
 - [x] Complete regression checks and review the final diff.
-- [x] Bump the package from `0.9.3` to `1.0.0` for the requested major version.
-- [x] Build and check the `1.0.0` wheel and source distribution.
+- [x] Bump the package from `0.9.3` to `0.10.0` for the next release.
+- [x] Build and check the `0.10.0` wheel and source distribution.
 
 AUTO deliberately recognizes one documented API ID. Full is not a Model API
 model. Hosted search/tool-search, native computer tools, and file workflows are
@@ -82,7 +82,7 @@ progression.
 | `tests/features/test_muse_wonder.py` | Update the notebook Goal to run its actual cells, including notebook-style await. Prove durable fillings, named reuse, utensil results, and streamed copy through the real SDK. Keep protocol assertions in tests. |
 | `tests/test_live_muse_wonder.py` | Retain bounded, explicit paid-test setup and the two verified live Goals. That scaffolding belongs in tests. |
 | `tests/conftest.py` | Retain the explicit Meta paid-test opt-in; environment-file loading must not enable it. |
-| `pyproject.toml` | Set the requested major version to `1.0.0`; keep dependency requirements unchanged. |
+| `pyproject.toml` | Set the next release version to `0.10.0`; keep dependency requirements unchanged. |
 | This checklist | Record the review, its correction, and concrete verification without expanding the public authoring surface. |
 | Earlier `muse-support-research.md` | Retain the dated provider-contract research and mark its explicit setup example as the pre-AUTO baseline. |
 
@@ -143,4 +143,4 @@ model-only YAML did not exercise a persisted AUTO connection pair.
 Broader regression passed 1,235 tests with 167 skipped and six existing
 async-client cleanup warnings, using the same loopback-module exclusion above.
 Both live Meta Goals passed again through Joydex (49.53 seconds). Rebuilt the
-`1.0.0` wheel and source distribution; both passed `twine check`.
+`0.10.0` wheel and source distribution; both passed `twine check`.
