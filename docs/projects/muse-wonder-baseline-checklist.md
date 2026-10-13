@@ -127,3 +127,20 @@ in that Goal.
 The expanded focused command, also including `tests/test_hosted_utensils.py`,
 passed all 434 tests (75 Wonder contracts), with two existing async-client cleanup
 warnings. `git diff --check` passed.
+
+- [x] Address persisted AUTO connections with custom runtimes. Preserve the saved
+  endpoint/key alias while deferring the unused SDK credential, including copies.
+  Actual SDK access still requires the named key and cannot fall back to OpenAI.
+- [x] Extend the custom-runtime Goal with real AUTO-authored assets, testing named
+  autoload, explicit load, and direct snapshot load before copy and continuation.
+- [x] Verify late named-key resolution for sync/async SDK access and `api_key`, plus
+  an eager missing-key guard for injected built-in adapters.
+
+The three actual saved-asset Goal variants failed before this remedy. All 441
+focused checks passed afterward (82 Wonder contracts), with two existing
+async-client cleanup warnings. This corrects the earlier coverage gap: bare
+model-only YAML did not exercise a persisted AUTO connection pair.
+Broader regression passed 1,235 tests with 167 skipped and six existing
+async-client cleanup warnings, using the same loopback-module exclusion above.
+Both live Meta Goals passed again through Joydex (49.53 seconds). Rebuilt the
+`1.0.0` wheel and source distribution; both passed `twine check`.

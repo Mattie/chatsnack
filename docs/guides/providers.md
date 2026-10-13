@@ -136,6 +136,9 @@ endpoint and credential variable name; a fresh load reads the current named key.
 An injected custom runtime owns submission, so AUTO does not infer SDK connection
 or encrypted-replay defaults for it. Injected built-in adapters still use the
 Chat's connection.
+A custom runtime can also load a saved connection without its credential; that
+named key is required only if the Chat's SDK client is actually used. Built-in
+adapters still capture the credential on construction or fresh load.
 
 Use `chat.reasoning.effort` for `minimal`, `low`, `medium`, `high`, `xhigh`, or
 `max`, and `chat.reasoning.summary` for `auto`, `concise`, or `detailed`.

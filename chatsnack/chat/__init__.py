@@ -348,6 +348,13 @@ class Chat(ChatQueryMixin, ChatSerializationMixin, ChatUtensilMixin):
         self._last_call_usage = None
 
 
+    def _has_injected_custom_runtime(self) -> bool:
+        """Identify application-owned submission that does not use our SDK adapters."""
+        runtime = getattr(self, "_chatsnack_constructor_overrides", {}).get("runtime")
+        return runtime is not None and not isinstance(runtime, (
+            str, ResponsesAdapter, ChatCompletionsAdapter, ResponsesWebSocketAdapter,
+        ))
+
     def _apply_model_defaults(self, *, infer_connection: bool = True) -> None:
         """Resolve verified model conveniences before the provider binding is fixed.
 
@@ -356,10 +363,7 @@ class Chat(ChatQueryMixin, ChatSerializationMixin, ChatUtensilMixin):
         them. Persist resolved nonsecret defaults with the authored Chat asset.
         Injected custom runtimes own submission and do not use these SDK defaults.
         """
-        runtime = getattr(self, "_chatsnack_constructor_overrides", {}).get("runtime")
-        if runtime is not None and not isinstance(runtime, (
-            str, ResponsesAdapter, ChatCompletionsAdapter, ResponsesWebSocketAdapter,
-        )):
+        if self._has_injected_custom_runtime():
             return
         defaults = _MODEL_CONNECTION_DEFAULTS.get(_chat_param_value(self.params, "model"))
         if defaults is None:
@@ -449,15 +453,11 @@ class Chat(ChatQueryMixin, ChatSerializationMixin, ChatUtensilMixin):
             self._client_binding = binding
             return
 
-        api_key = os.getenv(api_key_env)
-        if api_key is None or not api_key.strip():
-            raise ValueError(
-                f"Credential environment variable '{api_key_env}' is not set or is blank."
-            )
         self.ai = AiClient(
-            api_key=api_key,
             base_url=base_url,
             api_key_env=api_key_env,
+            # Keep saved connection metadata without requiring an unused SDK key.
+            defer_credentials=self._has_injected_custom_runtime(),
         )
         self._client_binding = binding
 

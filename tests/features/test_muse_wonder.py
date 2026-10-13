@@ -203,19 +203,28 @@ def test_explicit_sdk_environment_wins(monkeypatch):
     chat.close()
 
 
-def test_missing_meta_key_does_not_use_the_openai_key(monkeypatch):
+@pytest.mark.parametrize("injected_builtin", [False, True])
+def test_missing_meta_key_does_not_use_the_openai_key(monkeypatch, injected_builtin):
     """AUTO names the missing Meta credential before any request can be submitted."""
     monkeypatch.delenv("MODEL_API_KEY")
+    runtime = ResponsesAdapter(SimpleNamespace()) if injected_builtin else None
     with pytest.raises(ValueError, match="MODEL_API_KEY"):
-        Chat(model=MODEL)
+        Chat(model=MODEL, runtime=runtime)
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("creation", ["constructor", "params", "autoload", "load"])
+@pytest.mark.parametrize("creation", ["constructor", "params", "autoload", "load",
+                                     "saved-autoload", "saved-load", "saved-snapshot"])
 async def test_goal_injected_runtime_owns_wonder_submission_without_provider_keys(
     creation, monkeypatch, tmp_path,
 ):
     """An injected runtime can use a Wonder asset and its lineage without an SDK."""
+    saved_binding = creation.startswith("saved-")
+    path = tmp_path / "InjectedWonder.yml"
+    if saved_binding:
+        authored = Chat(name="InjectedWonder", model=MODEL)
+        authored.save(path)
+        await authored.close_a()
     monkeypatch.delenv("MODEL_API_KEY")
     monkeypatch.delenv("OPENAI_API_KEY")
     calls = []
@@ -233,13 +242,16 @@ async def test_goal_injected_runtime_owns_wonder_submission_without_provider_key
     elif creation == "params":
         root = Chat(params={"model": MODEL}, runtime=runtime)
     else:
-        path = tmp_path / "InjectedWonder.yml"
-        path.write_text(f"params:\n  model: {MODEL}\nmessages: []\n", encoding="utf-8")
-        if creation == "autoload":
+        if not saved_binding:
+            path.write_text(f"params:\n  model: {MODEL}\nmessages: []\n", encoding="utf-8")
+        if creation in {"autoload", "saved-autoload"}:
             root = Chat(name="InjectedWonder", runtime=runtime)
         else:
             root = Chat(runtime=runtime)
-            root.load(path)
+            if creation == "saved-snapshot":
+                root.snapshot.load(path)
+            else:
+                root.load(path)
 
     assert await root.ask_a("Name one snack.") == "snack-1"
     copied = root.copy()
@@ -251,9 +263,13 @@ async def test_goal_injected_runtime_owns_wonder_submission_without_provider_key
     assert all(options["model"] == MODEL for _, options in calls)
     for chat in (root, copied, thread, continued):
         assert chat.runtime is runtime
-        assert chat.params.base_url is None
-        assert chat.params.api_key_env is None
-        assert not (chat.params.responses or {}).get("include")
+        assert chat.params.base_url == (META_URL if saved_binding else None)
+        assert chat.params.api_key_env == ("MODEL_API_KEY" if saved_binding else None)
+        assert chat.ai.base_url == chat.params.base_url
+        assert chat.ai.api_key_env == chat.params.api_key_env
+        assert (chat.params.responses or {}).get("include") == (
+            ["reasoning.encrypted_content"] if saved_binding else None
+        )
         assert not chat.ai._has_opened_clients
         await chat.close_a()
 
@@ -266,6 +282,37 @@ def test_injected_builtin_adapter_keeps_wonder_auto_defaults():
     assert chat.params.api_key_env == "MODEL_API_KEY"
     assert chat.params.responses["include"] == ["reasoning.encrypted_content"]
     chat.close()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("access", ["client", "aclient", "api_key"])
+async def test_dormant_custom_runtime_client_requires_its_named_key_when_used(
+    access, monkeypatch, provider_wire,
+):
+    """Unused connection metadata stays valid; actual SDK use cannot take an OpenAI key."""
+    monkeypatch.delenv("MODEL_API_KEY")
+    chat = Chat(model=MODEL, base_url=META_URL, api_key_env="MODEL_API_KEY",
+                runtime=SimpleNamespace())
+    copied = None
+    try:
+        with pytest.raises(ValueError, match="MODEL_API_KEY"):
+            getattr(chat.ai, access)
+        assert not chat.ai._has_opened_clients
+        monkeypatch.setenv("MODEL_API_KEY", "late-meta-sentinel")
+        resolved = getattr(chat.ai, access)
+        assert chat.ai.api_key == "late-meta-sentinel"
+        if access != "api_key":
+            assert str(resolved.base_url).rstrip("/") == META_URL
+        monkeypatch.setenv("MODEL_API_KEY", "rotated-meta-sentinel")
+        copied = chat.copy()
+        assert copied.ai.api_key == "late-meta-sentinel"
+        assert copied.ai.base_url == META_URL
+        assert copied.ai.api_key_env == "MODEL_API_KEY"
+        assert not provider_wire
+    finally:
+        if copied is not None:
+            await copied.close_a()
+        await chat.close_a()
 
 
 @pytest.mark.parametrize("model", ["muse-wonder-full-1.0", "muse-wonder-1.0-2026-10-12",
