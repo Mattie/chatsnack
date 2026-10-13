@@ -240,6 +240,9 @@ class Chat(ChatQueryMixin, ChatSerializationMixin, ChatUtensilMixin):
         if tool_search_handler is not None:
             self._runtime_bindings["tool_search"] = tool_search_handler
 
+        # Resolve authored/default choices before utensils merge generated includes.
+        self._apply_model_defaults(infer_connection=inherited_ai_client is None)
+
         # Register utensils if provided
         if utensils:
             if self.params is None:
@@ -288,8 +291,6 @@ class Chat(ChatQueryMixin, ChatSerializationMixin, ChatUtensilMixin):
                 # This is likely a deserialization case, so try loading tools from registry
                 self._load_tools_from_params()
         
-        self._apply_model_defaults(infer_connection=inherited_ai_client is None)
-
         # Save the initial state for reset() purposes
         self._initial_name = self.name
         self._initial_params = copy.copy(self.params)

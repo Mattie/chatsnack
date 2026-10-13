@@ -319,6 +319,54 @@ def test_explicit_replay_and_transport_options_win():
     chat.close()
 
 
+@pytest.mark.asyncio
+@pytest.mark.filterwarnings("error:Omitting Meta reasoning items")
+async def test_goal_generated_utensil_includes_keep_encrypted_replay(provider_wire, tmp_path):
+    """Verify include composition and replay, without validating hosted Meta execution."""
+    owned = []
+    try:
+        root = Chat(model=MODEL, utensils=[utensil.web_search(sources=True)])
+        owned.append(root)
+        first = await root.chat_a("Say POPSICLE.")
+        owned.append(first)
+        copied = first.copy()
+        owned.append(copied)
+        continued = await copied.chat_a("Say POPSICLE again.")
+        owned.append(continued)
+        path = tmp_path / "GeneratedIncludes.yml"
+        continued.save(path)
+        loaded = Chat()
+        owned.append(loaded)
+        loaded.load(path)
+        assert await loaded.ask_a("Say POPSICLE once more.") == "POPSICLE"
+        expected = ["reasoning.encrypted_content", "web_search_call.action.sources"]
+        assert all(body["include"] == expected for _, body in provider_wire)
+        replayed = [item for item in provider_wire[-1][1]["input"]
+                    if item.get("type") == "reasoning"]
+        assert len(replayed) == 2
+        assert all(item.get("encrypted_content") for item in replayed)
+        assert loaded.params.responses["include"] == expected
+    finally:
+        for chat in owned:
+            await chat.close_a()
+
+
+@pytest.mark.parametrize("scope", ["params-empty", "params-authored", "defaults", "model_defaults"])
+def test_generated_utensil_include_preserves_authored_replay_override(scope):
+    """Utensil-generated entries do not erase an authored encryption opt-out."""
+    authored = ["caller.include"] if scope == "params-authored" else []
+    if scope.startswith("params-"):
+        params = ChatParams(responses={"include": authored})
+    else:
+        profile = {scope: {"include": []} if scope == "defaults" else {MODEL: {"include": []}}}
+        params = ChatParams(profile=profile)
+    chat = Chat(model=MODEL, params=params, utensils=[utensil.web_search(sources=True)])
+    try:
+        assert chat.params.responses["include"] == authored + ["web_search_call.action.sources"]
+    finally:
+        chat.close()
+
+
 @pytest.mark.parametrize("scope", ["defaults", "model_defaults"])
 def test_authored_profile_include_wins_over_the_model_default(scope, provider_wire):
     """A provider profile's include choice has the same precedence as explicit params."""

@@ -143,6 +143,7 @@ Use `chat.reasoning.effort` for `minimal`, `low`, `medium`, `high`, `xhigh`, or
 `tool_choice="auto"`; other choices also warn and pass through.
 
 HTTP/SSE and encrypted reasoning replay are automatic on the model-only path.
+Utensil-generated include entries merge with the encrypted-replay default.
 Authored Responses options remain escape hatches: an explicit `include` overrides
 the replay default. Missing encrypted reasoning gets a warning and is omitted
 from generated stateless input while the saved transcript stays intact. Stored

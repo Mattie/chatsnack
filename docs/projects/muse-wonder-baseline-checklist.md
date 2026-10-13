@@ -113,3 +113,17 @@ The four Goal variants failed with a missing Meta credential before the remedy.
 They and the built-in adapter guard passed after the change.
 The focused regression command from the final checks passed all 399 tests,
 including 70 Wonder contracts; one existing async-client cleanup warning appeared.
+
+- [x] Fix include ordering from the follow-up review: resolve model defaults before
+  utensils merge generated includes. Explicit params and profile include overrides
+  still win; no include-origin flags or new public configuration are needed.
+- [x] Prove encrypted replay through generated includes, copy, continuation, and
+  save/load using the actual SDK wire. This checks default composition, without
+  claiming hosted Meta tool execution support.
+
+The replay Goal failed and emitted an omission warning before the fix. It and four
+explicit-override variants passed afterward; replay omission warnings are errors
+in that Goal.
+The expanded focused command, also including `tests/test_hosted_utensils.py`,
+passed all 434 tests (75 Wonder contracts), with two existing async-client cleanup
+warnings. `git diff --check` passed.
