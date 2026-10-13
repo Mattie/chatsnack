@@ -144,3 +144,14 @@ Broader regression passed 1,235 tests with 167 skipped and six existing
 async-client cleanup warnings, using the same loopback-module exclusion above.
 Both live Meta Goals passed again through Joydex (49.53 seconds). Rebuilt the
 `0.10.0` wheel and source distribution; both passed `twine check`.
+
+- [x] Normalize an authored Meta endpoint before detecting replay defaults.
+  Whitespace accepted by client binding now retains encrypted reasoning on the
+  next turn through constructor, params, and saved-asset loading.
+- [x] Label the notebook's compact YAML as minimal hand-authored input; printed
+  and saved YAML still includes resolved connection and replay settings.
+
+The six padded-endpoint Goal variants reproduced the replay omission before the
+fix. All 447 focused checks passed after the remedy, including 88 Wonder
+contracts and execution of the notebook cells. Rebuilt and checked both `0.10.0`
+distributions after this change.

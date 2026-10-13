@@ -369,6 +369,7 @@ class Chat(ChatQueryMixin, ChatSerializationMixin, ChatUtensilMixin):
         if defaults is None:
             return
         base_url = _chat_param_value(self.params, "base_url")
+        base_url = base_url.strip() if isinstance(base_url, str) else base_url
         api_key_env = _chat_param_value(self.params, "api_key_env")
         ambient_endpoint = any(os.getenv(name, "").strip() for name in (
             "OPENAI_BASE_URL", "OPENAI_API_BASE", "OPENAI_AZURE_ENDPOINT",

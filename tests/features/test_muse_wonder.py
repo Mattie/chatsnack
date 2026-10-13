@@ -193,6 +193,43 @@ def test_explicit_connection_wins_without_a_meta_credential(creation, monkeypatc
     chat.close()
 
 
+@pytest.mark.asyncio
+@pytest.mark.parametrize("creation", ["constructor", "params", "autoload"])
+@pytest.mark.parametrize("endpoint", [META_URL + " ", " \t" + META_URL + " \t"])
+@pytest.mark.filterwarnings("error:Omitting Meta reasoning items")
+async def test_goal_padded_meta_endpoint_keeps_encrypted_replay(
+    creation, endpoint, provider_wire, tmp_path,
+):
+    """An accepted authored endpoint retains encrypted reasoning on the next turn."""
+    options = dict(model=MODEL, base_url=endpoint, api_key_env="MODEL_API_KEY")
+    if creation == "constructor":
+        root = Chat(**options)
+    elif creation == "params":
+        root = Chat(params=options)
+    else:
+        (tmp_path / "PaddedWonder.yml").write_text(
+            f"params:\n  model: {MODEL}\n  base_url: {json.dumps(endpoint)}\n"
+            "  api_key_env: MODEL_API_KEY\nmessages: []\n", encoding="utf-8",
+        )
+        root = Chat(name="PaddedWonder")
+    owned = [root]
+    try:
+        assert root.ai.base_url == META_URL
+        first = await root.chat_a("Say POPSICLE.")
+        owned.append(first)
+        continued = await first.chat_a("Say it again.")
+        owned.append(continued)
+        assert continued.last == "POPSICLE"
+        assert continued.ai is first.ai is root.ai
+        assert all(body["include"] == ["reasoning.encrypted_content"]
+                   for _, body in provider_wire)
+        assert any(item.get("encrypted_content") for item in provider_wire[-1][1]["input"]
+                   if item.get("type") == "reasoning")
+    finally:
+        for chat in reversed(owned):
+            await chat.close_a()
+
+
 def test_explicit_sdk_environment_wins(monkeypatch):
     """An existing global SDK endpoint is a connection choice, not an omitted setting."""
     monkeypatch.delenv("MODEL_API_KEY")
