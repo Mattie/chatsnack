@@ -62,6 +62,17 @@ _GPT6_SOL_LUNA_REASONING_CAPABILITIES = {
 }
 # Keep a verification date and official reference URL(s) beside each table update.
 _KNOWN_REASONING_MODELS: Tuple[_ReasoningModel, ...] = (
+    # Verified 2026-10-13. No API Full variant or dated snapshots are documented.
+    # https://dev.meta.ai/docs/models
+    # https://dev.meta.ai/docs/reasoning
+    _ReasoningModel(
+        "muse-wonder-1.0",
+        {
+            "effort": frozenset({"minimal", "low", "medium", "high", "xhigh", "max"}),
+            "summary": _REASONING_SUMMARY_OPTIONS,
+        },
+        match="exact_naming",
+    ),
     # Verified 2026-09-29; the model page lists only this ID, with no snapshots.
     # It supports low through max, and explicitly rejects none and minimal.
     # Direct Responses probes accepted auto, concise, and detailed summaries;

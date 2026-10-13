@@ -20,6 +20,7 @@ from ..runtime import (
 )
 from .mixin_query import ChatQueryMixin
 from ..runtime.conversation import copy_value
+from ..runtime.model_advisories import is_meta_endpoint
 from .mixin_params import ChatParams, ChatParamsMixin
 from .mixin_serialization import DatafileMixin, ChatSerializationMixin, refresh_snapclass_config_stash
 from .mixin_utensil import ChatUtensilMixin 
@@ -38,6 +39,13 @@ def _empty_runtime_metadata() -> Dict[str, object]:
 
 _RUNTIME_ENV_WARNING_EMITTED = False
 _LEGACY_CLIENT_FIELDS = frozenset({"api_base", "api_type", "api_version", "deployment"})
+# Verified 2026-10-13. Only the API ID is inferred; Full and snapshots are unverified.
+# https://dev.meta.ai/docs/models
+# https://dev.meta.ai/docs/overview
+# https://dev.meta.ai/docs/reasoning
+_MODEL_CONNECTION_DEFAULTS = {
+    "muse-wonder-1.0": ("https://api.meta.ai/v1", "MODEL_API_KEY"),
+}
 
 
 def _runtime_policy_from_env() -> tuple[str, Optional[str]]:
@@ -280,6 +288,8 @@ class Chat(ChatQueryMixin, ChatSerializationMixin, ChatUtensilMixin):
                 # This is likely a deserialization case, so try loading tools from registry
                 self._load_tools_from_params()
         
+        self._apply_model_defaults(infer_connection=inherited_ai_client is None)
+
         # Save the initial state for reset() purposes
         self._initial_name = self.name
         self._initial_params = copy.copy(self.params)
@@ -336,6 +346,44 @@ class Chat(ChatQueryMixin, ChatSerializationMixin, ChatUtensilMixin):
         self._last_runtime_metadata = _empty_runtime_metadata()
         self._last_call_usage = None
 
+
+    def _apply_model_defaults(self, *, infer_connection: bool = True) -> None:
+        """Resolve verified model conveniences before the provider binding is fixed.
+
+        Explicit connection pairs and SDK environment settings retain precedence.
+        Copies pass their existing client, so a later model edit cannot retarget
+        them. Persist resolved nonsecret defaults with the authored Chat asset.
+        """
+        defaults = _MODEL_CONNECTION_DEFAULTS.get(_chat_param_value(self.params, "model"))
+        if defaults is None:
+            return
+        base_url = _chat_param_value(self.params, "base_url")
+        api_key_env = _chat_param_value(self.params, "api_key_env")
+        ambient_endpoint = any(os.getenv(name, "").strip() for name in (
+            "OPENAI_BASE_URL", "OPENAI_API_BASE", "OPENAI_AZURE_ENDPOINT",
+        ))
+        if infer_connection and base_url is None and api_key_env is None and not ambient_endpoint:
+            self.params.base_url, self.params.api_key_env = defaults
+            base_url = self.params.base_url
+        if not is_meta_endpoint(base_url or os.getenv("OPENAI_BASE_URL", "")):
+            return
+        responses = _chat_param_value(self.params, "responses")
+        if responses is None or isinstance(responses, dict):
+            # An authored include array (including []) overrides this default.
+            # Copy the mapping rather than modifying a parent Chat's params.
+            responses = dict(responses or {})
+            profile = _chat_param_value(self.params, "profile")
+            profile = profile if isinstance(profile, dict) else {}
+            model_profiles = profile.get("model_defaults") or {}
+            model_profile = (model_profiles.get(_chat_param_value(self.params, "model"))
+                             if isinstance(model_profiles, dict) else None)
+            include_authored_in_profile = any(
+                isinstance(options, dict) and "include" in options
+                for options in (profile.get("defaults"), model_profile)
+            )
+            if not include_authored_in_profile:
+                responses.setdefault("include", ["reasoning.encrypted_content"])
+            self.params.responses = responses
 
     def _client_config_from_params(self) -> tuple[Optional[str], Optional[str]]:
         """Return the normalized nonsecret client configuration authored on this Chat."""
@@ -874,6 +922,7 @@ def _ensure_chat_live_state(self):
     # authoritative YAML load refresh.
     self._install_snapshot_compat_hooks()
     if not hasattr(self, "ai"):
+        self._apply_model_defaults()
         self._bind_ai_client()
     elif not hasattr(self, "_client_binding"):
         self._client_binding = (
@@ -917,6 +966,11 @@ def _refresh_chat_after_snapshot_load(self):
     overrides = _apply_chat_constructor_overrides(self)
     previous_runtime = getattr(self, "runtime", None)
     previous_ai = getattr(self, "ai", None)
+    active_binding = bool(
+        getattr(self, "_provider_binding_locked", False)
+        or (previous_ai is not None and getattr(previous_ai, "_has_opened_clients", False))
+    )
+    self._apply_model_defaults(infer_connection=not active_binding)
     runtime, runtime_selector, profile, session_mode = (
         self._requested_runtime_configuration()
     )
@@ -932,13 +986,6 @@ def _refresh_chat_after_snapshot_load(self):
         self,
         "_transport_binding",
         self._runtime_binding_signature(previous_runtime),
-    )
-    active_binding = bool(
-        getattr(self, "_provider_binding_locked", False)
-        or (
-            previous_ai is not None
-            and getattr(previous_ai, "_has_opened_clients", False)
-        )
     )
     if active_binding and (
         desired_client != current_client or desired_runtime != current_runtime
