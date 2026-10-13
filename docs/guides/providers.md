@@ -73,12 +73,95 @@ Microsoft Entra authentication yet.
 Custom endpoints use Responses HTTP, with SSE for streaming. Set `runtime`
 explicitly if you need a different transport. If you leave out `base_url` and
 `api_key_env`, the OpenAI SDK uses `OPENAI_API_KEY` and `OPENAI_BASE_URL` as usual,
-and chatsnack defaults to Responses WebSocket.
+and chatsnack defaults to Responses WebSocket. The verified Muse Wonder model
+has its own defaults, described below.
 
 A Chat reads its connection settings when it's created or first loaded.
 Continuing or copying the Chat keeps those settings, and `reset()` doesn't read
 a fresh key from the environment. To change the endpoint, key, or transport,
 create a new Chat.
+
+## Muse Wonder
+
+With `MODEL_API_KEY` available in your environment, the model name is enough:
+
+```python
+from chatsnack import Chat
+
+wonder = Chat("Invent cheerful, crunchy snacks.", model="muse-wonder-1.0")
+print(wonder.ask("Name one snack for a moon picnic."))
+
+thread = wonder.chat("Name one snack for a moon picnic.")
+thread = thread.chat("Give it a two-word name.")
+print(thread.last)
+```
+
+Keep a useful prompt for another occasion:
+
+```python
+menu = (
+    Chat(name="WonderMenu", model="muse-wonder-1.0")
+    .system("Invent cheerful, crunchy snacks.")
+    .user("Recommend one snack for {occasion}.")
+)
+print(menu.yaml)
+menu.save()
+
+reused = Chat(name="WonderMenu")
+print(reused.ask(occasion="a moon picnic"))
+```
+
+The equivalent authored YAML is small:
+
+```yaml
+params:
+  model: muse-wonder-1.0
+messages:
+  - system: Invent cheerful, crunchy snacks.
+  - user: Recommend one snack for {occasion}.
+```
+
+Use ordinary Python utensils with `utensils=[...]` and `.chat()`. See
+[MuseWonder.ipynb](https://github.com/Mattie/chatsnack/blob/master/notebooks/MuseWonder.ipynb)
+for a pantry check, saved prompts, fillings, continued chats, and streaming.
+
+### Connection and compatibility notes
+
+AUTO recognizes `muse-wonder-1.0` and supplies `https://api.meta.ai/v1` with
+`MODEL_API_KEY`. Explicit connection pairs and `OPENAI_BASE_URL` take precedence;
+runtime and session choices keep their existing precedence. Copies, continuations,
+and `reset()` keep the original binding. Changing `.model` later keeps that
+connection too; create a new Chat to move providers. Saving records the resolved
+endpoint and credential variable name; a fresh load reads the current named key.
+An injected custom runtime owns submission, so AUTO does not infer SDK connection
+or encrypted-replay defaults for it. Injected built-in adapters still use the
+Chat's connection.
+A custom runtime can also load a saved connection without its credential; that
+named key is required only if the Chat's SDK client is actually used. Built-in
+adapters still capture the credential on construction or fresh load.
+
+Use `chat.reasoning.effort` for `minimal`, `low`, `medium`, `high`, `xhigh`, or
+`max`, and `chat.reasoning.summary` for `auto`, `concise`, or `detailed`.
+`none` gets an advisory warning and still passes through. Meta accepts only
+`tool_choice="auto"`; other choices also warn and pass through.
+
+HTTP/SSE and encrypted reasoning replay are automatic on the model-only path.
+Utensil-generated include entries merge with the encrypted-replay default.
+Authored Responses options remain escape hatches: an explicit `include` overrides
+the replay default. Missing encrypted reasoning gets a warning and is omitted
+from generated stateless input while the saved transcript stays intact. Stored
+continuations and raw `extra_body.input` pass through unchanged.
+
+This baseline covers text, reasoning replay, local Python utensils, saved
+conversations, and SSE. Hosted tools and file workflows still need provider
+integration work. Muse Wonder Full is available through Muse Code subscriptions,
+rather than Model API; aliases and undocumented snapshots do not infer defaults.
+
+Provider requirements verified October 13, 2026 against Meta's
+[models](https://dev.meta.ai/docs/models),
+[reasoning](https://dev.meta.ai/docs/reasoning),
+[Responses](https://dev.meta.ai/docs/protocols/responses), and
+[tool calling](https://dev.meta.ai/docs/tool-calling) documentation.
 
 ## GPT-6
 

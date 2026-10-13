@@ -20,22 +20,31 @@ class AiClient:
         api_key: Optional[str] = None,
         base_url: Optional[str] = None,
         api_key_env: Optional[str] = None,
+        defer_credentials: bool = False,
     ):
-        if api_key is None and api_key_env:
-            api_key = os.getenv(api_key_env)
-            if api_key is None or not api_key.strip():
-                raise ValueError(
-                    f"Credential environment variable '{api_key_env}' is not set or is blank."
-                )
+        """Capture the connection; an unused custom-runtime client can defer its key."""
         self._api_key = api_key
         self.base_url = base_url
         self.api_key_env = api_key_env
         self._resolved_base_url: Optional[str] = None
         self._client: Any = None
         self._aclient: Any = None
+        if not defer_credentials:
+            self._resolve_api_key()
+
+    def _resolve_api_key(self) -> None:
+        """Capture the named key when needed, without another provider's fallback."""
+        if self._api_key is None and self.api_key_env:
+            api_key = os.getenv(self.api_key_env)
+            if api_key is None or not api_key.strip():
+                raise ValueError(
+                    f"Credential environment variable '{self.api_key_env}' is not set or is blank."
+                )
+            self._api_key = api_key
 
     def _client_kwargs(self, client_class) -> dict:
         """Build SDK options while isolating authored custom endpoints."""
+        self._resolve_api_key()
         effective_base_url = (
             self.base_url
             if self.base_url is not None
@@ -128,12 +137,15 @@ class AiClient:
             api_key=api_key,
             base_url=self.base_url,
             api_key_env=self.api_key_env,
+            # Copy a dormant binding without consulting credentials it never used.
+            defer_credentials=True,
         )
         cloned._resolved_base_url = resolved_base_url
         return cloned
 
     @property
     def api_key(self) -> Optional[str]:
+        self._resolve_api_key()
         return self._api_key if self._api_key is not None else os.getenv("OPENAI_API_KEY")
 
     @api_key.setter

@@ -19,6 +19,27 @@ _MODEL_REQUEST_LIMITS = {
     # https://developers.openai.com/api/docs/guides/latest-model#update-api-and-model-parameters
     "gpt-6-astra": _GPT6_REQUEST_LIMITS,
 }
+# Verified 2026-10-13 on the direct Meta endpoint, not on gateway aliases.
+# https://dev.meta.ai/docs/tool-calling
+_META_REQUEST_LIMITS = {
+    "muse-wonder-1.0": {
+        "tool_choice_auto_only": True,
+    },
+}
+
+
+def is_meta_endpoint(base_url):
+    """Recognize the documented Meta endpoint without matching lookalike hosts."""
+    try:
+        endpoint = urlsplit(str(base_url or ""))
+        return (
+            endpoint.scheme == "https"
+            and endpoint.hostname == "api.meta.ai"
+            and endpoint.port in (None, 443)
+            and endpoint.path.rstrip("/") == "/v1"
+        )
+    except ValueError:
+        return False
 
 
 def warn_model_options(options, client, runtime_family):
@@ -34,9 +55,6 @@ def warn_model_options(options, client, runtime_family):
     model = effective.get("model")
     if not isinstance(model, str):
         return
-    limits = _MODEL_REQUEST_LIMITS.get(model)
-    if limits is None:
-        return
     try:
         endpoint = urlsplit(str(getattr(client, "base_url", "")))
         direct_openai = (
@@ -47,13 +65,24 @@ def warn_model_options(options, client, runtime_family):
         )
     except ValueError:
         return
-    if not direct_openai:
+    if direct_openai:
+        limits = _MODEL_REQUEST_LIMITS.get(model)
+    elif is_meta_endpoint(getattr(client, "base_url", "")):
+        limits = _META_REQUEST_LIMITS.get(model)
+    else:
+        return
+    if limits is None:
         return
 
     runtime_limits = limits.get(runtime_family, {})
     unsupported = [key for key in (*limits.get("unsupported_options", ()),
                                    *runtime_limits.get("unsupported_options", ()))
                    if effective.get(key) is not None]
+    if limits.get("tool_choice_auto_only") and effective.get("tool_choice") not in (None, "auto"):
+        warnings.warn(
+            f"Model '{model}' on Meta supports only tool_choice='auto'. "
+            "Passing through to provider unchanged.", stacklevel=3,
+        )
     if runtime_limits.get("tools_require_responses") and (
         effective.get("tools") or effective.get("functions")
     ):

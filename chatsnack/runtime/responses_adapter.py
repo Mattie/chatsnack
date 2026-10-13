@@ -1,8 +1,9 @@
 import inspect
+import warnings
 from typing import Any, Dict, List
 
 from .attachment_resolver import AttachmentResolver
-from .model_advisories import warn_model_options
+from .model_advisories import is_meta_endpoint, warn_model_options
 from .responses_common import ResponsesNormalizationMixin
 from .types import RuntimeErrorPayload, RuntimeStreamEvent, RuntimeTerminalMetadata
 
@@ -31,8 +32,42 @@ class ResponsesAdapter(ResponsesNormalizationMixin):
         )
 
     @staticmethod
-    def _prepare_sdk_create_kwargs(create, request_kwargs: Dict[str, Any]) -> Dict[str, Any]:
-        """Route provider extensions through the SDK's ``extra_body`` escape hatch."""
+    def _project_meta_replay(request_kwargs: Dict[str, Any], client) -> Dict[str, Any]:
+        """Omit unusable stateless reasoning only from the generated Meta input.
+
+        Saved history and caller-authored provider options remain intact. Stored
+        continuations can resolve server IDs, and an explicit extra_body input
+        belongs to the caller. Other providers retain their own replay behavior.
+        Verified 2026-10-13: https://dev.meta.ai/docs/protocols/responses
+        """
+        if not is_meta_endpoint(getattr(client, "base_url", "")):
+            return request_kwargs
+        extra = request_kwargs.get("extra_body")
+        extra = extra if isinstance(extra, dict) else {}
+        if "input" in extra or extra.get(
+            "previous_response_id", request_kwargs.get("previous_response_id")
+        ):
+            return request_kwargs
+        items = request_kwargs.get("input")
+        if not isinstance(items, list):
+            return request_kwargs
+        replay = [item for item in items if not (
+            isinstance(item, dict) and item.get("type") == "reasoning"
+            and not item.get("encrypted_content")
+        )]
+        if len(replay) == len(items):
+            return request_kwargs
+        warnings.warn(
+            "Omitting Meta reasoning items without encrypted_content from stateless replay; "
+            "saved history is unchanged. Include reasoning.encrypted_content to preserve "
+            "reasoning across turns, or opt into stored continuation.", stacklevel=3,
+        )
+        return {**request_kwargs, "input": replay}
+
+    @staticmethod
+    def _prepare_sdk_create_kwargs(create, request_kwargs: Dict[str, Any], *, client=None) -> Dict[str, Any]:
+        """Project provider replay and route SDK extensions through ``extra_body``."""
+        request_kwargs = ResponsesAdapter._project_meta_replay(request_kwargs, client)
         try:
             parameters = inspect.signature(create).parameters
         except (TypeError, ValueError):
@@ -57,7 +92,7 @@ class ResponsesAdapter(ResponsesNormalizationMixin):
         request_kwargs = self.build_responses_request(resolved, kwargs)
         self._debug_responses_payload("Responses HTTP create payload", request_kwargs)
         create = self._get_responses_create(async_mode=False)
-        prepared = self._prepare_sdk_create_kwargs(create, request_kwargs)
+        prepared = self._prepare_sdk_create_kwargs(create, request_kwargs, client=self.ai_client.client)
         warn_model_options(prepared, self.ai_client.client, self.runtime_family)
         response = create(**prepared)
         return self.normalize_completion(response, request_kwargs)
@@ -67,7 +102,7 @@ class ResponsesAdapter(ResponsesNormalizationMixin):
         request_kwargs = self.build_responses_request(resolved, kwargs)
         self._debug_responses_payload("Responses HTTP create payload", request_kwargs)
         create = self._get_responses_create(async_mode=True)
-        prepared = self._prepare_sdk_create_kwargs(create, request_kwargs)
+        prepared = self._prepare_sdk_create_kwargs(create, request_kwargs, client=self.ai_client.aclient)
         warn_model_options(prepared, self.ai_client.aclient, self.runtime_family)
         response = await create(**prepared)
         return self.normalize_completion(response, request_kwargs)
@@ -267,7 +302,7 @@ class ResponsesAdapter(ResponsesNormalizationMixin):
         tool_call_state: Dict[str, Dict[str, Any]] = {}
         try:
             create = self._get_responses_create(async_mode=False)
-            prepared = self._prepare_sdk_create_kwargs(create, request_kwargs)
+            prepared = self._prepare_sdk_create_kwargs(create, request_kwargs, client=self.ai_client.client)
             warn_model_options(prepared, self.ai_client.client, self.runtime_family)
             stream = create(**prepared)
             for sdk_event in stream:
@@ -311,7 +346,7 @@ class ResponsesAdapter(ResponsesNormalizationMixin):
         tool_call_state: Dict[str, Dict[str, Any]] = {}
         try:
             create = self._get_responses_create(async_mode=True)
-            prepared = self._prepare_sdk_create_kwargs(create, request_kwargs)
+            prepared = self._prepare_sdk_create_kwargs(create, request_kwargs, client=self.ai_client.aclient)
             warn_model_options(prepared, self.ai_client.aclient, self.runtime_family)
             stream = await create(**prepared)
             stream_iterator = stream.__aiter__()
