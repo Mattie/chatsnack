@@ -1,5 +1,6 @@
 import asyncio
 import copy
+import inspect
 import json
 import uuid
 import warnings
@@ -1065,7 +1066,7 @@ class ChatQueryMixin(ChatMessagesMixin, ChatParamsMixin):
             handler = self._apply_patch_executor_for(tool_call)
             try:
                 result = handler(ApplyPatchCall.from_normalized(tool_call))
-                if asyncio.iscoroutine(result):
+                if inspect.isawaitable(result):
                     result = await result
                 if not isinstance(result, Mapping):
                     raise TypeError(
@@ -1102,7 +1103,7 @@ class ChatQueryMixin(ChatMessagesMixin, ChatParamsMixin):
             if payload is None:
                 payload = {"arguments": getattr(getattr(tool_call, "function", None), "arguments", "")}
             result = handler(payload)
-            if asyncio.iscoroutine(result):
+            if inspect.isawaitable(result):
                 result = await result
             return {
                 "tool_call_id": tc_id,
@@ -1119,7 +1120,7 @@ class ChatQueryMixin(ChatMessagesMixin, ChatParamsMixin):
                 "arguments": function.arguments if function else "",
             },
         }
-        result = self.execute_tool_call(tool_call_dict)
+        result = await self.execute_tool_call_a(tool_call_dict)
         return {
             "tool_call_id": tc_id,
             "content": json.dumps(result) if isinstance(result, dict) else str(result),
@@ -1303,6 +1304,11 @@ class ChatQueryMixin(ChatMessagesMixin, ChatParamsMixin):
             tool_search_handler=getattr(self, "tool_search_handler", None),
             _runtime_bindings=getattr(self, "_runtime_bindings", None),
         )
+        # A continued chat keeps its local capabilities, including the binding
+        # restored by reset(), rather than resolving same-named global tools.
+        if hasattr(self, "_local_registry"):
+            new_chatprompt._local_registry = self._copy_local_registry()
+            new_chatprompt._initial_registry = new_chatprompt._local_registry
         self._inherit_authored_runtime_override(new_chatprompt)
         if (
             isinstance(response_runtime, ResponsesWebSocketAdapter)
@@ -1521,9 +1527,10 @@ class ChatQueryMixin(ChatMessagesMixin, ChatParamsMixin):
 
         self._inherit_authored_runtime_override(new_chat)
 
-        # Keep the established local-utensil copy behavior. Caller-executed
+        # Copy local declarations while retaining live callables. Caller-executed
         # services retain identity through the separate runtime binding map.
-        new_chat._local_registry = copy.deepcopy(self._local_registry) if hasattr(self, '_local_registry') else None
+        new_chat._local_registry = self._copy_local_registry()
+        new_chat._initial_registry = new_chat._local_registry
         #new_chat.set_tools(self.get_tools())
 
         if expand_fillings:

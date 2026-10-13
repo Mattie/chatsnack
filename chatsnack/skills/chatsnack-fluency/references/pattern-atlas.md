@@ -401,6 +401,69 @@ later = replay.ask()
 
 Replay keeps what was evaluated; it does not promise the next model answer will match. See the [Sampler guide](https://mattie.github.io/chatsnack/guides/samplers/) for answer kinds, scores, confidence, and execution settings.
 
+## Tip 14: Mix Sync And Async Capabilities
+
+An async lookup belongs beside an ordinary Python helper. Keep both at the
+capability edge and let `Chat` handle the tool-result loop:
+
+```python
+import asyncio
+from chatsnack import Chat, utensil
+
+snacks = utensil.group("snacks", "Snack planning.")
+
+@snacks
+def portion(snack: str):
+    """Suggest a demo serving size."""
+    return {"snack": snack, "portion": "one bowl"}
+
+@snacks
+async def stock(snack: str):
+    """Read demo snack stock."""
+    await asyncio.sleep(0)
+    return {"snack": snack, "available": 12}
+
+planner = (
+    Chat(name="SnackPlanner", utensils=[snacks])
+    .system("Use stock and portion to plan a snack serving.")
+    .user("Plan {snack}.")
+)
+print(planner.yaml)
+planner.save()
+```
+
+The demo yields once; a real stock lookup could await an async HTTP client. The
+saved asset uses the existing compact declaration:
+
+```yaml
+params:
+  tools:
+    - snacks: Snack planning.
+      tools:
+        - portion: Suggest a demo serving size.
+          snack: str
+        - stock: Read demo snack stock.
+          snack: str
+messages:
+  - system: Use stock and portion to plan a snack serving.
+  - user: Plan {snack}.
+```
+
+Load the behavior and attach its live Python capabilities:
+
+```python
+reused = Chat(name="SnackPlanner", utensils=[snacks])
+reused.load()
+thread = await reused.chat_a(snack="popcorn")
+print(thread.last)
+```
+
+Use `reused.chat(...)` from a script without an active event loop. Tools execute
+in the requested order; while one awaits I/O, independent chats can progress.
+Copies retain the live callable bindings, so any shared service state still
+belongs to the application. Python async utensils need no model-specific
+declaration and do not enable OpenAI's model-level `async: true` protocol.
+
 ## Quick Smell Translations
 
 | Smell | Chatsnackian translation |

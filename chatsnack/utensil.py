@@ -1,3 +1,4 @@
+import asyncio
 import inspect
 import functools
 import json
@@ -641,54 +642,82 @@ def get_tool_definitions(utensils=None) -> List[ToolDefinition]:
     utensil_functions = extract_utensil_functions(utensils)
     return [func.to_tool_definition() for func in utensil_functions]
 
-# Modify handle_tool_call to accept a local registry
-def handle_tool_call(tool_call: Dict[str, Any], local_registry=None) -> Dict[str, Any]:
-    """Handle a tool call from the AI."""
+def _invoke_tool_call(tool_call: Dict[str, Any], local_registry=None):
+    """Resolve and invoke a local capability once, leaving awaitables unformatted."""
     function_name = tool_call.get("function", {}).get("name")
     arguments_json = tool_call.get("function", {}).get("arguments", "{}")
     call_id = tool_call.get("id")
-
-    # log the name, arguments_json, and call_id
-    from loguru import logger
-    logger.debug(f"Function name: {function_name}")
-    logger.debug(f"Arguments JSON: {arguments_json}")
-    logger.debug(f"Call ID: {call_id}")    
-
-    # output the local_registry if it exists
-    if local_registry:
-        logger.debug(f"Local registry: {local_registry}")
-    else:
-        logger.debug("No local registry provided, using global registry")
-    
-    # output the _REGISTRY if it exists
-    logger.debug(f"Global registry: {_REGISTRY}")
-
-    # Get the utensils to search through
-    utensils_to_search = extract_utensil_functions(local_registry) if local_registry else _REGISTRY
-    logger.debug(f"Searching through {len(utensils_to_search)} utensils for '{function_name}'")
-
-    # Find the function in the registry
-    for utensil_obj in utensils_to_search:
-        logger.debug(f"Checking utensil: {utensil_obj.name}")
+    utensils = extract_utensil_functions(local_registry) if local_registry else _REGISTRY
+    for utensil_obj in utensils:
         if utensil_obj.name == function_name:
             try:
                 arguments = json.loads(arguments_json)
-                logger.debug(f"Executing function '{function_name}' with arguments: \n---\n{arguments}\n---")
-                # we wanna be sure the arguments are named
-                result = utensil_obj.func(**arguments)
-                
-                if not isinstance(result, dict):
-                    result = {"result": str(result)}
-                
-                if call_id:
-                    result["tool_call_id"] = call_id
-                
-                # log the result
-                logger.debug(f"Function '{function_name}' result: \n---\n{result}\n---")
-                return result
+                logger.debug("Executing utensil '{}' (call {})", function_name, call_id)
+                return utensil_obj.func(**arguments)
             except json.JSONDecodeError:
                 return {"error": f"Invalid JSON arguments: {arguments_json}", "tool_call_id": call_id}
-            except Exception as e:
-                return {"error": f"Error executing function: {str(e)}", "tool_call_id": call_id}
-    
+            except Exception as exc:
+                return _tool_execution_error(exc, call_id)
     return {"error": f"Function '{function_name}' not found", "tool_call_id": call_id}
+
+
+def _tool_execution_error(exc: Exception, call_id) -> Dict[str, Any]:
+    """Keep ordinary tool failures in the established model-facing result shape."""
+    return {"error": f"Error executing function: {exc}", "tool_call_id": call_id}
+
+
+def _format_tool_result(result, call_id) -> Dict[str, Any]:
+    """Attach call metadata without mutating a capability's shared result dictionary."""
+    result = dict(result) if isinstance(result, dict) else {"result": str(result)}
+    if call_id:
+        result["tool_call_id"] = call_id
+    return result
+
+
+def _collect_rejected_future(future):
+    """Retrieve failures from rejected jobs, including exceptions raised during cancellation."""
+    if not future.cancelled():
+        future.exception()
+
+
+def handle_tool_call(tool_call: Dict[str, Any], local_registry=None) -> Dict[str, Any]:
+    """Execute a synchronous utensil; direct async execution uses handle_tool_call_a."""
+    result = _invoke_tool_call(tool_call, local_registry)
+    call_id = tool_call.get("id")
+    if inspect.isawaitable(result):
+        # Calling an async function only creates its coroutine. Close that unused
+        # coroutine so the guidance below does not also emit an unawaited warning.
+        if inspect.iscoroutine(result):
+            result.close()
+        elif asyncio.isfuture(result):
+            if result.done():
+                _collect_rejected_future(result)
+            else:
+                # Cancellation can finish on a later loop turn or raise from
+                # the task's cleanup. Collect that outcome without blocking.
+                result.add_done_callback(_collect_rejected_future)
+                result.cancel()
+        return _tool_execution_error(
+            TypeError("Async utensils require handle_tool_call_a() or Chat.execute_tool_call_a()."),
+            call_id,
+        )
+    try:
+        return _format_tool_result(result, call_id)
+    except Exception as exc:
+        return _tool_execution_error(exc, call_id)
+
+
+async def handle_tool_call_a(tool_call: Dict[str, Any], local_registry=None) -> Dict[str, Any]:
+    """Execute a sync or async utensil in the caller's task before formatting its result.
+
+    Synchronous functions retain their current inline execution. Cancellation is
+    allowed to propagate; ordinary tool exceptions become model-facing errors.
+    """
+    result = _invoke_tool_call(tool_call, local_registry)
+    call_id = tool_call.get("id")
+    try:
+        if inspect.isawaitable(result):
+            result = await result
+        return _format_tool_result(result, call_id)
+    except Exception as exc:
+        return _tool_execution_error(exc, call_id)

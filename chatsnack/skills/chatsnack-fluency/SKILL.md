@@ -124,6 +124,14 @@ def save_note(title: str, body: str):
 chat = Chat("Use save_note when a note should persist.", utensils=[save_note])
 ```
 
+Sync and async Python functions can share the same `utensils=[...]` list. In an
+active event loop, use `await chat.chat_a(...)`; a regular script can keep
+`chat.chat(...)`. Calls run in order, and an async tool yields while it awaits
+I/O. Blocking synchronous work still holds up the loop. Saved chats keep the
+usual tool declarations; attach the Python capabilities again when loading.
+No new YAML flag is needed. See the [mixed-capability example](references/pattern-atlas.md#tip-14-mix-sync-and-async-capabilities).
+Python async execution is separate from OpenAI's model-level async tool calling.
+
 Keep generated outputs on the chat:
 
 ```python
