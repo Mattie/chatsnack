@@ -98,3 +98,18 @@ and execution of every actual notebook code cell. Runtime behavior did not
 change in this review; the two Joydex-backed live Goals remain the implementation
 evidence. Notebook JSON, cell IDs, await-capable code syntax, and diff whitespace
 were checked again.
+
+## PR review remedy — October 13, 2026
+
+- [x] Confirm and fix the injected-runtime precedence issue: a custom runtime can
+  submit a model-only Wonder Chat without `MODEL_API_KEY` or `OPENAI_API_KEY`.
+  The shared model-default hook now skips SDK conveniences for custom runtime
+  injection during construction and load; built-in adapters retain AUTO.
+- [x] Prove ordinary construction, params, named autoload, and explicit load,
+  followed by ask, copy, and continuation, without opening an SDK client.
+- [x] Keep explicit connection validation and built-in adapter binding unchanged.
+
+The four Goal variants failed with a missing Meta credential before the remedy.
+They and the built-in adapter guard passed after the change.
+The focused regression command from the final checks passed all 399 tests,
+including 70 Wonder contracts; one existing async-client cleanup warning appeared.

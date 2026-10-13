@@ -5,6 +5,7 @@ import inspect
 import json
 import warnings
 from pathlib import Path
+from types import SimpleNamespace
 
 import httpx
 import openai
@@ -207,6 +208,64 @@ def test_missing_meta_key_does_not_use_the_openai_key(monkeypatch):
     monkeypatch.delenv("MODEL_API_KEY")
     with pytest.raises(ValueError, match="MODEL_API_KEY"):
         Chat(model=MODEL)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("creation", ["constructor", "params", "autoload", "load"])
+async def test_goal_injected_runtime_owns_wonder_submission_without_provider_keys(
+    creation, monkeypatch, tmp_path,
+):
+    """An injected runtime can use a Wonder asset and its lineage without an SDK."""
+    monkeypatch.delenv("MODEL_API_KEY")
+    monkeypatch.delenv("OPENAI_API_KEY")
+    calls = []
+
+    async def complete(messages, **kwargs):
+        """Record submissions owned by the application instead of an SDK adapter."""
+        calls.append((messages, kwargs))
+        return SimpleNamespace(message=SimpleNamespace(
+            content=f"snack-{len(calls)}", tool_calls=[],
+        ))
+
+    runtime = SimpleNamespace(runtime_family="responses", create_completion_a=complete)
+    if creation == "constructor":
+        root = Chat(model=MODEL, runtime=runtime)
+    elif creation == "params":
+        root = Chat(params={"model": MODEL}, runtime=runtime)
+    else:
+        path = tmp_path / "InjectedWonder.yml"
+        path.write_text(f"params:\n  model: {MODEL}\nmessages: []\n", encoding="utf-8")
+        if creation == "autoload":
+            root = Chat(name="InjectedWonder", runtime=runtime)
+        else:
+            root = Chat(runtime=runtime)
+            root.load(path)
+
+    assert await root.ask_a("Name one snack.") == "snack-1"
+    copied = root.copy()
+    thread = await copied.chat_a("Name a second snack.")
+    continued = await thread.chat_a("Name a third snack.")
+    assert thread.last == "snack-2"
+    assert continued.last == "snack-3"
+    assert len(calls) == 3
+    assert all(options["model"] == MODEL for _, options in calls)
+    for chat in (root, copied, thread, continued):
+        assert chat.runtime is runtime
+        assert chat.params.base_url is None
+        assert chat.params.api_key_env is None
+        assert not (chat.params.responses or {}).get("include")
+        assert not chat.ai._has_opened_clients
+        await chat.close_a()
+
+
+def test_injected_builtin_adapter_keeps_wonder_auto_defaults():
+    """Built-in injected adapters still submit through the Chat's bound SDK client."""
+    chat = Chat(model=MODEL, runtime=ResponsesAdapter(SimpleNamespace()))
+    assert chat.runtime.ai_client is chat.ai
+    assert chat.params.base_url == META_URL
+    assert chat.params.api_key_env == "MODEL_API_KEY"
+    assert chat.params.responses["include"] == ["reasoning.encrypted_content"]
+    chat.close()
 
 
 @pytest.mark.parametrize("model", ["muse-wonder-full-1.0", "muse-wonder-1.0-2026-10-12",

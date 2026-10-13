@@ -133,6 +133,9 @@ runtime and session choices keep their existing precedence. Copies, continuation
 and `reset()` keep the original binding. Changing `.model` later keeps that
 connection too; create a new Chat to move providers. Saving records the resolved
 endpoint and credential variable name; a fresh load reads the current named key.
+An injected custom runtime owns submission, so AUTO does not infer SDK connection
+or encrypted-replay defaults for it. Injected built-in adapters still use the
+Chat's connection.
 
 Use `chat.reasoning.effort` for `minimal`, `low`, `medium`, `high`, `xhigh`, or
 `max`, and `chat.reasoning.summary` for `auto`, `concise`, or `detailed`.

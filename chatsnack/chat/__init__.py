@@ -353,7 +353,13 @@ class Chat(ChatQueryMixin, ChatSerializationMixin, ChatUtensilMixin):
         Explicit connection pairs and SDK environment settings retain precedence.
         Copies pass their existing client, so a later model edit cannot retarget
         them. Persist resolved nonsecret defaults with the authored Chat asset.
+        Injected custom runtimes own submission and do not use these SDK defaults.
         """
+        runtime = getattr(self, "_chatsnack_constructor_overrides", {}).get("runtime")
+        if runtime is not None and not isinstance(runtime, (
+            str, ResponsesAdapter, ChatCompletionsAdapter, ResponsesWebSocketAdapter,
+        )):
+            return
         defaults = _MODEL_CONNECTION_DEFAULTS.get(_chat_param_value(self.params, "model"))
         if defaults is None:
             return
