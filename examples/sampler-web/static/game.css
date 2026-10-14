@@ -133,3 +133,6 @@ textarea:disabled{cursor:not-allowed;color:#91ad96;border-color:#4d6952;backgrou
 .masthead{align-items:flex-start}.header-guide{max-width:760px;margin:3px 0 0 auto;color:#9cbea2;font-size:11px;line-height:1.55}.header-guide strong{display:block;margin-bottom:4px;color:#d1f5d5;font-weight:600}.masthead>#start-over{flex:0 0 auto;margin-left:4px;padding:9px 12px;font-size:9px;letter-spacing:.09em}.masthead>.debug-panel{margin-left:0}.entry{min-height:0}.entry textarea{height:84px;min-height:84px;max-height:210px;resize:none;overflow-y:hidden}#analyze{white-space:pre-line;line-height:1.25}
 @media(max-width:1100px){.masthead{flex-wrap:wrap}.header-guide{order:3;width:100%;max-width:none;margin:0}.masthead>#start-over{margin-left:auto}.masthead>.debug-panel{order:4}}
 @media(max-width:760px){.entry textarea{height:84px;min-height:84px}.header-guide{font-size:10px}.masthead>#start-over{font-size:8px;padding:8px 9px}}
+
+/* Keep the level briefing visible while the analyzer status changes. */
+.level-heading{flex:1;min-width:0}.level-hint{margin:7px 0 0;color:var(--bright);font-size:13px;line-height:1.5;letter-spacing:0}

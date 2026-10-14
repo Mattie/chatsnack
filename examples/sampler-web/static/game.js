@@ -110,6 +110,7 @@ function render(){
  const portrait=el('guardian-portrait'),guardian=level.guardian||config.levels[0].guardian;
  portrait.src=portrait.dataset.staticRoot+guardian.file;portrait.alt=guardian.alt;
  el('guardian-level').textContent=level.id;el('level-title').textContent='LEVEL '+level.id+' / '+level.title.toUpperCase();
+ el('level-hint').textContent=level.briefing;
  el('phrase-label').textContent=level.label;
  el('instruments').style.setProperty('--instrument-count',rules.length);
  el('instruments').setAttribute('aria-label',rules.length+' criteria');
