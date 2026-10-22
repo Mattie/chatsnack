@@ -32,6 +32,7 @@ questions:
       - Alarming
       - Catastrophic
 params:
+  provider: typesafe
   timeout: 30
   retry:
     max_retries: 0

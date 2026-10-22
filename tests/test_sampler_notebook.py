@@ -6,12 +6,14 @@ from pathlib import Path
 from chatsnack import Chat
 from chatsnack.sampler import provider
 from tests.features.test_sampler import evaluations
+from tests.features.test_sampler_decisions import PNG
 
 
 def test_introductory_notebook_cells(tmp_path, monkeypatch, evaluations):
     notebook = Path(__file__).resolve().parents[1] / 'notebooks/TastySamplersWithChatsnack.ipynb'
     monkeypatch.setenv('CHATSNACK_BASE_DIR', str(tmp_path))
     monkeypatch.chdir(tmp_path)
+    (tmp_path / 'snack.png').write_bytes(PNG)
     prompts = []
     descriptions = [
         'A buttery bowl of popcorn for an easy everyday snack.',
@@ -29,6 +31,8 @@ def test_introductory_notebook_cells(tmp_path, monkeypatch, evaluations):
         elif 'fits' in request['questions']:
             response['answers']['fits']['noul'] = (
                 .1 if request['state']['product']['name'] == 'Truffle popcorn' else .9)
+        elif 'burnt' in request['questions'] and params.provider == 'openai':
+            response['answers']['burnt'] = {'type': 'refusal'}
         return response
 
     monkeypatch.setattr(provider, 'evaluate_sync', menu_evaluate)
@@ -47,7 +51,15 @@ def test_introductory_notebook_cells(tmp_path, monkeypatch, evaluations):
     assert len(scope['repeated'].answers) == 3
     assert (tmp_path / 'samplers/SnackCheck.yml').read_text() == (
         'data: "{snack}"\nquestions:\n  - "{question.crunchy}"\n')
-    assert len(evaluations) == 10
+    assert len(evaluations) == 16
+    assert scope['visual'].answer.refused
+    assert scope['visual_repeated'].images[0].read_bytes() == PNG
+    assert scope['followup'].images[0].read_bytes() == PNG
+    assert scope['text_review'].images == []
+    assert scope['jev'].params.model == 'jev-latest'
+    assert 'experimental' not in scope['jev_visual'].params.authored()
+    assert scope['jev_visual'].images[0].read_bytes() == PNG
+    assert 'asset:' in (tmp_path / 'samplers/SnackPhotoReplay.yml').read_text()
     assert len(prompts) == len(scope['menu']) == 3
     assert [row['rating'] for row in scope['menu']] == ['inexpensive', 'expensive', 'inexpensive']
     assert [row['verdict'].yes for row in scope['menu']] == [True, False, True]

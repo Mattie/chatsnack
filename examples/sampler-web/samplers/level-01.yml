@@ -32,6 +32,7 @@ questions:
     no: It asks vaguely without identifying what should be acted on or what
       operation should occur.
 params:
+  provider: typesafe
   timeout: 30
   retry:
     max_retries: 0

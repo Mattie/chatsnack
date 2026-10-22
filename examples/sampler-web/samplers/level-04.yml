@@ -39,6 +39,7 @@ questions:
       Decently complex: Decently complex; a multiword phrase with a distinctive,
         unexpected combination of specific words, characters, symbols, or ideas.
 params:
+  provider: typesafe
   timeout: 30
   retry:
     max_retries: 0

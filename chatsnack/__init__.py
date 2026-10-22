@@ -93,7 +93,7 @@ from .defaults import CHATSNACK_ASSETS, CHATSNACK_BASE_DIR, CHATSNACK_LOGS_DIR, 
 from .assets import ChatFile
 from .asynchelpers import aformatter
 from .chat import Chat, Text, ChatParams
-from .sampler import Sampler, Question, Sample, SamplerParams, Answer, YesNoAnswer, ChoiceAnswer, ScoreAnswer
+from .sampler import Sampler, Question, Sample, SamplerParams, Answer, YesNoAnswer, ChoiceAnswer, ScoreAnswer, RefusalAnswer
 from . import packs
 from .utensil import utensil, get_all_utensils, get_openai_tools, UtensilGroup, HostedUtensil
 from .runtime import ApplyPatchCall, CallUsage, ResponseUsage, UsageCounts
