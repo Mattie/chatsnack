@@ -1,14 +1,12 @@
 # Samplers and Questions
 
-A `Sampler` asks focused questions about existing data. Every `ask()` returns a
-`Sample`, with typed answers, the evaluated inputs, and model/usage information.
+A `Sampler` asks focused questions about data. `ask()` returns a `Sample` with
+typed answers and the evaluated inputs.
 
-Install `pip install chatsnack` (0.10.0 or later) and set `OPENAI_API_KEY` in your
-environment or local `.env`. Samplers use OpenAI Decisions with `gpt-6-luna` by
-default. The key is needed when
-you evaluate a Sampler; authoring and saving definitions require no credentials.
-For Jev, set `TYPESAFE_API_KEY` and select `model="jev-latest"` or
-`provider="typesafe"`. Both SDKs are included.
+Install `chatsnack` and set `OPENAI_API_KEY` in your environment or `.env`.
+Samplers default to OpenAI Decisions with `gpt-6-luna`. To use Jev, set
+`TYPESAFE_API_KEY` and choose `model="jev-latest"` or `provider="typesafe"`.
+Keys are needed for evaluation; you can author and save definitions offline.
 
 ## Something crunchy
 
@@ -20,10 +18,10 @@ if sample.answer.yes:
     print("Crunch!")
 ```
 
-`sample.answer` is always `sample.answers[0]`, even in a batch. Likewise,
-`sample.question` is `sample.questions[0]`. These are the same objects, not copies.
+`sample.answer` and `sample.question` refer to the first answer and question,
+even in a batch.
 
-Use `await sampler.ask_a(...)` for async code. Both methods always return a Sample.
+Use `await sampler.ask_a(...)` for async code.
 
 A reusable Sampler keeps its synchronous provider connection ready for the next call:
 
@@ -34,10 +32,7 @@ second = judge.ask(data="a potato chip")
 judge.close()
 ```
 
-Call `close()` when a long-running synchronous application shuts down. `ask_a()`
-uses a scoped async client and closes it after each evaluation, so it does not keep
-an event-loop-bound connection on the Sampler. One-call endpoint, credential,
-timeout, and retry overrides stay isolated from the reusable synchronous connection.
+Close a reusable Sampler when finished. Async evaluations close their own clients.
 
 ## Keep a useful question
 
@@ -74,15 +69,11 @@ sample = review.ask(snack="popcorn")
 print(sample.answer.choice, sample.answer.score)
 ```
 
-Construction stays in memory. Questions and Samplers save under `questions/` and
-`samplers/` in the chatsnack data directory. Existing `CHATSNACK_BASE_DIR` and
-snapclass stash configuration apply. An anonymous definition needs a name or an
-explicit file path before saving. Saved Sampler names cannot contain `{`, `}`,
-`!`, or `:`, because those characters have special meaning to the filling formatter.
+Questions and Samplers save under `questions/` and `samplers/` in the chatsnack
+data directory. Give a definition a name or explicit file path before saving.
 
-Pass a Question object to embed its definition. Use `"{question.crunchy}"` for a
-live connection to the saved asset. Saving preserves that choice; a Question's
-name or save history never turns an embedded value into a reference.
+Pass a Question object to embed its definition. Use `"{question.crunchy}"` to
+read the saved Question each time the Sampler runs.
 
 ## A few questions together
 
@@ -103,10 +94,8 @@ print(sample.answers["category"].choice)
 print(sample.answers["sweetness"].score)
 ```
 
-Named access remains stable when you reorder questions. All collections retain
-authored order; unnamed questions are available by position. Names must be
-nonempty strings without the filling metacharacters `.`, `[`, `]`, `{`, `}`, `!`,
-or `:`, and unique within a batch. Empty batches are rejected.
+Named access stays stable when you reorder questions. Unnamed questions are
+available by position. Names must be unique within a batch.
 
 Every answer has `choice`, `score`, `probabilities`, and `confidence`:
 
@@ -116,9 +105,8 @@ Every answer has `choice`, `score`, `probabilities`, and `confidence`:
 | Choice | Selected option key | Probability of that option |
 | Score | Most probable authored level name | Provider's weighted position across levels |
 
-Yes/no answers also have Boolean `.yes` and `.no`. Confidence is the binary
-probability margin for yes/no, and the provider's reported confidence for Choice
-and Score. Scores have different meanings across question kinds.
+Yes/no answers also have `.yes` and `.no`. Their confidence is the probability
+margin; Choice and Score use the provider's reported confidence.
 
 ## Look at a snack
 
@@ -128,10 +116,8 @@ if not sample.answer.refused:
     print(sample.answer.yes)
 ```
 
-Use local PNG, JPEG, or WebP paths, locally readable `ChatFile` values returned
-by a Chat, or captured asset references. Image-only questions work too. Up to
-128 images keep their supplied order on OpenAI. URLs and provider file IDs are
-rejected. Select Jev with the same `images=` surface:
+Pass local paths or readable `ChatFile` values, including images returned by a
+Chat. Image-only questions work too. Jev uses the same `images=` argument:
 
 ```python
 sample = Sampler(
@@ -140,10 +126,9 @@ sample = Sampler(
 print(sample.answer.yes)
 ```
 
-The adapter enables Jev's image header automatically when images are present.
-Jev accepts PNG/JPEG. Prepare the photo to meet TypeSafe's
-[image limits](https://docs.typesafe.ai/images#limits); images are sent as supplied,
-without conversion or resizing. Experimental vision can change between releases.
+Jev vision is experimental. It accepts PNG/JPEG; OpenAI also accepts WebP.
+Prepare images to meet the [provider limits](../reference/api/sampler.md#images-and-fillings);
+chatsnack sends them without resizing or conversion.
 
 Images can stay live in a saved Sampler:
 
@@ -156,27 +141,20 @@ questions:
     question: Does the snack look burnt?
 ```
 
-`review.ask(photo="snack.png")` resolves the path when evaluated. The resulting
-`sample.images` contains locally readable `ChatFile` snapshots of those exact
-bytes. `Sampler.from_sample(sample)` saves their content-addressed references,
-so changing or deleting the original photo does not change the replay. Keep the
-assets directory with the saved YAML when moving it to another machine.
+Supply `photo="snack.png"` when evaluating it. The resulting `sample.images`
+contains readable snapshots for replay.
 
 ## A question can be refused
 
-Decisions may decline individual questions. Each refusal stays in its original
-answer slot, including when the whole batch is refused. `sample.answer` still
-means the first slot. Successful answers expose `.refused=False`; a
-`RefusalAnswer` exposes `.refused=True`, and its choice, score, probabilities,
-confidence, yes, and no values are `None`.
+Decisions may decline individual questions. A refused answer keeps its place in
+the batch, has `.refused=True`, and returns `None` for its answer values.
 
 ```python
 for question, answer in zip(sample.questions, sample.answers):
     print(question.name, "refused" if answer.refused else answer.choice)
 ```
 
-Transport failures, missing credentials, and malformed responses raise errors.
-They do not produce refusal answers or trigger a provider fallback.
+Connection and response errors still raise exceptions.
 
 ## Compose into a Chat
 
@@ -192,11 +170,10 @@ description = Chat(
 print(description.ask(snack="popcorn"))
 ```
 
-You can also read `.score`, `.confidence`, and `.refused` in result fillings. Several fields
-from the same Sampler share one evaluation during that prompt expansion. A later
-call evaluates again. Saved result fillings always name their answer explicitly.
-An exact whole-value filling retains `None` for refused values. Embedded values
-use the usual text rendering, so a refused choice in prose renders as `None`.
+Result fillings also expose `.score`, `.confidence`, and `.refused`, and always
+name their answer. Reading several fields from one Sampler shares an evaluation
+within that prompt; the next call evaluates again. A refused value embedded in
+prose renders as `None`.
 
 ## Keep what was evaluated
 
@@ -206,10 +183,9 @@ replay.save()
 repeated = replay.ask()
 ```
 
-The replay contains the resolved data, questions, image snapshots, provider, and
-nonsecret execution settings, with the returned model version. Later edits to
-Question assets won't change it. Evaluating again may
-produce different answers.
+Replay keeps the evaluated data, questions, image bytes, and connection settings.
+Editing a Question or deleting the original photo won't change its inputs.
+Answers may still differ. Keep the assets directory with the YAML when moving a replay.
 
 To ask about the previous result itself, use it as new data:
 
@@ -218,26 +194,8 @@ followup = Sampler(data=sample).ask("Do these answers describe a sweet snack?")
 print(followup.answer.yes)
 ```
 
-The previous Sample's images carry forward automatically. Call-time `images=`
-replaces authored images, which replace inherited images. Use `images=[]` to
-clear them; saving and loading preserves that explicit empty list.
-
-Choose Jev explicitly when needed:
-
-```python
-sample = Sampler(model="jev-latest", data="popcorn").ask("Is this crunchy?")
-```
-
-Confidence thresholds need calibration for each backend. A provider change can
-change judgments, token accounting, and cost. See the
-[0.10 migration notes](../migration/0.10.md) before upgrading an existing app.
-
-Larger Jev inputs need no extra authoring options. Requests start normally; if
-Jev reports `max_tokens_exceeded`, chatsnack retries once with extended context,
-using the same resolved evidence. Other errors, and a second context failure,
-surface normally. Short requests stay unchanged. TypeSafe documents a 262k-token
-experimental context with lower accuracy and higher latency on larger inputs;
-see [long context](https://docs.typesafe.ai/models#long-context).
+Follow-ups inherit the previous Sample's images. Supply new `images=` to replace
+them, or `images=[]` to clear them.
 
 Call-time `data=` overrides the stored data without changing it. Data supplied
 that way, and values injected into fillings, remain literal: braces inside a

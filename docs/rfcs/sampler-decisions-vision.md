@@ -1,21 +1,17 @@
 # Sampler 0.10.0: Decisions and vision
 
-Status: implementation accepted. Compatibility boundary: 0.10.0.
-Mattie approved the default switch, existing credentials for paid probes, vision,
-partial refusals, nullable refusal values, and automatic image carry-forward.
+Status: implementation accepted for 0.10.0.
 
 October 22 follow-on: [Jev 1.14 support](../projects/jev-1-14-checklist.md) adds
 Jev images and a single automatic long-context resubmission after its explicit
-400 `max_tokens_exceeded` error. The October 6 probes below record the earlier
-standard-context behavior. New evaluations require no experimental params.
+400 `max_tokens_exceeded` error. The October 6 probes below predate that retry.
 
 ## Intent
 
 Keep Questions, YAML assets, named answers, and Chat fillings as the authoring
 surface. A Sampler evaluates evidence; adapters assemble provider requests.
-OpenAI Decisions becomes the default, with Jev available explicitly. This follows
-PHILOSOPHY and chatsnack-fluency: terse experiments, readable judgments, live
-authored references, and literal evaluated snapshots.
+OpenAI Decisions becomes the default, with Jev available explicitly. Saved
+authoring keeps live references; evaluated Samples capture literal inputs.
 
 ```python
 sample = Sampler(images=[photo]).ask("Does this snack look burnt?")
@@ -35,8 +31,7 @@ Adapters translate that resolved batch. Direct calls and named fillings share
 decoding and snapshot capture without a backend registry or new authoring types.
 Connection identity includes effective provider. Retained sync clients and scoped
 async clients preserve override isolation and cancellation cleanup. OpenAI uses
-generic SDK POST with `Dict[str, Any]`: SDK 3.5.0 lacks the typed resource, and bare
-`dict` is not a valid decoding type.
+generic SDK POST with `Dict[str, Any]` because SDK 3.5.0 lacks a typed resource.
 
 Timeout maps to the selected SDK. OpenAI retry accepts `max_retries` only;
 TypeSafe retains its full policy. Invalid options fail before dependencies.
@@ -62,11 +57,9 @@ text uses existing rendering.
 
 ## Images and replay
 
-Construction, evaluation, and compilation accept local PNG/JPEG/WebP paths,
-locally readable ChatFiles, captured references, and live fillings. Existing Chat
-path conventions and asset integrity checks apply. Remote downloads and file IDs
-fail before dispatch. Images keep order, use `detail=auto`, and are capped at 128.
-Image-only evaluation is valid.
+Images use existing Chat paths, locally readable ChatFiles, captured references,
+and live fillings. Adapter validation applies provider-specific limits; see the
+[API reference](../reference/api/sampler.md#images-and-fillings).
 
 Resolved bytes serve both inline encoding and evaluated snapshots. Compilation
 reads without capturing. Saved authoring retains paths/fillings; saved replay
@@ -74,9 +67,9 @@ retains content-addressed references. No base64 or credentials enter saved YAML
 or Sample serialization. Keep the assets stash when moving replay YAML.
 
 `Sample.images` exposes ChatFiles. `Sample.params` returns detached effective
-provider/model, a captured environment endpoint when selected, and authored
-nonsecret connection options. Unset SDK timeout/retry defaults remain delegated. Existing positional
-Sample arguments remain supported. `from_sample()` embeds resolved questions,
+provider/model, the effective endpoint including public defaults, and authored
+nonsecret connection options. Unset SDK timeout/retry defaults remain delegated.
+`from_sample()` embeds resolved questions,
 literal data, image references, and settings with expansion disabled. Re-evaluation
 repeats evidence, without guaranteeing identical answers.
 
@@ -90,24 +83,9 @@ ordinary kwargs are errors. New reserved names: provider, images, fillings.
 
 ## October 6 probe evidence
 
-Existing configured keys were used without saving credentials. Mixed predicate,
-choice, and score questions read markers at the beginning, middle, and end of
-synthetic context.
-
-| Approximate text tokens | Decisions input tokens | Jev outcome |
-| --- | ---: | --- |
-| 8k | 8,394; all correct | 8,372; all correct |
-| 30k | 30,394; all correct | 30,372; all correct |
-| 100k | 100,387; all correct | HTTP 400 `max_tokens_exceeded` |
-
-An image-only 64×64 red PNG selected red correctly (120 input tokens). These
-establish feasibility, not maximum context or realistic long-document accuracy.
-Confidence needs backend-specific calibration. Published input prices at
-verification were $0.10/M for Decisions and $0.042/M for Jev; accounting differs.
-
-Retained opt-in contracts evaluate mixed questions and vision, plus repeated
-and varied long-document fixtures at 8k/30k/100k. They record actual usage and
-accuracy without timing assertions. Run with configured credentials:
+Mixed predicate, choice, and score questions read markers at the beginning,
+middle, and end of synthetic context. Opt-in contracts use repeated and varied
+8k/30k/100k fixtures. Run with configured credentials:
 
 ```powershell
 $env:CHATSNACK_RUN_DECISIONS_LIVE = '1'
@@ -116,13 +94,9 @@ $env:CHATSNACK_RUN_DECISIONS_CONTEXT_LIVE = '1'
 .venv\Scripts\python.exe -m pytest tests/test_sampler_decisions_live.py -q -s
 ```
 
-These are paid opt-ins. Ordinary tests and notebook validation stay offline.
-Context fixtures use the Responses input-token count to target text length and
-send identical data/questions to both backends. Jev's documented context rejection
-is recorded at any size; unrelated failures remain failures. Counts differ by
-provider, so an OpenAI-sized 30k fixture can exceed Jev's limit.
-
-Implemented Sampler verification on 2026-10-06:
+These are paid opt-ins. Context fixtures use the Responses input-token count to
+target text length and send identical data/questions to both backends. Counts
+differ by provider, so an OpenAI-sized 30k fixture can exceed Jev's limit.
 
 | Fixture | OpenAI text count | Decisions usage | Jev usage/outcome |
 | --- | ---: | ---: | --- |
@@ -145,9 +119,9 @@ scenarios cover saved vision/replay after source deletion, refusal slots/filling
 image follow-ups/clearing, existing Jev behavior, and sync/async lifetime. Focused
 contracts cover translation and boundary failures.
 
-Cloudflare adapters, remote image downloads, audio/video/general files, streaming,
-workflows, and release publication are outside this change. Accepted risks are
-default/threshold changes, nullable callers, and retaining replay assets.
+Nested image values and spatial Questions are deferred. Callers upgrading an
+existing app need to account for the changed default, refusals, and replay assets;
+see the [migration notes](../migration/0.10.md).
 
 ## Official references (verified 2026-10-06)
 
