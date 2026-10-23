@@ -196,38 +196,73 @@ def test_openai_transport_failure_keeps_sdk_error(monkeypatch):
     assert clients[0].is_closed()
 
 
-def test_replay_freezes_environment_endpoint(monkeypatch):
-    monkeypatch.setenv('OPENAI_API_KEY', 'test-only')
-    monkeypatch.setenv('OPENAI_BASE_URL', 'https://first.test/v1')
-    monkeypatch.setenv('TYPESAFE_BASE_URL', 'https://jev.test/v1')
+@pytest.mark.parametrize('provider', ['openai', 'typesafe'])
+@pytest.mark.parametrize('asynchronous', [False, True], ids=['sync', 'async'])
+@pytest.mark.parametrize('initial_endpoint', [None, 'https://first.test/v1'], ids=['default', 'environment'])
+@pytest.mark.asyncio
+async def test_goal_replay_freezes_endpoint_after_environment_changes(
+        provider, asynchronous, initial_endpoint, tmp_path, monkeypatch):
+    """Freeze evaluated routing through memory and YAML while fresh authoring stays live."""
+    import typesafe_sdk
+
+    monkeypatch.setenv('CHATSNACK_BASE_DIR', str(tmp_path))
+    prefix = 'OPENAI' if provider == 'openai' else 'TYPESAFE'
+    monkeypatch.setenv(prefix + '_API_KEY', 'test-only')
+    endpoint_env = prefix + '_BASE_URL'
+    if initial_endpoint is None:
+        monkeypatch.delenv(endpoint_env, raising=False)
+    else:
+        monkeypatch.setenv(endpoint_env, initial_endpoint)
     endpoints = []
-    original = openai.OpenAI
+    sdk = openai if provider == 'openai' else typesafe_sdk
+    sync_name, async_name = ('OpenAI', 'AsyncOpenAI') if provider == 'openai' else ('TypeSafeClient', 'AsyncTypeSafeClient')
+    original, original_async = getattr(sdk, sync_name), getattr(sdk, async_name)
 
     def handler(request):
+        """Observe real SDK routing and return the selected provider's wire format."""
         endpoints.append(str(request.url))
         body = json.loads(request.content)
-        return httpx2.Response(200, json=dict(model='gpt-6-luna', usage=dict(input_tokens=1, output_tokens=0),
-            answers=[dict(type='predicate', name=q['name'], probability=.8) for q in body['questions']]))
+        answers = ([dict(type='predicate', name=q['name'], probability=.8) for q in body['questions']]
+                   if provider == 'openai' else {key: dict(type='noul', noul=.8) for key in body['questions']})
+        return httpx2.Response(200, json=dict(model='gpt-6-luna' if provider == 'openai' else 'jev-1.14.0',
+            usage=dict(input_tokens=1, output_tokens=0), answers=answers))
 
     def factory(**options):
+        """Keep the real synchronous SDK's endpoint resolution and encoding."""
         return original(http_client=httpx2.Client(transport=httpx2.MockTransport(handler)), **options)
 
-    monkeypatch.setattr(openai, 'OpenAI', factory)
-    sampler = Sampler(data='popcorn')
-    try:
-        sample = sampler.ask('Good?')
-    finally:
-        sampler.close()
-    assert sample.params.base_url == 'https://first.test/v1'
-    monkeypatch.setenv('OPENAI_BASE_URL', 'https://second.test/v1')
-    replay = Sampler.from_sample(sample)
-    try:
-        replay.ask()
-    finally:
-        replay.close()
-    assert endpoints == ['https://first.test/v1/decisions'] * 2
-    assert SamplerParams(provider='typesafe').resolved().base_url == 'https://jev.test/v1'
-    assert SamplerParams(base_url='https://explicit.test/v1').resolved().base_url == 'https://explicit.test/v1'
+    def async_factory(**options):
+        """Keep the async SDK's routing and loop-scoped client lifecycle."""
+        return original_async(http_client=httpx2.AsyncClient(transport=httpx2.MockTransport(handler)), **options)
+
+    async def evaluate(sampler, *args, **overrides):
+        """Exercise either public call style and close every retained client."""
+        try:
+            return await sampler.ask_a(*args, **overrides) if asynchronous else sampler.ask(*args, **overrides)
+        finally:
+            await sampler.close_a()
+
+    monkeypatch.setattr(sdk, sync_name, factory)
+    monkeypatch.setattr(sdk, async_name, async_factory)
+    sampler = Sampler(provider=provider, data='popcorn')
+    sample = await evaluate(sampler, 'Good?')
+    assert sampler.params.base_url is None  # Authored defaults remain absent.
+    expected = initial_endpoint or ('https://api.openai.com/v1' if provider == 'openai' else 'https://api.typesafe.ai')
+    assert sample.params.base_url == expected
+    original_url = endpoints[-1]
+    replay = Sampler.from_sample(sample).save(tmp_path / 'Replay.yml')
+    monkeypatch.setenv(endpoint_env, 'https://second.test/v1')
+    for replay in (Sampler.from_sample(sample), Sampler().load(tmp_path / 'Replay.yml')):
+        repeated = await evaluate(replay)
+        assert repeated.answer.yes and repeated.params.base_url == expected
+        assert endpoints[-1] == original_url
+
+    fresh = await evaluate(Sampler(provider=provider, data='popcorn'), 'Good?')
+    assert fresh.params.base_url == 'https://second.test/v1'
+    assert httpx2.URL(endpoints[-1]).host == 'second.test'
+    explicit = await evaluate(Sampler.from_sample(sample), base_url='https://explicit.test/v1')
+    assert explicit.params.base_url == 'https://explicit.test/v1'
+    assert endpoints[-1].startswith('https://explicit.test/v1/')
 
 
 def test_provider_defaults_and_explicit_models(monkeypatch):

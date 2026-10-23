@@ -52,6 +52,11 @@ it, the SDK uses `OPENAI_API_KEY` or `TYPESAFE_API_KEY` for the selected provide
 `OPENAI_BASE_URL` or `TYPESAFE_BASE_URL` and its default endpoint. No provider
 fallback occurs.
 
+Samples capture the effective endpoint, including the provider's public default.
+Replays keep that endpoint across later environment changes and save/load. A newly
+authored Sampler with no `base_url` still follows the current environment; an
+explicit call-time override can redirect a replay.
+
 Jev requests start with the provider's standard context limits. On an HTTP 400
 with the explicit `max_tokens_exceeded` error code, chatsnack resubmits once with
 the long-context header. The same resolved data, questions, image bytes, and

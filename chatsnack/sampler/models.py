@@ -152,15 +152,17 @@ class SamplerParams:
         return self.provider or ('typesafe' if self.model and self.model.startswith('jev') else 'openai')
 
     def resolved(self):
-        """Freeze provider and model defaults without importing SDKs or credentials."""
+        """Freeze provider, model, and endpoint defaults without SDKs or credentials."""
         result = copy.deepcopy(self)
         result.provider = self.effective_provider
         result.model = self.model or (os.getenv('TYPESAFE_DEFAULT_MODEL', '').strip() or 'jev-latest'
                                     if result.provider == 'typesafe' else 'gpt-6-luna')
         if result.base_url is None:
             endpoint = os.getenv('OPENAI_BASE_URL' if result.provider == 'openai' else 'TYPESAFE_BASE_URL')
-            if endpoint and endpoint.strip():
-                result.base_url = endpoint
+            # Capture public SDK defaults too, so later environment changes cannot reroute replay.
+            result.base_url = (endpoint if endpoint and endpoint.strip() else
+                               'https://api.openai.com/v1' if result.provider == 'openai' else
+                               'https://api.typesafe.ai')
         return result
 
     def authored(self):
