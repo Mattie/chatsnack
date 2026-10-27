@@ -137,6 +137,10 @@ async def test_warning_filters_raise_before_submission_and_allow_reuse(adapter_t
     ("gpt-6-astra", "https://provider.example/openai/v1/"),
     ("gpt-6-astra", "https://api.openai.com.example/v1/"),
     ("gpt-6-astra", None),
+    ("gpt-6.1-terra-pro", "https://api.openai.com/v1/"),
+    ("gpt-6.1-terra-2026-10-26", "https://api.openai.com/v1/"),
+    ("openai/gpt-6.1-terra", "https://api.openai.com/v1/"),
+    ("gpt-6.1-terra", "https://provider.example/v1/"),
 ))
 def test_sampling_diagnostics_require_verified_model_and_resolved_endpoint(model, base_url, monkeypatch):
     adapter, calls = _fake_adapter(ResponsesAdapter, monkeypatch, base_url)
@@ -173,6 +177,68 @@ def test_model_advisories_preserve_all_authored_options(adapter_type, monkeypatc
     else:
         assert "message.output_text.logprobs" in messages
         assert calls[0]["include"] == options["include"]
+
+
+@pytest.mark.parametrize("adapter_type", (ResponsesAdapter, ChatCompletionsAdapter, ResponsesWebSocketAdapter))
+@pytest.mark.parametrize("effort", (None, "medium", "none"))
+def test_terra_sampling_advisories_follow_reasoning_without_rewriting(adapter_type, effort, monkeypatch):
+    """Terra permits sampling without reasoning; omitted effort defaults to medium."""
+    adapter, calls = _fake_adapter(adapter_type, monkeypatch)
+    options = {"model": "gpt-6.1-terra", "temperature": 0, "top_p": 0.8, "top_logprobs": 2}
+    if adapter_type is ChatCompletionsAdapter:
+        options["logprobs"] = False
+        if effort is not None:
+            options["reasoning_effort"] = effort
+    else:
+        options["include"] = ["message.output_text.logprobs"]
+        if effort is not None:
+            options["reasoning"] = {"effort": effort}
+    original = deepcopy(options)
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        adapter.create_completion([], **options)
+    assert options == original
+    assert len(calls) == 1
+    for key, value in options.items():
+        assert calls[0][key] == value
+    if effort == "none":
+        assert not caught
+    else:
+        assert len(caught) == 1
+        message = str(caught[0].message)
+        assert "gpt-6.1-terra" in message
+        for key in ("temperature", "top_p", "top_logprobs", "logprobs"):
+            assert key in message
+
+
+@pytest.mark.parametrize("effort", ("none", "medium"))
+def test_terra_tools_always_require_responses(effort, monkeypatch):
+    """Disabling reasoning allows sampling, but does not enable Chat Completions tools."""
+    adapter, calls = _fake_adapter(ChatCompletionsAdapter, monkeypatch)
+    tools = [{"type": "function", "function": {"name": "stock"}}]
+    with pytest.warns(UserWarning, match="gpt-6.1-terra.*tools require Responses.*unchanged"):
+        adapter.create_completion([], model="gpt-6.1-terra", reasoning_effort=effort, tools=tools)
+    assert calls[0]["tools"] == tools
+    assert calls[0]["reasoning_effort"] == effort
+
+
+@pytest.mark.parametrize("runtime_family", ("responses", "chat_completions"))
+@pytest.mark.parametrize("original_effort,effective_effort", (("medium", "none"), ("none", "medium")))
+def test_terra_sampling_advisory_uses_extra_body_effort(runtime_family, original_effort, effective_effort):
+    """SDK extension precedence determines warnings without mutating either dictionary."""
+    effort_key = "reasoning" if runtime_family == "responses" else "reasoning_effort"
+    original_value = {"effort": original_effort} if runtime_family == "responses" else original_effort
+    effective_value = {"effort": effective_effort} if runtime_family == "responses" else effective_effort
+    options = {"model": "gpt-6.1-terra", "temperature": 0.3,
+               effort_key: original_value, "extra_body": {effort_key: effective_value}}
+    original = deepcopy(options)
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        model_advisories.warn_model_options(
+            options, SimpleNamespace(base_url="https://api.openai.com/v1/"), runtime_family,
+        )
+    assert options == original
+    assert len(caught) == (0 if effective_effort == "none" else 1)
 
 
 @pytest.mark.parametrize("options,expected_warning", (

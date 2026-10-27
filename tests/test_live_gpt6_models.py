@@ -1,7 +1,8 @@
-"""Opt-in provider checks for GPT-6 Sol, Luna, and GPT-6.1 Sol through chatsnack.
+"""Opt-in checks for GPT-6 Sol/Luna and GPT-6.1 Sol/Terra through chatsnack.
 
 Run with OPENAI_API_KEY and CHATSNACK_RUN_LIVE_TESTS=1. These checks exercise
 the Responses runtime and confirm supported reasoning requests complete.
+Terra checks cover its verified effort values without assuming summary support.
 """
 
 import asyncio
@@ -25,6 +26,29 @@ async def _drain_live_callbacks():
     """Let AnyIO release its HTTP workers before pytest closes the event loop."""
     yield
     await asyncio.sleep(0)
+
+
+@pytest.mark.parametrize("effort", ("none", "low", "medium", "high", "xhigh", "max"))
+@pytest.mark.asyncio
+async def test_live_terra_reasoning_efforts(effort):
+    """Terra accepts each documented effort and sampling with reasoning disabled."""
+    sampling = {"temperature": 0.2, "top_p": 0.9} if effort == "none" else {}
+    chat = Chat(
+        "Follow the requested output format exactly.",
+        params=ChatParams(
+            model="gpt-6.1-terra", runtime="responses", max_tokens=1024,
+            responses={"store": False, "reasoning": {"effort": effort}},
+            **sampling,
+        ),
+    )
+    completed = None
+    try:
+        completed = await chat.chat_a("What is 17 times 19? Reply with only the integer.")
+        assert (completed.response or "").strip() == "323"
+    finally:
+        if completed is not None:
+            await completed.close_a()
+        await chat.close_a()
 
 
 @pytest.mark.parametrize(("model", "summary"), (
