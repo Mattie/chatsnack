@@ -33,6 +33,7 @@ questions:
       - Somewhat Convinced
       - Very Convinced
 params:
+  provider: typesafe
   timeout: 30
   retry:
     max_retries: 0

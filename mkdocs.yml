@@ -92,6 +92,7 @@ nav:
       - OpenAI-compatible providers: guides/providers.md
       - guides/fillings.md
       - Samplers and Questions: guides/samplers.md
+      - Sampler 0.10 migration: migration/0.10.md
       - guides/utensils.md
   - Examples:
       - examples/index.md

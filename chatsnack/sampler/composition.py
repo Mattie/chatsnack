@@ -102,8 +102,8 @@ def sampler_reference(suffix):
     from snapclass.paths import safe_path_placeholder
     from .models import _QUESTION_NAME_METACHARACTERS
     parts = suffix.rsplit('.', 2)
-    if len(parts) != 3 or not parts[1] or parts[2] not in {'choice', 'score', 'confidence'}:
-        raise ValueError('Use sampler.Name.answer.choice, score, or confidence')
+    if len(parts) != 3 or not parts[1] or parts[2] not in {'choice', 'score', 'confidence', 'refused'}:
+        raise ValueError('Use sampler.Name.answer.choice, score, confidence, or refused')
     safe_path_placeholder('name', parts[0])
     if any(char in parts[1] for char in _QUESTION_NAME_METACHARACTERS):
         raise ValueError('Invalid sampler answer name')
@@ -163,9 +163,8 @@ async def sampler_filling(suffix, additional=None):
                         request, questions, params = await sampler._prepare(
                             _UNSET, _UNSET, _UNSET, additional or {})
                         _reserve_sampler_filling_call(f'sampler.{name}')
-                        from .models import decode
                         response = await provider.evaluate(request, params)
-                        return decode(request['state'], questions, list(request['questions']), response)
+                        return sampler._finish(request, questions, params, response)
                     finally:
                         _current.reset(token)
 

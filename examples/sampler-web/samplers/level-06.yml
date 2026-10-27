@@ -33,6 +33,7 @@ questions:
       - Neutral
       - Gentle
 params:
+  provider: typesafe
   timeout: 30
   retry:
     max_retries: 0

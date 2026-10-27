@@ -12,68 +12,92 @@ Start with the [Sampler guide](../../guides/samplers.md) for authoring and compo
 
 ## Execution settings
 
-`model`, `timeout`, `retry`, `base_url`, and `api_key_env` can be authored in
-`SamplerParams`, passed conveniently to the constructor, or overridden for one call.
-Precedence is call override → saved params → SDK/environment defaults.
+Set `provider`, `model`, `timeout`, `retry`, `base_url`, and `api_key_env` in
+`SamplerParams`, on the constructor, or for one call. Call overrides take precedence
+over saved params, which take precedence over environment and provider defaults.
 
 ```python
 sampler = Sampler(data="popcorn", model="jev-latest")
 sample = sampler.ask("Crunchy?", timeout=20, retry={"max_retries": 0})
 ```
 
-`sampler.model` is backed by `sampler.params.model`. Unset models follow
-`TYPESAFE_DEFAULT_MODEL`, then `jev-latest`; the result retains the reported model.
-Model aliases can move. Pin a provider version for calibrated applications.
+An explicit `provider` wins. Otherwise, a model beginning with `jev` selects
+TypeSafe; the default is OpenAI with `gpt-6-luna`. TypeSafe uses
+`TYPESAFE_DEFAULT_MODEL` or `jev-latest` when no model is authored. Explicit model
+names pass through unchanged. `sampler.model` and `sampler.provider` expose the
+authored settings.
 
-```yaml
-params:
-  model: jev-latest
-  timeout: 20
-  retry:
-    max_retries: 3
-```
-
-`timeout` is an HTTP-operation timeout in seconds. `retry` supports the SDK's
-serializable fields: `max_retries`, `backoff_initial`, `backoff_max`,
+`timeout` is an HTTP-operation timeout in seconds. OpenAI accepts
+`retry.max_retries`. TypeSafe also accepts `backoff_initial`, `backoff_max`,
 `backoff_jitter`, `http_statuses`, `respect_retry_after`, `api_connection_error`,
-`api_timeout_error`, and its total retry-budget `timeout`. Callables and exception
-classes are excluded. The SDK owns retry execution.
+`api_timeout_error`, and the retry-budget `timeout`. Unsupported options raise
+before evaluation.
 
-`api_key_env` names a credential variable; credentials are never saved. Without
-it, the SDK uses `TYPESAFE_API_KEY`. `base_url` selects an alternate endpoint;
-otherwise the SDK honors `TYPESAFE_BASE_URL` and its default endpoint.
+`api_key_env` names a credential variable. By default, the selected SDK uses
+`OPENAI_API_KEY` or `TYPESAFE_API_KEY`. `base_url` overrides `OPENAI_BASE_URL` or
+`TYPESAFE_BASE_URL` and the provider's default endpoint. Credentials are never saved.
+
+For Jev, a 400 `max_tokens_exceeded` response triggers one retry with extended
+context. It reuses the resolved evidence, images, and connection without rerunning
+fillings. This retry also applies when `retry.max_retries=0`; other errors and a
+second rejection propagate normally. Each new evaluation starts with standard
+context. Extended context remains experimental; see TypeSafe's
+[context limits](https://docs.typesafe.ai/models#long-context).
 
 ## Client lifetime
 
-Like `Chat`, a reusable `Sampler` opens its synchronous provider client lazily and
-retains it across `ask()` calls. Call `sampler.close()` when a long-running
-synchronous application shuts down. `ask_a()` creates and closes a scoped async
-client for each evaluation so event-loop-bound transports are never retained on the
-Sampler. `close_a()` remains the async-compatible way to close any retained sync
-client when code uses both execution styles.
+A Sampler opens its synchronous client on the first `ask()` and reuses it.
+Call `close()` when finished, or `await close_a()` from async code. `ask_a()`
+creates and closes an async client for each evaluation.
 
-Changing `model` for one call reuses the existing connection because the model is
-part of the request. Call-time `timeout`, `retry`, `base_url`, or `api_key_env`
-settings use a scoped client for that call. They do not replace the Sampler's
-authored synchronous connection. If authored connection settings change after a
-synchronous evaluation, close the Sampler before evaluating with the new settings.
+Call-time connection overrides use a separate client. Changing only the model
+reuses the connection if the provider stays the same. If you change authored
+connection settings after evaluating, close the Sampler before using them.
 
 ## Request inspection
 
-`compile()` and `compile_a()` return the resolved `state`, `model`, and `questions`
-request. They do not evaluate that Sampler, but executable dependency fillings
-can make provider calls during resolution. Ordinary `.yaml` inspection preserves
-live authored references and does not execute them.
+`compile()` and `compile_a()` return the provider request body. OpenAI uses
+`input`, `model`, and a `questions` array; TypeSafe uses `state`, `model`, and a
+`questions` map. `Question.compile()` returns its Jev-shaped definition.
 
-Structured instructions, criteria, and data remain structured. Choice lists
-compile to null descriptions; Score level names are retained locally while the
-ordered descriptions go to Jev.
+Compilation can execute dependency fillings, though it doesn't evaluate the
+Sampler itself. Inspect `.yaml` to see authored references without executing them.
+Compiled Jev image requests contain base64 assets; execution uses SDK uploads and
+adds capability headers separately. Compilation requires no TypeSafe SDK import.
 
-Explicit Question names must be nonempty strings without the filling
-metacharacters `.`, `[`, `]`, `{`, `}`, `!`, or `:`. Those characters delimit
-parts of named result fillings or have special meaning to the filling formatter.
-Saved Sampler names similarly exclude `{`, `}`, `!`, and `:`; dots and brackets
-remain valid in the asset-name segment.
+## Images and fillings
+
+`images=` accepts local paths, locally readable `ChatFile` values, captured asset
+references, or an ordered list. It works on construction, evaluation, and
+compilation, including image-only requests. URLs and provider file IDs aren't supported.
+
+| Provider | Formats | Limits |
+| --- | --- | --- |
+| OpenAI | PNG, JPEG, WebP | 128 images, sent with `detail="auto"` |
+| TypeSafe | PNG, JPEG | 16 MiB per file; provider-validated [dimensions and request limits](https://docs.typesafe.ai/images#limits) |
+
+Jev vision is experimental and enabled automatically by image input. Images are
+sent without resizing or conversion. Use `images=` for attachments; nested images
+in data, instructions, or criteria and Box questions aren't supported.
+
+Image precedence is call override → authored images → previous Sample images.
+`images=[]` clears them, including after save/load. Evaluated `Sample.images` are
+readable snapshots of the bytes sent. Keep the assets directory with replay YAML.
+Compilation reads images without saving snapshots.
+
+Use `fillings={...}` when a template variable collides with an execution keyword:
+
+```python
+Sampler(data="{provider}").ask("Good?", fillings={"provider": "a bakery"})
+```
+
+Ordinary keyword fillings also work. Duplicating a key across the two forms raises
+an error. `provider`, `images`, and `fillings` are reserved; see the
+[migration notes](../../migration/0.10.md).
+
+Explicit Question names must be nonempty, unique within a batch, and contain none
+of `.`, `[`, `]`, `{`, `}`, `!`, or `:`. Saved Sampler names must be nonempty and
+exclude `{`, `}`, `!`, and `:`.
 
 ## Advanced resolver
 
@@ -88,26 +112,32 @@ values = await resolve_fillings_a(
 score = values["sampler"]["SnackCheck.crunchy.score"]
 ```
 
-`allow_sampler=False` is the default for this public resolver. `allow_chat`
-independently authorizes direct/transitive Chat fillings. Ordinary `Chat.ask()`
-and `Sampler.ask()` need no authority flags. `question.Name` resolution returns
-a typed Question. Explicit namespace overrides retain the resolver's opaque-value
-behavior. Resolver-scoped Sampler work has a 16-evaluation limit; repeated reads
-of one evaluation count once. Existing depth and expansion bounds still apply.
+The public resolver requires `allow_sampler=True` to evaluate Sampler fillings.
+`allow_chat` separately controls direct and transitive Chat fillings. Ordinary
+`Chat.ask()` and `Sampler.ask()` need neither flag. `question.Name` returns a
+Question object. One resolver call allows up to 16 Sampler evaluations; repeated
+reads of the same evaluation count once.
 
 ## Answer details and replay
 
-Yes/no ties select yes with confidence zero. Choice preserves the provider's
-selection even if another probability is larger. Score selects the first maximal
-probability in authored level order. Provider numeric values are not rewritten.
+Yes/no ties select yes with zero confidence. Choice retains the provider's
+selection; Score selects the first level with maximal probability. Numeric
+scores and confidence retain their provider-specific meanings.
 
-`from_sample()` records `expand: false` to keep resolved inputs literal across
-save/load. Ordinary callers need no expansion controls. Samples hold results in
-memory; this release does not introduce independently saved Sample assets.
+A `RefusalAnswer` keeps its original answer slot, has `.refused=True`, and returns
+`None` for choice, score, probabilities, confidence, yes, and no. Successful
+answers have `.refused=False`. Named result fillings support `.refused` too.
 
-Saving a follow-up `Sampler(data=sample)` automatically quotes literal braces in
-the projected data. Reloading preserves that data while its newly authored
-questions can still use fillings.
+`Sample.params` returns a detached copy of the provider, reported model, effective
+endpoint, and authored connection settings. The endpoint includes the public
+default, so later environment changes can't redirect replay. Unset SDK timeout
+and retry defaults remain delegated. `Sample.to_dict()` includes these settings,
+image references, and refusal markers, excluding credentials and image bytes.
+
+`Sampler.from_sample(sample)` restores the evaluated inputs and settings for
+literal replay, including after save/load. Answers can differ on re-evaluation.
+A follow-up `Sampler(data=sample)` uses the prior result as literal data while its
+new questions can still use fillings.
 
 ::: chatsnack.SamplerParams
 
@@ -119,10 +149,10 @@ questions can still use fillings.
 
 ::: chatsnack.ScoreAnswer
 
+::: chatsnack.RefusalAnswer
+
 ## Provider contract
 
-Verified on 2026-09-17 against TypeSafe's [HTTP API](https://docs.typesafe.ai/api.md),
-[structured question entries](https://docs.typesafe.ai/primitives/advanced.md),
-[async Python client](https://docs.typesafe.ai/sdk/python/api/clients/async/client.md),
-and [retry policy](https://docs.typesafe.ai/sdk/python/api/retries.md).
-Chatsnack 0.9.0 includes `typesafe-sdk>=0.6.0,<0.7.0` as a standard dependency.
+Both SDKs are included. See the provider documentation for
+[OpenAI Decisions](https://developers.openai.com/api/docs/guides/decisions) and
+[TypeSafe](https://docs.typesafe.ai/models).

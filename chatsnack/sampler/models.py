@@ -3,8 +3,9 @@
 import copy
 import json
 import math
+import os
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass, fields
+from dataclasses import dataclass, field, fields
 from typing import Any, Generic, TypeVar
 
 from snapclass import snapclass
@@ -143,6 +144,26 @@ class SamplerParams:
     retry: dict | None = None
     base_url: str | None = None
     api_key_env: str | None = None
+    provider: str | None = None
+
+    @property
+    def effective_provider(self):
+        """Explicit routing wins; Jev model names retain their existing backend."""
+        return self.provider or ('typesafe' if self.model and self.model.startswith('jev') else 'openai')
+
+    def resolved(self):
+        """Freeze provider, model, and endpoint defaults without SDKs or credentials."""
+        result = copy.deepcopy(self)
+        result.provider = self.effective_provider
+        result.model = self.model or (os.getenv('TYPESAFE_DEFAULT_MODEL', '').strip() or 'jev-latest'
+                                    if result.provider == 'typesafe' else 'gpt-6-luna')
+        if result.base_url is None:
+            endpoint = os.getenv('OPENAI_BASE_URL' if result.provider == 'openai' else 'TYPESAFE_BASE_URL')
+            # Capture public SDK defaults too, so later environment changes cannot reroute replay.
+            result.base_url = (endpoint if endpoint and endpoint.strip() else
+                               'https://api.openai.com/v1' if result.provider == 'openai' else
+                               'https://api.typesafe.ai')
+        return result
 
     def authored(self):
         """Keep absent SDK defaults and credentials out of saved definitions."""
@@ -155,11 +176,15 @@ class SamplerParams:
             value = getattr(self, name)
             if value is not None and (not isinstance(value, str) or not value.strip()):
                 raise ValueError(f'{name} must be a nonempty string')
+        if self.provider is not None and self.provider not in ('openai', 'typesafe'):
+            raise ValueError('provider must be openai or typesafe')
         if self.timeout is not None:
             _number(self.timeout, 'timeout', positive=True)
         if self.retry is not None:
             if not isinstance(self.retry, Mapping):
                 raise ValueError('retry must be a mapping')
+            if self.effective_provider == 'openai' and self.retry.keys() - {'max_retries'}:
+                raise ValueError('OpenAI supports only retry.max_retries; select provider="typesafe" for TypeSafe retry controls')
             allowed = {'max_retries', 'backoff_initial', 'backoff_max', 'backoff_jitter',
                        'http_statuses', 'respect_retry_after', 'api_connection_error',
                        'api_timeout_error', 'timeout'}
@@ -192,6 +217,24 @@ class Answer:
     probabilities: dict[str, float]
     confidence: float
 
+    @property
+    def refused(self):
+        """Successful judgments carry usable values rather than a refusal marker."""
+        return False
+
+
+@dataclass(frozen=True)
+class RefusalAnswer:
+    """A provider-declined question, retained in place without invented values."""
+
+    choice: None = field(default=None, init=False)
+    score: None = field(default=None, init=False)
+    probabilities: None = field(default=None, init=False)
+    confidence: None = field(default=None, init=False)
+    yes: None = field(default=None, init=False)
+    no: None = field(default=None, init=False)
+    refused: bool = field(default=True, init=False)
+
 
 class YesNoAnswer(Answer):
     """Binary judgment with readable Boolean views of the selected outcome."""
@@ -208,11 +251,11 @@ class YesNoAnswer(Answer):
 
 
 class ChoiceAnswer(Answer):
-    """Selection among authored alternatives; preserve Jev's selected key."""
+    """Selection among authored alternatives; preserve the provider's selected key."""
 
 
 class ScoreAnswer(Answer):
-    """Ordered-rubric judgment with Jev's probability-weighted numeric score."""
+    """Ordered-rubric judgment with the provider's weighted numeric score."""
 
 
 T = TypeVar('T')
@@ -245,16 +288,35 @@ class Sample:
 
     data: Any
     questions: NamedSequence[Question]
-    answers: NamedSequence[Answer]
+    answers: NamedSequence[Answer | RefusalAnswer]
     model: str
     usage: SampleUsage
 
-    def __init__(self, data, questions, answers, model, usage):
+    def __init__(self, data, questions, answers, model, usage, *, params=None, images=()):
         """Keep results outside persistence tracking when used as new Sampler data."""
         if not questions or len(questions) != len(answers):
             raise ValueError('A Sample requires matching nonempty questions and answers')
         self.data, self.questions, self.answers = data, questions, answers
         self.model, self.usage = model, usage
+        self._params = copy.deepcopy(params or SamplerParams(model=model))
+        self._params.model = model
+        self._params = self._params.resolved()
+        self._images = tuple(images)
+
+    @property
+    def params(self):
+        """Return detached, nonsecret execution settings suitable for literal replay."""
+        return copy.deepcopy(self._params)
+
+    @property
+    def provider(self):
+        """Identify the backend that produced these judgments."""
+        return self._params.provider
+
+    @property
+    def images(self):
+        """Expose captured ChatFiles without letting callers mutate the snapshot list."""
+        return list(self._images)
 
     @property
     def question(self):
@@ -270,8 +332,11 @@ class Sample:
         """Project a prior Sample as ordinary structured evaluation data."""
         return dict(data=json_value(self.data),
                     questions=[q.authored() for q in self.questions],
-                    answers=[{field.name: json_value(getattr(a, field.name)) for field in fields(a)}
-                             for a in self.answers], model=self.model,
+                    answers=[{**{field.name: json_value(getattr(a, field.name)) for field in fields(a)},
+                              'refused': a.refused}
+                             for a in self.answers], model=self.model, provider=self.provider,
+                    params=self.params.authored(),
+                    images=[image._attachment_reference() for image in self.images],
                     usage=dict(input_tokens=self.usage.input_tokens, output_tokens=self.usage.output_tokens))
 
 
@@ -284,8 +349,8 @@ def _number(value, label, *, positive=False, probability=False):
     return value
 
 
-def decode(data, questions, ids, response):
-    """Decode an entire response or fail; never manufacture partial answers."""
+def decode(data, questions, ids, response, *, params=None):
+    """Validate the whole batch, retaining explicit refusals in authored order."""
     if not isinstance(response, Mapping) or not isinstance(response.get('answers'), Mapping):
         raise ValueError('Malformed Sampler response')
     if set(response['answers']) != set(ids):
@@ -298,6 +363,9 @@ def decode(data, questions, ids, response):
     answers = []
     for question, key in zip(questions, ids):
         raw = response['answers'][key]
+        if isinstance(raw, Mapping) and raw.get('type') == 'refusal' and params is not None and params.effective_provider == 'openai':
+            answers.append(RefusalAnswer())
+            continue
         if not isinstance(raw, Mapping) or raw.get('type') != question.kind:
             raise ValueError('Sampler answer kind does not match its question')
         if question.kind == 'noul':
@@ -329,4 +397,4 @@ def decode(data, questions, ids, response):
             answers.append(ScoreAnswer(max(probabilities, key=probabilities.get), score, probabilities, confidence))
     names = [q.name for q in questions]
     return Sample(copy.deepcopy(data), NamedSequence(questions, names), NamedSequence(answers, names),
-                  model, SampleUsage(usage['input_tokens'], usage['output_tokens']))
+                  model, SampleUsage(usage['input_tokens'], usage['output_tokens']), params=params)

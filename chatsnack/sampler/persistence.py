@@ -78,6 +78,15 @@ class ParamsSerializer(ValueSerializer):
         return (SamplerParams(**value) if isinstance(value, dict) else value).authored()
 
 
+class ImagesSerializer(ValueSerializer):
+    """Keep paths and sockets authored; local image bytes never belong in YAML."""
+
+    @classmethod
+    def to_preserialization_data(cls, value, **kwargs):
+        from .images import authored_images
+        return authored_images(value)
+
+
 def _styled(value):
     """Keep prose legible and live whole-value fillings visibly quoted."""
     if isinstance(value, str):

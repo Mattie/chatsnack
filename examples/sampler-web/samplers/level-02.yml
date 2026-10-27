@@ -32,6 +32,7 @@ questions:
         agitated tone.
       Calm: The player_submission sounds controlled, composed, and free of agitation.
 params:
+  provider: typesafe
   timeout: 30
   retry:
     max_retries: 0

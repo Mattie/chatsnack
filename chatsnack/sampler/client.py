@@ -1,4 +1,4 @@
-"""Lazy sync TypeSafe SDK client owned by one reusable Sampler."""
+"""Lazy provider SDK client owned by one reusable Sampler."""
 
 import json
 import threading
@@ -10,7 +10,7 @@ def connection_signature(params):
     """Identify settings that determine which provider connection may be reused."""
     retry = None if params.retry is None else json.dumps(params.retry, sort_keys=True,
                                                           separators=(',', ':'))
-    return params.timeout, retry, params.base_url, params.api_key_env
+    return params.effective_provider, params.timeout, retry, params.base_url, params.api_key_env
 
 
 class _SamplerClient:
