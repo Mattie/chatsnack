@@ -8,34 +8,13 @@ verified package publication dates.
 
 ## 0.10.0 -- 2026-10-13
 
-- Samplers now default to OpenAI Decisions with `gpt-6-luna` and
-  `OPENAI_API_KEY`, including saved YAML without an explicit provider or Jev
-  model. To keep existing Samplers on Jev, set `params.provider: typesafe` and
-  keep `TYPESAFE_API_KEY` configured. See the [0.10.0 migration notes](docs/migration/0.10.md)
-  for changed defaults, refusal handling, reserved filling keywords, and request
-  inspection.
-- Add image inputs to Samplers, captured image snapshots for replay, and image
-  inheritance in follow-ups. Saved replays retain the evaluated inputs and
-  connection settings after the original image or Question changes.
-- Keep refused Decisions answers in their original batch slots. Check
-  `answer.refused` before using answer values, which are `None` on refusal.
-- Support Jev 1.14 vision through `typesafe-sdk>=0.7.5,<0.8.0`. Jev accepts PNG/JPEG
-  images and retries an explicit 400 `max_tokens_exceeded` rejection once with
-  extended context, reusing the prepared request without repeating fillings.
-- Add known-model support for `gpt-6.1-terra`, its documented reasoning efforts,
-  and sampling controls with effort `none`. Unsupported options produce advisory
-  warnings and still pass through; tools require Responses.
-- Add Muse Wonder AUTO defaults: `model="muse-wonder-1.0"` supplies Meta's endpoint
-  and `MODEL_API_KEY` when connection settings are omitted.
-- Preserve explicit connection and runtime choices, including provider binding
-  through copies, continuations, and saved Chat loading.
-- Request encrypted reasoning for Meta replay. Keep saved history intact while
-  warning and omitting unusable reasoning from generated stateless requests.
-- Add Wonder reasoning advisories, a notebook, and provider documentation.
-- Include the async local-utensil support described under 0.9.3 below; 0.9.2
-  remains the previous published release.
-- Keep Mad Hacker level hints visible beneath titles. Update the optional Flask
-  dependency chain and example image tooling.
+- Samplers now default to OpenAI Decisions with `gpt-6-luna`. Set
+  `params.provider: typesafe` to keep Jev. See the [migration notes](docs/migration/0.10.md).
+- Add Sampler image inputs, captured replay assets, and per-question refusal handling.
+- Support Jev 1.14 vision and automatic recovery from context-limit rejections.
+- Add GPT-6.1 Terra support with advisory capability checks.
+- Add Muse Wonder automatic provider configuration and encrypted history replay.
+- Support async local utensils, as detailed under 0.9.3 below.
 
 ## 0.9.3 -- 2026-10-12
 
