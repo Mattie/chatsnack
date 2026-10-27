@@ -8,13 +8,13 @@ verified package publication dates.
 
 ## 0.10.0 -- 2026-10-13
 
-- Add Muse Wonder AUTO defaults: `model="muse-wonder-1.0"` supplies Meta's endpoint
-  and `MODEL_API_KEY` when connection settings are omitted.
-- Preserve explicit connection and runtime choices, including provider binding
-  through copies, continuations, and saved Chat loading.
-- Request encrypted reasoning for Meta replay. Keep saved history intact while
-  warning and omitting unusable reasoning from generated stateless requests.
-- Add Wonder reasoning advisories, a notebook, and provider documentation.
+- Samplers now default to OpenAI Decisions with `gpt-6-luna`. Set
+  `params.provider: typesafe` to keep Jev. See the [migration notes](docs/migration/0.10.md).
+- Add Sampler image inputs, captured replay assets, and per-question refusal handling.
+- Support Jev 1.14 vision and automatic recovery from context-limit rejections.
+- Add GPT-6.1 Terra support with advisory capability checks.
+- Add Muse Wonder automatic provider configuration and encrypted history replay.
+- Support async local utensils, as detailed under 0.9.3 below.
 
 ## 0.9.3 -- 2026-10-12
 

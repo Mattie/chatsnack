@@ -16,7 +16,7 @@ evidence, and explicit Jev support.
 - [x] Notebook, guides, API reference, migration notes and 0.10.0 metadata.
 - [x] Opt-in mixed-question/vision and long-context live checks.
 - [x] Full offline suite, strict docs build and package builds.
-- [ ] Final design/code review and verification receipt.
+- [x] Final design/code review and verification receipt.
 
 What works now: saved vision Samplers evaluate mixed judgments, retain refusals,
 and save replay YAML that still reads the evaluated image after the original
@@ -26,3 +26,18 @@ Verification: the original isolated commit passed 1,185 offline tests, with
 157 skipped. After integration and review fixes, 229 focused and example tests
 passed. Strict docs, lock validation, and package builds passed. Four Jev live
 checks passed on 2026-10-22; see the [Jev checklist](jev-1-14-checklist.md).
+
+Final release review on 2026-10-27 examined `74c2631`: provider routing and the
+default migration, SDK request translation, refusal slots, literal replay
+inputs and captured endpoint bindings, image inheritance, bounded Jev recovery, scoped
+headers, errors, and cancellation. An independent reviewer found no material
+release blocker and reran 181 focused tests (2 skipped). This closes the final
+design/code gate; it does not establish accuracy on untested application data.
+
+The same release target passed 1,360 offline tests (188 skipped), lock validation,
+a strict docs build, wheel/sdist builds and metadata checks, and a clean wheel
+installation with dependency and public-API smoke checks. Six existing
+`AsyncClient.aclose` cleanup warnings remain in the full suite. Terra's 11 live
+checks passed before integration; the Jev live scope remains the four cases
+documented above. Release notes now include the Sampler migration and Jev/Terra
+changes. Publication has not started.
