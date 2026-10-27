@@ -38,7 +38,8 @@ class _ReasoningModel:
 
     ``family_and_aliases`` includes suffix and provider-alias matching.
     ``exact_naming`` applies only to the listed ID until additional variants
-    have been verified.
+    have been verified. Omitted capability keys have not been verified and
+    receive only the general unknown-value advisory.
     """
 
     pattern: str
@@ -82,6 +83,14 @@ _KNOWN_REASONING_MODELS: Tuple[_ReasoningModel, ...] = (
     _ReasoningModel(
         "gpt-6.1-sol",
         _GPT61_SOL_REASONING_CAPABILITIES,
+        match="exact_naming",
+    ),
+    # Verified 2026-10-26; only this exact ID is documented (no dated variants).
+    # https://developers.openai.com/api/docs/models/gpt-6.1-terra
+    # Summary settings are not established by this model's documentation.
+    _ReasoningModel(
+        "gpt-6.1-terra",
+        {"effort": frozenset({"none", "low", "medium", "high", "xhigh", "max"})},
         match="exact_naming",
     ),
     # Verified 2026-09-09; only this exact model ID is documented (no dated variants).
@@ -678,7 +687,7 @@ class ChatParams:
                     f"Unknown reasoning summary '{summary}'. Passing through to provider unchanged.",
                     stacklevel=3,
                 )
-            elif capabilities and summary not in capabilities["summary"]:
+            elif capabilities and "summary" in capabilities and summary not in capabilities["summary"]:
                 warnings.warn(
                     f"Reasoning summary '{summary}' is not in the known supported set "
                     f"{sorted(capabilities['summary'])} for model '{self.model}'. "

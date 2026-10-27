@@ -13,7 +13,8 @@ from chatsnack import Chat, Text, utensil
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("async_tool", [False, True])
-async def test_saved_chat_executes_stock_and_continues(tmp_path, monkeypatch, async_tool):
+@pytest.mark.parametrize("model", ("gpt-6-astra", "gpt-6.1-terra"))
+async def test_saved_chat_executes_stock_and_continues(tmp_path, monkeypatch, async_tool, model):
     """Exercise saved authoring, SDK serialization, execution, and continuation together."""
     monkeypatch.setenv("CHATSNACK_BASE_DIR", str(tmp_path))
     monkeypatch.setenv("CHATSNACK_DEFAULT_RUNTIME", "chat_completions")
@@ -55,11 +56,12 @@ async def test_saved_chat_executes_stock_and_continues(tmp_path, monkeypatch, as
         })
 
     Text(name="StockStyle", content="Answer briefly from the stock result.").save()
-    template = Chat(name="StockHelper", model="gpt-6-astra", runtime="responses",
+    template = Chat(name="StockHelper", model=model, runtime="responses",
                     utensils=[stock])
     template.system("{text.StockStyle}").user("Check stock for {sku}.")
     template.reasoning.effort = "low"
-    template.reasoning.summary = "auto"
+    if model == "gpt-6-astra":
+        template.reasoning.summary = "auto"
     template.save()
     loaded = Chat(name="StockHelper", utensils=[stock])
     loaded.load()
@@ -80,8 +82,11 @@ async def test_saved_chat_executes_stock_and_continues(tmp_path, monkeypatch, as
     assert "{sku}" in loaded.yaml
     assert "{text.StockStyle}" in loaded.yaml
     assert len(requests) == 3
-    assert all(body["model"] == "gpt-6-astra" for body in requests)
-    assert all(body["reasoning"] == {"effort": "low", "summary": "auto"} for body in requests)
+    assert all(body["model"] == model for body in requests)
+    expected_reasoning = {"effort": "low"}
+    if model == "gpt-6-astra":
+        expected_reasoning["summary"] = "auto"
+    assert all(body["reasoning"] == expected_reasoning for body in requests)
     authored_input = [
         (item["role"], [part["text"] for part in item["content"]])
         for item in requests[0]["input"]

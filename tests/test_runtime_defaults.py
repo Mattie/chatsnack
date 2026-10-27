@@ -100,7 +100,7 @@ def test_reasoning_known_model_warns_for_known_unsupported_effort():
         ("gpt-6-astra", "xhigh"),
         ("gpt-6-astra", "max"),
         *(("gpt-6.1-sol", effort) for effort in ("low", "medium", "high", "xhigh", "max")),
-        *((model, effort) for model in ("gpt-6-sol", "gpt-6-luna")
+        *((model, effort) for model in ("gpt-6-sol", "gpt-6-luna", "gpt-6.1-terra")
           for effort in ("none", "low", "medium", "high", "xhigh", "max")),
     ),
 )
@@ -176,6 +176,41 @@ def test_astra_unverified_efforts_warn_without_rewriting(effort):
     with pytest.warns(UserWarning, match="Unknown reasoning effort|known supported set"):
         options = params._get_responses_api_options()
     assert options["reasoning"] == {"effort": effort}
+
+
+@pytest.mark.parametrize("effort", ("minimal", "ultra"))
+def test_terra_unsupported_efforts_warn_without_rewriting(effort):
+    """Unsupported efforts remain provider-owned rather than being normalized."""
+    params = ChatParams(model="gpt-6.1-terra", responses={"reasoning": {"effort": effort}})
+    with pytest.warns(UserWarning, match="Unknown reasoning effort|known supported set"):
+        options = params._get_responses_api_options()
+    assert options["reasoning"] == {"effort": effort}
+
+
+@pytest.mark.parametrize("summary", ("auto", "concise", "detailed", "verbose"))
+def test_terra_unverified_summaries_remain_pass_through(summary):
+    """An effort-only profile must not claim model-specific summary support."""
+    params = ChatParams(model="gpt-6.1-terra", responses={"reasoning": {"summary": summary}})
+    assert "summary" not in params._get_reasoning_capabilities()
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        options = params._get_responses_api_options()
+    assert options["reasoning"] == {"summary": summary}
+    assert len(caught) == (1 if summary == "verbose" else 0)
+    if caught:
+        assert "Unknown reasoning summary" in str(caught[0].message)
+
+
+@pytest.mark.parametrize("model", (
+    "gpt-6.1-terra-2026-10-26", "gpt-6.1-terra-pro", "vendor/gpt-6.1-terra",
+))
+def test_unverified_terra_ids_remain_unknown(model):
+    """Snapshots and variants need verification before inheriting Terra's profile."""
+    params = ChatParams(model=model, responses={"reasoning": {"effort": "medium"}})
+    assert params._get_reasoning_capabilities() is None
+    with pytest.warns(UserWarning, match="may not support reasoning options"):
+        options = params._get_responses_api_options()
+    assert options["reasoning"] == {"effort": "medium"}
 
 
 @pytest.mark.parametrize("model", ("gpt-6-sol", "gpt-6-luna"))

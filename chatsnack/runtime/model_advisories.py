@@ -18,6 +18,14 @@ _MODEL_REQUEST_LIMITS = {
     # Verified 2026-09-09 for this exact model on the direct OpenAI endpoint.
     # https://developers.openai.com/api/docs/guides/latest-model#update-api-and-model-parameters
     "gpt-6-astra": _GPT6_REQUEST_LIMITS,
+    # Verified 2026-10-26; Terra defaults to medium reasoning. Sampling controls
+    # are allowed with effort="none"; tools always require Responses.
+    # https://developers.openai.com/api/docs/models/gpt-6.1-terra
+    # https://developers.openai.com/api/docs/guides/latest-model#update-api-and-model-parameters
+    "gpt-6.1-terra": {
+        **_GPT6_REQUEST_LIMITS,
+        "sampling_allowed_without_reasoning": True,
+    },
 }
 # Verified 2026-10-13 on the direct Meta endpoint, not on gateway aliases.
 # https://dev.meta.ai/docs/tool-calling
@@ -75,9 +83,19 @@ def warn_model_options(options, client, runtime_family):
         return
 
     runtime_limits = limits.get(runtime_family, {})
+    # Only an explicit none disables Terra's default reasoning. Inspect the
+    # provider's schema after extra_body precedence, without adding defaults.
+    reasoning = effective.get("reasoning")
+    if runtime_family == "responses":
+        effort = reasoning.get("effort") if isinstance(reasoning, dict) else None
+    else:
+        effort = effective.get("reasoning_effort")
+    sampling_restricted = not (
+        limits.get("sampling_allowed_without_reasoning") and effort == "none"
+    )
     unsupported = [key for key in (*limits.get("unsupported_options", ()),
                                    *runtime_limits.get("unsupported_options", ()))
-                   if effective.get(key) is not None]
+                   if sampling_restricted and effective.get(key) is not None]
     if limits.get("tool_choice_auto_only") and effective.get("tool_choice") not in (None, "auto"):
         warnings.warn(
             f"Model '{model}' on Meta supports only tool_choice='auto'. "
@@ -92,7 +110,7 @@ def warn_model_options(options, client, runtime_family):
             stacklevel=3,
         )
     include = effective.get("include")
-    if isinstance(include, (list, tuple)):
+    if sampling_restricted and isinstance(include, (list, tuple)):
         unsupported.extend(
             f"include: {item}" for item in runtime_limits.get("unsupported_include", ())
             if item in include

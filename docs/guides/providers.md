@@ -165,8 +165,8 @@ Provider requirements verified October 13, 2026 against Meta's
 
 ## GPT-6
 
-Set `model` to `gpt-6-astra`, `gpt-6.1-sol`, `gpt-6-sol`, or `gpt-6-luna`. Here's a small
-request using Responses:
+Set `model` to `gpt-6-astra`, `gpt-6.1-sol`, `gpt-6-sol`, `gpt-6-luna`, or `gpt-6.1-terra`.
+Here's a small request using Responses:
 
 ```python
 chat = Chat("Respond tersely.", model="gpt-6-astra", runtime="responses")
@@ -193,8 +193,18 @@ reasoning summary, use `chat.reasoning.summary = "auto"`. GPT-6 Sol, Luna,
 and GPT-6.1 Sol also accept `concise` and `detailed`; chatsnack has verified
 only `auto` for Astra. A completed GPT-6.1 Sol response may omit summary text
 even when the summary setting is accepted. Chatsnack's GPT-6 checks recognize
-these four exact model IDs.
+these exact model IDs.
 Other variants and dated snapshots still need verification.
+
+GPT-6.1 Terra accepts `none`, `low`, `medium` (default), `high`, `xhigh`, and
+`max`. Use `chat.reasoning.effort = "medium"` to choose explicitly. Terra's
+reasoning-summary settings are not yet verified; authored summary options pass
+through. Use Responses for Terra utensils, including with effort `none`.
+With reasoning enabled, Terra's sampling and log-probability options receive
+the same advisory warnings listed below for Astra; effort `none` allows those
+options. These checks preserve the authored request. Verified October 26, 2026
+against the official [Terra model page](https://developers.openai.com/api/docs/models/gpt-6.1-terra)
+and [parameter migration guidance](https://developers.openai.com/api/docs/guides/latest-model#update-api-and-model-parameters).
 
 Use Responses for tool calls with reasoning. Pass your Python functions in
 `utensils=[...]`.
@@ -212,8 +222,8 @@ When sending `gpt-6-astra` directly to OpenAI, remove these unsupported options:
 
 For `gpt-6-astra`, chatsnack warns about these options and sends the request as
 you wrote it. The checks use the sending SDK client's URL and apply only to
-`https://api.openai.com/v1`. Custom or unidentified endpoints and other model
-names won't receive these request warnings. You'll also get a warning for
+`https://api.openai.com/v1`. Custom or unidentified endpoints and model names
+outside the registered table won't receive these request warnings. You'll also get a warning for
 reasoning values outside the verified table, and those values still pass through.
 See OpenAI's [migration guidance](https://developers.openai.com/api/docs/guides/latest-model#update-api-and-model-parameters)
 for the provider's requirements.
